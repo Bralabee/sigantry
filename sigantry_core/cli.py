@@ -55,6 +55,7 @@ from sigantry_core.governance.cli import (
     tenant_settings_app,
 )
 from sigantry_core.pr_bot.cli import pr_bot_app
+from sigantry_core.preflight.cli import preflight_app
 from sigantry_core.release.cli import release_app
 from sigantry_core.sync.cli import sync_app
 from sigantry_core.workspace.cli import workspace_app
@@ -80,6 +81,7 @@ app.add_typer(sync_app, name="sync")
 app.add_typer(diff_app, name="diff")
 app.add_typer(config_app, name="config")
 app.add_typer(pr_bot_app, name="pr-bot")
+app.add_typer(preflight_app, name="preflight")
 
 
 if __name__ == "__main__":
