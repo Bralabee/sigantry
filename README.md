@@ -40,6 +40,13 @@ sigantry --help
 sigantry doctor
 ```
 
+> [!TIP]
+> **Troubleshooting: `sigantry: command not found`**
+> If your terminal reports `sigantry: command not found` immediately after installation:
+> - **Refresh Shell Hash Table:** In an active bash/zsh session, run `hash -r` (or `rehash` in zsh) to update executable lookup.
+> - **Check Environment PATH:** Ensure your virtualenv/conda environment is active (`conda activate <env-name>` or `source .venv/bin/activate`), and that your Python `bin/` directory is in `$PATH`.
+> - **Direct Execution:** You can always invoke the CLI directly via Python: `python -m sigantry_core.cli --help`.
+
 ### 2. Adopt an Existing Workspace (Brownfield)
 
 Bring an existing, hand-built Fabric workspace under version-controlled manifest management:

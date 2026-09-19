@@ -1,6 +1,6 @@
 # Install
 
-Install `sigantry-core` (base) plus any plugin packages your
+Install `sigantry` (base) plus any plugin packages your
 environment needs. The base ships no concrete `DeployProfile`,
 `DataQualityGate`, `TelemetrySink`, `AuthProvider`, `RunbookRegistry`, or
 `CapacityPolicy`; plugins register concrete implementations under the 11
@@ -8,17 +8,56 @@ environment needs. The base ships no concrete `DeployProfile`,
 
 ## Base install
 
-Once `sigantry-core` is published to PyPI (currently held pending operator
-UAT closure):
+Install `sigantry` directly from PyPI:
 
 ```bash
-pip install sigantry-core
+pip install sigantry
 ```
 
-Until then, install from a distributed wheel — `pip install
-sigantry_core-<version>-py3-none-any.whl`, with integrity verification per
-the [User guide](../USER-GUIDE.md) section 5.2 — or use the editable
-install under "Local development" below.
+Verify your installation:
+
+```bash
+sigantry --help
+sigantry doctor
+```
+
+## Troubleshooting: `sigantry: command not found`
+
+If you receive `sigantry: command not found` (or `'sigantry' is not recognized as an internal or external command` on Windows) immediately after running `pip install`:
+
+1. **Clear Shell Hashing Cache (Bash/Zsh):**
+   If you already had a terminal open when installing, your shell may have cached the list of available commands.
+   ```bash
+   # In Bash:
+   hash -r
+
+   # In Zsh:
+   rehash
+   ```
+
+2. **Activate your Virtual Environment / Conda:**
+   Verify that your virtual environment or Conda environment is active:
+   ```bash
+   # Conda
+   conda activate <your-env-name>
+
+   # Python venv (Linux/macOS)
+   source .venv/bin/activate
+
+   # Python venv (Windows PowerShell)
+   .venv\Scripts\Activate.ps1
+   ```
+
+3. **Check your PATH:**
+   If installing with `--user` outside a virtual environment, ensure your user Python scripts directory is on your system's `PATH`:
+   - **Linux / macOS**: Typically `~/.local/bin`
+   - **Windows**: Typically `%APPDATA%\Python\Python311\Scripts`
+
+4. **Direct Python Module Invocation:**
+   If the console script is still not resolving on your PATH, you can always invoke the CLI directly via Python:
+   ```bash
+   python -m sigantry_core.cli --help
+   ```
 
 ## Add a plugin
 

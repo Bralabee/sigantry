@@ -68,9 +68,15 @@ pip install -e ".[dev,test]"
 ### Sanity check
 
 ```bash
-sigantry --version
+sigantry --help
 sigantry doctor
 ```
+
+> [!TIP]
+> If your terminal displays `sigantry: command not found` after installing via `pip`:
+> - Run `hash -r` in Bash (or `rehash` in Zsh) to refresh the shell command table.
+> - Ensure the virtualenv/conda bin folder is in your `$PATH`.
+> - Alternatively, run `python -m sigantry_core.cli <command>`.
 
 ---
 
