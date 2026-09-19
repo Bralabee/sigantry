@@ -1,0 +1,16 @@
+{
+  "roles": [
+    {
+      "name": "Reader",
+      "members": [
+        {"role": "Reader", "scope": "dbo"}
+      ]
+    },
+    {
+      "name": "Analyst",
+      "members": [
+        {"role": "Reader", "scope": "analytics"}
+      ]
+    }
+  ]
+}

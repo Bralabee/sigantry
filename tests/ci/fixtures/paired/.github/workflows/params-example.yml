@@ -1,0 +1,23 @@
+# Fixture: paired GHA workflow with TWO inputs (string + boolean) for the
+# dual-ci-parity lint tests (BRIEF-06 / Phase 10 Plan 06). Counterpart:
+# tests/ci/fixtures/paired/templates/stages/params-example.yml.
+name: params-example
+
+on:
+  workflow_call:
+    inputs:
+      env_name:
+        type: string
+        default: dev
+        required: false
+      dry_run:
+        type: boolean
+        default: false
+        required: false
+
+jobs:
+  smoke:
+    name: Smoke
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "smoke env=${{ inputs.env_name }} dry_run=${{ inputs.dry_run }}"

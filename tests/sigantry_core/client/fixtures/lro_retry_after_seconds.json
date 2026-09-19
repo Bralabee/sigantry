@@ -1,0 +1,19 @@
+{
+  "initial_headers": {
+    "x-ms-operation-id": "op-ra-s",
+    "Location": "https://api.fabric.microsoft.com/v1/operations/op-ra-s",
+    "Retry-After": "2"
+  },
+  "poll_responses": [
+    {
+      "body": {"status": "Running"},
+      "headers": {"Retry-After": "2"},
+      "status_code": 200
+    },
+    {
+      "body": {"status": "Succeeded"},
+      "headers": {},
+      "status_code": 200
+    }
+  ]
+}

@@ -1,0 +1,79 @@
+# templates/steps/fabric-validate.yml
+# ------------------------------------------------------------------
+# Step template: invoke `sigantry deploy validate` to assert
+# parameters.yml + Fabric item-tree integrity before any deploy run.
+#
+# NOTE: Requires `sigantry deploy validate` (lands in Plan 05-02).
+# Do NOT wire this step into a consumer pipeline until Plan 05-02 ships
+# the subcommand on the Python side.
+#
+# Sources (Pitfall 14 / Phase 5 Success Criterion 1):
+#   Microsoft Learn - script keyword
+#     https://learn.microsoft.com/azure/devops/pipelines/yaml-schema/steps-script
+#     ms.date: 2026-04-20
+# ------------------------------------------------------------------
+
+parameters:
+  - name: sourceDir
+    type: string
+    default: 'fabric_items/'
+  - name: parametersPath
+    type: string
+    default: 'parameters.yml'
+  - name: itemTypes
+    type: string
+    default: 'Lakehouse,Environment,Notebook,DataPipeline'
+  - name: junitXml
+    type: string
+    default: ''
+  - name: dotOutput
+    type: string
+    default: ''
+  - name: artifactsFeed
+    type: string
+    default: 'fabric-dataops-toolkits'
+  - name: pythonVersion
+    type: string
+    default: '3.11'
+  - name: fabricDataopsVersion
+    type: string
+    default: ''
+
+steps:
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: ${{ parameters.pythonVersion }}
+      addToPath: true
+
+  - task: PipAuthenticate@1
+    displayName: 'Authenticate pip to ADO Artifacts (${{ parameters.artifactsFeed }})'
+    inputs:
+      artifactFeeds: ${{ parameters.artifactsFeed }}
+      onlyAddExtraIndex: true
+
+  - script: |
+      set -e
+      python -m pip install --upgrade pip
+      if [ -n '${{ parameters.fabricDataopsVersion }}' ]; then
+        python -m pip install 'sigantry-core==${{ parameters.fabricDataopsVersion }}'
+      else
+        python -m pip install sigantry-core
+      fi
+    displayName: 'pip install sigantry-core'
+
+  - script: |
+      set -e
+      EXTRA=''
+      if [ -n '${{ parameters.junitXml }}' ]; then
+        EXTRA="$EXTRA --junit-xml '${{ parameters.junitXml }}'"
+      fi
+      if [ -n '${{ parameters.dotOutput }}' ]; then
+        EXTRA="$EXTRA --dot-output '${{ parameters.dotOutput }}'"
+      fi
+      # shellcheck disable=SC2086
+      eval sigantry deploy validate \
+        --source "'${{ parameters.sourceDir }}'" \
+        --params "'${{ parameters.parametersPath }}'" \
+        --item-types "'${{ parameters.itemTypes }}'" \
+        $EXTRA
+    displayName: 'sigantry deploy validate'

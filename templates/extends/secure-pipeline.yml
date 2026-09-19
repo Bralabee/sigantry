@@ -1,0 +1,193 @@
+# templates/extends/secure-pipeline.yml
+# ------------------------------------------------------------------
+# DataOps + Fabric - secure extends template (Phase 5 Plan 05-01).
+# Consumer pipelines `extends:` this file and pass their stages via the
+# `stages` stageList parameter. The template wraps consumer stages with a
+# pre `security_scan` stage and a post `post_audit` stage so every
+# consumer inherits the same security envelope.
+#
+# Plan 08-03 (v2.0) productised this template: tenant-specific self-hosted pool
+# names are supplied by the consumer via the `agentPool` parameter; nothing in
+# this file hardcodes a tenant identifier. See docs/migration/ (Plan 08-06) for
+# the filename rename history.
+#
+# Sources (cited per Pitfall 14 / Phase 5 Success Criterion 1):
+#   Microsoft Learn - Extend from a template
+#     https://learn.microsoft.com/azure/devops/pipelines/process/template-expressions
+#     ms.date: 2026-04-20
+#   Microsoft Learn - Use templates to enforce pipeline restrictions
+#     https://learn.microsoft.com/azure/devops/pipelines/security/templates
+#     ms.date: 2026-04-20
+#   Microsoft Learn - Repository resources (ref semantics)
+#     https://learn.microsoft.com/azure/devops/pipelines/process/resources
+#     ms.date: 2026-04-20
+#
+# Threat mitigations:
+#   T-5-01 - template_refs job runs scripts/ci/check-template-refs.py
+#   T-5-02 - no CmdLine@2 in shipped stages/jobs/steps
+#   T-5-04 - agentPool parameter default 'Azure Pipelines'; self-hosted pool
+#            override is supplied by the consumer (e.g. via pipeline variable)
+#   T-5-14 - top-of-file Microsoft Learn source citation
+# ------------------------------------------------------------------
+
+parameters:
+  - name: stages
+    type: stageList
+    default: []
+  - name: agentPool
+    type: string
+    default: 'Azure Pipelines'
+  - name: pythonVersion
+    type: string
+    default: '3.11'
+  - name: artifactsFeed
+    type: string
+    default: 'fabric-dataops-toolkits'
+  - name: pesterVersion
+    type: string
+    default: '5.7.1'
+  - name: psscriptanalyzerVersion
+    type: string
+    default: '1.25.0'
+
+# Pool selector (Pitfall 5 / agent-pool single knob):
+#   agentPool == 'Azure Pipelines' -> Microsoft-hosted ubuntu-latest.
+#   otherwise                      -> named self-hosted pool supplied by consumer.
+${{ if eq(parameters.agentPool, 'Azure Pipelines') }}:
+  pool:
+    vmImage: 'ubuntu-latest'
+${{ if ne(parameters.agentPool, 'Azure Pipelines') }}:
+  pool:
+    name: ${{ parameters.agentPool }}
+
+stages:
+  # ------------------------------------------------------------------
+  # Pre-envelope: security_scan - runs before any consumer stage.
+  # ------------------------------------------------------------------
+  - stage: security_scan
+    displayName: 'Security scan (pre)'
+    jobs:
+      - job: secret_scan
+        displayName: 'Credential scan + banned-api (httpx) grep'
+        steps:
+          - checkout: self
+          - task: CredScan@3
+            continueOnError: true
+            displayName: 'CredScan@3 (continueOnError)'
+            inputs:
+              toolMajorVersion: 'V2'
+          - script: |
+              set -e
+              # T-4-10 carry-forward: sigantry_core modules MUST NOT import
+              # httpx directly; all HTTP goes through sigantry_core.client.
+              violations=$(grep -RIn --include='*.py' -E '^\s*import\s+httpx|^\s*from\s+httpx\s+import' \
+                  sigantry_core/ 2>/dev/null \
+                  | grep -v 'sigantry_core/client' || true)
+              if [ -n "$violations" ]; then
+                echo "##[error] Banned-api: direct httpx imports outside sigantry_core.client"
+                echo "$violations"
+                exit 1
+              fi
+              echo 'ok: no banned-api httpx imports found'
+            displayName: 'Banned-api grep (httpx)'
+
+      - job: template_refs
+        displayName: 'Tag-pin lint (scripts/ci/check-template-refs.py)'
+        steps:
+          - checkout: self
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: ${{ parameters.pythonVersion }}
+              addToPath: true
+          - script: |
+              set -e
+              python -m pip install --upgrade pip
+              python -m pip install 'pyyaml>=6,<7'
+              python scripts/ci/check-template-refs.py
+            displayName: 'python scripts/ci/check-template-refs.py'
+
+      - job: pre_commit_backstop
+        displayName: 'pre-commit run --all-files (backstop)'
+        steps:
+          - checkout: self
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: ${{ parameters.pythonVersion }}
+              addToPath: true
+          - script: |
+              set -e
+              python -m pip install --upgrade pip
+              python -m pip install pre-commit
+              if [ -f .pre-commit-config.yaml ]; then
+                pre-commit run --all-files
+              else
+                echo 'ok: no .pre-commit-config.yaml - skipping backstop'
+              fi
+            displayName: 'pre-commit backstop'
+
+      - job: banned_api_fabric_cicd
+        displayName: 'Banned-api grep (fabric_cicd outside deploy/)'
+        steps:
+          - checkout: self
+          - script: |
+              set -e
+              # fabric_cicd may only be imported from sigantry_core/deploy/.
+              violations=$(grep -RIn --include='*.py' -E '^\s*import\s+fabric_cicd|^\s*from\s+fabric_cicd\s+import' \
+                  sigantry_core/ 2>/dev/null \
+                  | grep -v 'sigantry_core/deploy' || true)
+              if [ -n "$violations" ]; then
+                echo "##[error] Banned-api: fabric_cicd import outside sigantry_core/deploy/"
+                echo "$violations"
+                exit 1
+              fi
+              echo 'ok: no out-of-scope fabric_cicd imports'
+            displayName: 'fabric_cicd import-scope grep'
+
+      - job: pitfall_6_guard
+        displayName: 'Pitfall 6 guard (no sys.path.append in .py or .ipynb)'
+        steps:
+          - checkout: self
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: ${{ parameters.pythonVersion }}
+              addToPath: true
+          - script: |
+              set -e
+              # T-7-08 mitigation: reject sys.path.append / sys.path.insert in
+              # all .py and .ipynb files. Consumer repos inherit this check by
+              # extending this secure-pipeline template. See Plan 07-01.
+              python scripts/ci/check-no-sys-path.py .
+            displayName: 'python scripts/ci/check-no-sys-path.py .'
+
+  # ------------------------------------------------------------------
+  # Consumer stages - injected verbatim via stageList iteration.
+  # ------------------------------------------------------------------
+  - ${{ each stage in parameters.stages }}:
+      - ${{ stage }}
+
+  # ------------------------------------------------------------------
+  # Post-envelope: post_audit - always runs, publishes deploy artefacts.
+  # ------------------------------------------------------------------
+  - stage: post_audit
+    displayName: 'Post-deploy audit'
+    dependsOn: []
+    condition: always()
+    jobs:
+      - job: publish_audit
+        displayName: 'Publish deploy-artefacts/'
+        steps:
+          - checkout: none
+          - script: |
+              set -e
+              mkdir -p deploy-artefacts
+              if [ -z "$(ls -A deploy-artefacts 2>/dev/null)" ]; then
+                # Ensure PublishPipelineArtifact@1 never fails on empty path.
+                echo 'Placeholder: deploy-artefacts/ was empty at post-audit time.' \
+                  > deploy-artefacts/post-audit-placeholder.txt
+              fi
+            displayName: 'Ensure deploy-artefacts/ has at least one file'
+          - task: PublishPipelineArtifact@1
+            displayName: 'Publish deploy-artefacts/'
+            inputs:
+              targetPath: 'deploy-artefacts'
+              artifact: 'deploy-artefacts'

@@ -1,0 +1,109 @@
+# templates/schedules/drift-check.yml
+# ------------------------------------------------------------------
+# Sigantry scheduled drift-check template (DRIFT-03).
+# Daily cron -> sigantry diff --output json --fail-on-drift -> notification sink
+#
+# Paired with .github/workflows/drift-check.yml.
+# Parity enforced by scripts/ci/check-dual-ci-parity.py (Plan 10-06).
+# Second non-exception pair under the dual-CI parity lint
+# (first was Phase 12 PIPELINE-01/02).
+#
+# Documented divergences from the GHA half (must appear BYTE-IDENTICALLY
+# in the GHA workflow header so check-dual-ci-parity.py:_read_header_lines
+# sees them as `shared_ignores`):
+# sigantry-dual-ci-ignore: gha-uses-oidc-not-service-connection
+# sigantry-dual-ci-ignore: ado-gh-env-naming
+#
+# Sources (Plan 13-06 / DRIFT-03):
+#   Microsoft Learn -- Scheduled triggers
+#     https://learn.microsoft.com/azure/devops/pipelines/process/scheduled-triggers
+#   Microsoft Learn -- YAML schedules
+#     https://learn.microsoft.com/azure/devops/pipelines/yaml-schema/schedules-cron
+# ------------------------------------------------------------------
+
+parameters:
+  - name: workspaceId
+    type: string
+  - name: environment
+    type: string
+    default: 'prod'
+  - name: manifestPath
+    type: string
+    default: 'sync.yml'
+  - name: serviceConnection
+    type: string
+  - name: notificationSink
+    type: string
+    default: 'teams'
+  - name: cron
+    type: string
+    default: '0 6 * * *'
+
+schedules:
+  - cron: ${{ parameters.cron }}
+    displayName: 'Daily drift check'
+    branches:
+      include: [main]
+    always: true
+
+stages:
+  - stage: drift_check
+    displayName: 'Drift check'
+    dependsOn: []
+    jobs:
+      - job: drift_check
+        displayName: 'sigantry diff'
+        steps:
+          - task: AzureCLI@2
+            displayName: 'sigantry diff (json + fail-on-drift)'
+            # WR-05 / Pitfall 8 inheritance (D-28): operator inputs are
+            # passed via the ``env:`` block (which ADO escapes correctly)
+            # rather than template-time interpolated into a bash
+            # single-quoted string. Avoids command-injection on
+            # apostrophes in operator-typed values (e.g. environment
+            # labels with quotes).
+            env:
+              SIGANTRY_DRIFT_WORKSPACE_ID: ${{ parameters.workspaceId }}
+              SIGANTRY_DRIFT_MANIFEST_PATH: ${{ parameters.manifestPath }}
+              SIGANTRY_DRIFT_ENVIRONMENT: ${{ parameters.environment }}
+            inputs:
+              azureSubscription: ${{ parameters.serviceConnection }}
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -e
+                sigantry diff \
+                  --environment "$SIGANTRY_DRIFT_ENVIRONMENT" \
+                  --workspace-id "$SIGANTRY_DRIFT_WORKSPACE_ID" \
+                  --manifest "$SIGANTRY_DRIFT_MANIFEST_PATH" \
+                  --output json \
+                  --fail-on-drift > drift.json
+          - publish: drift.json
+            artifact: drift_json
+            condition: always()
+
+  - stage: notify
+    displayName: 'Notify on drift'
+    dependsOn: [drift_check]
+    condition: failed()
+    jobs:
+      - job: notify
+        displayName: 'Post drift summary to notification sink'
+        steps:
+          - download: current
+            artifact: drift_json
+          - script: |
+              set -e
+              python -m sigantry_core.sync._notify_main \
+                --drift-json "$(Pipeline.Workspace)/drift_json/drift.json" \
+                --workspace-id "$SIGANTRY_DRIFT_WORKSPACE_ID"
+            displayName: 'Run notification dispatcher'
+            # WR-05 / D-28: notification-sink config flows via ``env:``
+            # block. ``SIGANTRY_NOTIFICATION_SINK`` selects the sink kind
+            # (teams / slack / email); the per-impl webhook URLs / SMTP
+            # creds come from the operator's CI secrets store and MUST
+            # be wired here as additional env entries when configuring
+            # the schedule (e.g. SIGANTRY_TEAMS_WEBHOOK -> $(teamsWebhook)).
+            env:
+              SIGANTRY_NOTIFICATION_SINK: ${{ parameters.notificationSink }}
+              SIGANTRY_DRIFT_WORKSPACE_ID: ${{ parameters.workspaceId }}

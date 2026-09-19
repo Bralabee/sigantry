@@ -1,0 +1,19 @@
+# Fixture: minimal paired ADO stage template for the dual-ci-parity lint
+# tests (BRIEF-06 / Phase 10 Plan 06). Counterpart:
+# tests/ci/fixtures/paired/.github/workflows/example-stage.yml.
+#
+# This file MUST stay byte-for-byte aligned with its GHA counterpart so the
+# lint's stage-graph + parameter-parity checks pass.
+parameters:
+  - name: env_name
+    type: string
+    default: dev
+
+stages:
+  - stage: deploy
+    displayName: Deploy
+    dependsOn: []
+    jobs:
+      - job: run_deploy
+        steps:
+          - script: echo "deploying to ${{ parameters.env_name }}"

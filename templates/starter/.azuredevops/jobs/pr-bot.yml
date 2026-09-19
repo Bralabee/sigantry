@@ -1,0 +1,66 @@
+# templates/starter/.azuredevops/jobs/pr-bot.yml
+# ------------------------------------------------------------------
+# Sigantry starter PR-review bot job template (STARTER-07 / Plan 14-06).
+# Adopters reference this file from their azure-pipelines.yml -- it is
+# a JOB TEMPLATE, not a pipeline-trigger template. The adopter wires
+# the pipeline-level PR trigger in their azure-pipelines.yml; this
+# file declares the job that runs the bot.
+#
+# Paired with templates/starter/.github/workflows/pr-bot.yml; parity
+# enforced by tests/ci/test_starter_dual_ci.py.
+#
+# Triggers (mirrors D-19 + the GHA half; ADO PR trigger config lives
+# in the adopter's azure-pipelines.yml -- the patterns below document
+# what the adopter SHOULD include in their pipeline-level pr.paths
+# block):
+#   pr.paths.include:
+#     - "**/*.tmdl"
+#     - "**/*.Lakehouse/**"
+#     - "**/.platform"
+#
+# Sources (verified):
+#   Microsoft Learn -- Azure Pipelines predefined variables
+#     https://learn.microsoft.com/azure/devops/pipelines/build/variables
+#   Microsoft Learn -- Pull request triggers
+#     https://learn.microsoft.com/azure/devops/pipelines/build/triggers
+# ------------------------------------------------------------------
+
+parameters:
+  - name: pythonVersion
+    type: string
+    default: '3.11'
+
+jobs:
+  - job: pr_bot
+    displayName: 'sigantry pr-bot run'
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+      - checkout: self
+        fetchDepth: 0
+        displayName: 'Checkout self (head ref)'
+      - script: |
+          set -euo pipefail
+          mkdir -p base-tree head-tree
+          # Stage HEAD into head-tree (current checkout already has it).
+          git --git-dir=.git --work-tree=head-tree checkout -- .
+          # Fetch + stage BASE ref into base-tree.
+          git fetch origin "$(System.PullRequest.TargetBranch)" --depth 1
+          git --git-dir=.git --work-tree=base-tree checkout FETCH_HEAD -- . || true
+        displayName: 'Stage base + head trees'
+      - task: UsePythonVersion@0
+        inputs:
+          versionSpec: ${{ parameters.pythonVersion }}
+        displayName: 'Set up Python'
+      - script: pip install sigantry-core
+        displayName: 'Install sigantry-core'
+      - script: |
+          sigantry pr-bot run \
+            --provider auto \
+            --pr-id "$(System.PullRequest.PullRequestId)" \
+            --token "$SYSTEM_ACCESSTOKEN" \
+            --base-dir base-tree \
+            --head-dir head-tree
+        env:
+          SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+        displayName: 'Run sigantry pr-bot'

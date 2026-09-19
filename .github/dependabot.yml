@@ -1,0 +1,104 @@
+# Dependabot configuration -- Audit-2026-05-07 W3.2.
+#
+# Companion to the SHA-pinning of every ``uses:`` reference across
+# ``.github/workflows/*.yml``. Without this config a SHA-pinned
+# workflow becomes a frozen-in-time security risk -- pinned references
+# are stable but they DO drift behind upstream patches (CVE fixes,
+# bug fixes). Dependabot bumps them weekly with a grouped PR per
+# ecosystem and rewrites the version comment alongside the SHA.
+#
+# The PR cadence is intentionally weekly (not daily) so the operator
+# review queue stays small. Group-by-ecosystem keeps related action
+# bumps in a single PR (``actions/*`` move together) instead of one
+# PR per action.
+#
+# Pre-commit hook bumps go through a separate ecosystem entry so
+# they do not collide with the GitHub Actions cadence.
+#
+# References:
+#   - SHA-pin format the workflows expect:
+#     ``actions/X@<40-char SHA>  # v<N>``
+#     (Dependabot rewrites both the SHA and the trailing comment).
+#   - https://docs.github.com/en/code-security/dependabot/working-with-dependabot/keeping-your-actions-up-to-date-with-dependabot
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: Etc/UTC
+    groups:
+      actions:
+        applies-to: version-updates
+        patterns:
+          - "actions/*"
+      third-party-actions:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "actions/*"
+    commit-message:
+      prefix: "chore(actions)"
+      include: scope
+    labels:
+      - dependencies
+      - github-actions
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: Etc/UTC
+    # Wave 3 re-audit FU-2: 93 packages in requirements-lock.txt
+    # would fan out into dozens of weekly PRs without grouping.
+    # Group all pip bumps into a single PR per week so the operator
+    # review queue stays one-line-per-week per ecosystem.
+    groups:
+      all-pip:
+        applies-to: version-updates
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "chore(pip)"
+      include: scope
+    labels:
+      - dependencies
+      - python
+    open-pull-requests-limit: 5
+    # mypy 2.x bumps pull the unpinned ``ast-serialize`` transitive,
+    # which breaks the ``Verify requirements-lock.txt resolves``
+    # ``--require-hashes`` gate. Tripped three times (PRs #87, #97,
+    # #113 -- closed each time). Per the documented decision
+    # (CLAUDE.md "Branch state", 2026-05-08), ignore mypy major 2.x
+    # until the transitive is hash-pinnable; revisit when mypy
+    # declares a bounded ast-serialize dependency.
+    ignore:
+      - dependency-name: mypy
+        versions: [">=2.0.0"]
+      # pydantic + pydantic-core form an exact-pinned pair (pydantic X
+      # requires pydantic-core==Y precisely). Dependabot regenerates lock
+      # pins per-package without re-resolving the pair, so ANY single-sided
+      # bump breaks the ``Verify requirements-lock.txt resolves`` gate:
+      #   - PR #117 (2026-06-12): bumped core to 2.47.0 against pydantic
+      #     2.13.4 (requires ==2.46.4); ``@dependabot recreate`` reproduced
+      #     it deterministically.
+      #   - PR #139 (2026-06-12, after ignoring core only): bumped pydantic
+      #     to 2.13.4 while the lock's existing core stayed 2.46.3 -- same
+      #     gate failure from the other side.
+      # Verdict: freeze the pair for dependabot entirely. Bump it manually
+      # when wanted via a real resolver (W3.3 procedure:
+      # ``pip-compile --generate-hashes`` under Python 3.11), which picks a
+      # consistent pydantic/pydantic-core combination in one shot.
+      - dependency-name: pydantic
+      - dependency-name: pydantic-core
+    # Audit-2026-05-07 W3.3 hook point: ``requirements-lock.txt`` is
+    # currently 13 days stale + Python-3.12-generated. When W3.3
+    # regenerates the lockfile under Python 3.11 with
+    # ``pip-compile --generate-hashes``, Dependabot will keep it
+    # current here.

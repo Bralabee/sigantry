@@ -1,0 +1,69 @@
+# templates/steps/post-pr-comment.yml
+# ------------------------------------------------------------------
+# Phase 5 Plan 05-02 - PR annotation via ADO git/threads REST.
+#
+# `az repos pr comment add` does not exist (Azure/azure-devops-cli-extension
+# issue #1074 OPEN as of 2026-04), so REST + $(System.AccessToken) is the
+# supported path.
+#
+# Pitfall C mitigation: the token is passed via the step-scoped env var
+# SYSTEM_ACCESSTOKEN - it is NEVER interpolated directly into the shell
+# command line where it would appear in /proc/<pid>/cmdline or `ps aux`.
+# Regression guard: tests/templates/test_yaml_structure_plan02.py::
+# test_post_pr_comment_passes_token_via_env asserts the Bearer-bearing
+# curl line does not contain $(System.AccessToken).
+#
+# Prerequisite: Build Service account needs "Contribute to pull requests:
+# Allow" on the target repo (Project Settings -> Repositories -> <repo>
+# -> Security -> Build Service). Documented in
+# docs/runbooks/service-connection-bootstrap.md under Pitfall E.
+#
+# Sources (Pitfall 14):
+#   Microsoft Learn - PR thread REST (git/pullRequests/{id}/threads)
+#     https://learn.microsoft.com/rest/api/azure/devops/git/pull-request-threads
+#     ms.date: 2026-04-20
+#   Microsoft Learn - System.AccessToken predefined variable
+#     https://learn.microsoft.com/azure/devops/pipelines/build/variables
+#     ms.date: 2026-04-20
+#   azure-devops-cli-extension issue #1074
+#     https://github.com/Azure/azure-devops-cli-extension/issues/1074
+# ------------------------------------------------------------------
+
+parameters:
+  - name: commentBody
+    type: string
+
+steps:
+  - script: |
+      set -euo pipefail
+      if [ -z "${SYSTEM_PULLREQUEST_PULLREQUESTID:-}" ]; then
+        echo "Not a PR build (SYSTEM_PULLREQUEST_PULLREQUESTID unset); skipping PR comment."
+        exit 0
+      fi
+      if [ -z "${SYSTEM_ACCESSTOKEN:-}" ]; then
+        echo "##[warning] SYSTEM_ACCESSTOKEN not set - granting 'Contribute to pull requests' may be missing."
+        exit 0
+      fi
+
+      # Compose the REST URI. BUILD_REPOSITORY_ID + SYSTEM_COLLECTIONURI +
+      # SYSTEM_TEAMPROJECT come from ADO predefined variables.
+      URI="${SYSTEM_COLLECTIONURI%/}/${SYSTEM_TEAMPROJECT}/_apis/git/repositories/${BUILD_REPOSITORY_ID}/pullRequests/${SYSTEM_PULLREQUEST_PULLREQUESTID}/threads?api-version=7.1"
+
+      # Build the JSON body with jq so we don't hand-roll escaping. status=1
+      # = Active thread (visible in the PR conversation tab).
+      PAYLOAD=$(jq -nc --arg body "${COMMENT_BODY}" \
+        '{comments: [{parentCommentId: 0, content: $body, commentType: 1}], status: 1}')
+
+      # Token comes from the env (SYSTEM_ACCESSTOKEN) - NEVER from a shell
+      # arg, so it does not appear in /proc/<pid>/cmdline. Pitfall C.
+      curl -sfX POST "${URI}" \
+        -H "Authorization: Bearer ${SYSTEM_ACCESSTOKEN}" \
+        -H 'Content-Type: application/json' \
+        -d "${PAYLOAD}" \
+        -o /dev/null \
+        -w 'PR comment POST status: %{http_code}\n'
+    displayName: 'Post validate result to PR thread'
+    condition: always()
+    env:
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+      COMMENT_BODY: ${{ parameters.commentBody }}

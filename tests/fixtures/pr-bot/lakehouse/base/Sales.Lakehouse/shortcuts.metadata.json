@@ -1,0 +1,14 @@
+{
+  "shortcuts": [
+    {
+      "name": "raw_orders",
+      "path": "Tables/raw_orders",
+      "target": {
+        "type": "OneLake",
+        "workspaceId": "$ENV:SIGANTRY_FABRIC_WORKSPACE_RAW",
+        "itemId": "$items.Lakehouse.Raw.$id",
+        "path": "Tables/orders"
+      }
+    }
+  ]
+}

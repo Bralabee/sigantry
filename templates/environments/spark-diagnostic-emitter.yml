@@ -1,0 +1,41 @@
+# DataOps Fabric Toolkit - Spark Diagnostic Emitter (Fabric Environment YAML)
+# Source: learn.microsoft.com/en-us/fabric/data-engineering/data-collector-api-to-log-ingestion-api
+# ms.date 2026-04-20
+# Pitfall P6-2: type MUST be `AzureLogIngestion`. The retired legacy type
+# (Log Analytics direct) silently drops events - regression guard in
+# tests/templates/environments/test_spark_emitter_config.py enforces.
+# Uploaded to Fabric portal -> Workspace -> Environment -> Spark settings -> Properties tab.
+#
+# Plan 08-03 (v2.0) productised this template. Stream names
+# (`Custom-<StreamPrefix>...`) and the destination alias (`<dest>`) are
+# placeholders - the operator replaces them per-environment before uploading
+# to Fabric. A tenant-branded plugin can ship an overlay in its plugin
+# package (Plan 08-05) that supplies the concrete values. See
+# docs/migration/ (Plan 08-06) for the filename rename history.
+#
+# Placeholders in <ANGLE_BRACKETS> are replaced per-environment by the operator.
+# The clientId/secret come from the Key Vault variable group (Plan 05-02 SC bootstrap).
+# The logDcr/eventDcr/metricDcr/metaDcr values are the ARM resource IDs of
+# dcr-<resourcePrefix>-spark-{env} - NOTE this differs from the Python emitter
+# which uses the immutable GUID. Spark's Microsoft-managed ingestor expects the ARM ID.
+# <DEST_ALIAS> must match the destination key used below (default: fabricDest).
+
+spark.synapse.diagnostic.emitters: fabricDest
+spark.synapse.diagnostic.emitter.fabricDest.type: AzureLogIngestion
+spark.synapse.diagnostic.emitter.fabricDest.categories: DriverLog,ExecutorLog,EventLog,Metrics
+spark.synapse.diagnostic.emitter.fabricDest.dceUri: <DCE_URI>
+spark.synapse.diagnostic.emitter.fabricDest.logDcr: <DCR_RESOURCE_ID_SPARK>
+spark.synapse.diagnostic.emitter.fabricDest.logStream: Custom-<StreamPrefix>SparkLog
+spark.synapse.diagnostic.emitter.fabricDest.eventDcr: <DCR_RESOURCE_ID_SPARK>
+spark.synapse.diagnostic.emitter.fabricDest.eventStream: Custom-<StreamPrefix>SparkEvent
+spark.synapse.diagnostic.emitter.fabricDest.metricDcr: <DCR_RESOURCE_ID_SPARK>
+spark.synapse.diagnostic.emitter.fabricDest.metricStream: Custom-<StreamPrefix>SparkMetric
+spark.synapse.diagnostic.emitter.fabricDest.metaDcr: <DCR_RESOURCE_ID_SPARK>
+spark.synapse.diagnostic.emitter.fabricDest.metaStream: Custom-<StreamPrefix>SparkMetadata
+spark.synapse.diagnostic.emitter.fabricDest.tenantId: <TENANT_ID>
+spark.synapse.diagnostic.emitter.fabricDest.clientId: <SP_CLIENT_ID>
+spark.synapse.diagnostic.emitter.fabricDest.secret: <SP_SECRET_FROM_KEYVAULT>
+
+# Trade-off: skipStarterPools forces on-demand pools (~3 min cold start).
+# Required because starter pools ignore environment-level Spark properties.
+spark.fabric.pools.skipStarterPools: "true"

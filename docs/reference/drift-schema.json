@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sigantry.dev/schemas/drift-1.0.0.json",
+  "additionalProperties": false,
+  "description": "Sigantry drift report SemVer-pinned wire contract (Phase 13 / DRIFT-01..02 / D-23 / D-37). Emitted by `sigantry diff` when --output json is set. The keyset is locked at v1.0.0; adding fields requires a SemVer-minor bump and a coordinated update to docs/reference/drift-schema.json + sigantry_core/sync/diff.py::DriftReport. Modified detection compares display_name + type + folder_path only (D-24); content drift is deferred to a future minor.",
+  "properties": {
+    "added": {
+      "description": "Items present in the workspace but absent from the manifest (extras in Fabric).",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "display_name": {
+            "type": "string"
+          },
+          "folder_path": {
+            "type": "string"
+          },
+          "logical_id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_name",
+          "folder_path",
+          "logical_id",
+          "type"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "modified": {
+      "description": "Items present on both sides whose metadata (display_name / type / folder_path) differs (D-24).",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "fields_changed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "logical_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "fields_changed",
+          "logical_id"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "removed": {
+      "description": "Items present in the manifest but absent from the workspace (missing from Fabric).",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "display_name": {
+            "type": "string"
+          },
+          "folder_path": {
+            "type": "string"
+          },
+          "logical_id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_name",
+          "folder_path",
+          "logical_id",
+          "type"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "1.0.0",
+      "description": "SemVer-pinned schema version. v3.0 stable; bump requires drift-schema.json + DriftReport coordinated update.",
+      "type": "string"
+    },
+    "unchanged": {
+      "description": "Items present on both sides whose locked metadata matches.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "logical_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "logical_id"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "added",
+    "modified",
+    "removed",
+    "schema_version",
+    "unchanged"
+  ],
+  "title": "Sigantry Drift Report",
+  "type": "object"
+}

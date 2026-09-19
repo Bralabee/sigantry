@@ -1,0 +1,76 @@
+/* Sigantry Tutorials -- overrides layered on top of the user-guide
+ * stylesheet (scripts/userguide/style.css). The renderer concatenates
+ * base + this file, so only the deltas live here:
+ * - running header says "Sigantry Tutorials"
+ * - each tutorial <section> starts on a fresh page (the base h1 rules
+ *   key on :first-of-type, which matches every section-wrapped h1)
+ * - Contents entries carry WeasyPrint target-counter page numbers
+ * - cover gets a chip row enumerating the ten tutorials
+ */
+
+@page {
+    @top-left { content: "Sigantry Tutorials"; font-family: "Source Sans 3", "Source Sans Pro", "Helvetica Neue", Arial, sans-serif; font-size: 9pt; color: var(--muted); }
+}
+
+@page landscape {
+    @top-left { content: "Sigantry Tutorials"; font-family: "Source Sans 3", "Source Sans Pro", "Helvetica Neue", Arial, sans-serif; font-size: 9pt; color: var(--muted); }
+}
+
+/* The cover title is an h1; without this it would leak "Sigantry"
+ * into the running chapter header of the front-matter pages. */
+.cover h1.cover-title {
+    string-set: none;
+}
+
+/* The tutorials cover carries one more meta row + the chip row than
+ * the user guide's; pull the table up so it clears the footer. */
+.cover-meta {
+    margin-top: 8mm;
+}
+
+/* One tutorial per chapter: break on the wrapping section, not the h1
+ * (inside a section every h1 is :first-of-type, so the base rules
+ * cancel themselves out). */
+.content section.tutorial {
+    page-break-before: always;
+}
+.content section.tutorial h1 {
+    page-break-before: avoid;
+    margin-top: 0;
+}
+
+/* Contents: bold top-level rows, indented h2 rows, right-aligned page
+ * numbers resolved by WeasyPrint at layout time. */
+.toc li a {
+    display: block;
+    color: var(--ink);
+}
+.toc li a::after {
+    content: target-counter(attr(href), page);
+    float: right;
+    font-weight: 400;
+    color: var(--muted);
+}
+.toc > ul > li.toc-sub {
+    font-weight: 400;
+    margin: 0.5mm 0 0.5mm 6mm;
+    font-size: 9.5pt;
+}
+
+/* Cover chip row: the ten tutorial numbers as small badges. */
+.cover-chips {
+    margin: 10mm 0 0 0;
+}
+.cover-chips span {
+    display: inline-block;
+    min-width: 9mm;
+    text-align: center;
+    padding: 1.2mm 0;
+    margin: 0 1.5mm 1.5mm 0;
+    border: 0.6pt solid var(--accent);
+    border-radius: 1.5pt;
+    color: var(--accent);
+    font-size: 9pt;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+}

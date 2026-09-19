@@ -1,0 +1,31 @@
+{
+  "name": "sigantry-walkthrough",
+  "version": "1.0.0",
+  "description": "Sigantry demo walkthrough -- Remotion-built mp4 (Phase 15 / DEMO-03)",
+  "private": true,
+  "license": "Apache-2.0",
+  "scripts": {
+    "dev": "remotion studio",
+    "render": "remotion render",
+    "build": "remotion bundle",
+    "lint": "eslint src && tsc --noEmit",
+    "upgrade": "remotion upgrade"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.451",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.451"
+  },
+  "devDependencies": {
+    "@remotion/eslint-config-flat": "4.0.451",
+    "@types/react": "19.2.7",
+    "@types/web": "0.0.166",
+    "eslint": "9.19.0",
+    "prettier": "3.8.1",
+    "typescript": "5.9.3"
+  },
+  "sideEffects": [
+    "*.css"
+  ]
+}

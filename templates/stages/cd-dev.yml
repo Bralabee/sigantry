@@ -1,0 +1,64 @@
+# templates/stages/cd-dev.yml
+# sigantry-dual-ci-exception: ci-mechanics
+# ------------------------------------------------------------------
+# Continuous Deployment to the `fabric-dev` ADO environment.
+# Exception rationale (BRIEF-06 / Phase 10 Plan 06): legacy Phase 5
+# ADO-only CD template. The dual-CI deploy template pair lands in
+# Phase 12 (PIPELINE-* REQs) as
+# `sigantry-cd.yml` (formerly `sigantry-deploy-with-tests.yml` until 2026-05-12). Until then, this template
+# exists only because of ADO environment / approval mechanics.
+#
+# Sources (Pitfall 14 / Phase 5 Success Criterion 1):
+#   Microsoft Learn - Deployment jobs
+#     https://learn.microsoft.com/azure/devops/pipelines/process/deployment-jobs
+#     ms.date: 2026-04-20
+#   Microsoft Learn - Environments
+#     https://learn.microsoft.com/azure/devops/pipelines/process/environments
+#     ms.date: 2026-04-20
+#
+# The approval policy for `fabric-dev` is attached to the ADO environment
+# via the ADO UI (Approvals and checks). This YAML does NOT encode the
+# policy - it just targets the environment (T-5-03 mitigation).
+# ------------------------------------------------------------------
+
+parameters:
+  - name: workspaceId
+    type: string
+  - name: serviceConnection
+    type: string
+  - name: sourceDir
+    type: string
+    default: 'fabric_items/'
+  - name: parametersPath
+    type: string
+    default: 'parameters.yml'
+  - name: environment
+    type: string
+    default: 'DEV'
+  - name: itemTypes
+    type: string
+    default: 'Lakehouse,Environment,Notebook,DataPipeline'
+  - name: dependsOn
+    type: object
+    default: []
+
+stages:
+  - stage: cd_dev
+    displayName: 'CD - fabric-dev'
+    dependsOn: ${{ parameters.dependsOn }}
+    jobs:
+      - deployment: deploy_dev
+        displayName: 'Deploy to fabric-dev'
+        environment: 'fabric-dev'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - template: ../steps/fabric-deploy.yml
+                  parameters:
+                    workspaceId: ${{ parameters.workspaceId }}
+                    serviceConnection: ${{ parameters.serviceConnection }}
+                    sourceDir: ${{ parameters.sourceDir }}
+                    parametersPath: ${{ parameters.parametersPath }}
+                    environment: ${{ parameters.environment }}
+                    itemTypes: ${{ parameters.itemTypes }}

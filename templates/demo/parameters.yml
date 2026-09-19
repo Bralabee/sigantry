@@ -1,0 +1,43 @@
+# Sigantry demo -- parameters.yml
+# ------------------------------
+# Byte-extension of templates/starter/parameters.yml. Only the DEV
+# ENV-var refs differ -- DEV slot points at the SIGANTRY_DEMO_*
+# secrets supplied by the demo CI workflow (per CONTEXT.md D-06 +
+# 15-HUMAN-UAT.md Test 2). PREPROD/PROD slots are unused in the
+# demo CI workflow but kept for shape parity with the starter
+# (and so the parameters.yml validates clean against
+# sigantry_core.deploy.parameters.load_and_validate's whitelist).
+#
+# Validate locally with:
+#     sigantry config validate parameters.yml
+#
+# IMPORTANT: This file MUST NOT contain literal tenant IDs or
+# tokens -- only $ENV:* references. Any literal value here is a
+# security incident (RESEARCH §Pitfall 8).
+
+# ----- find_replace: bulk text substitution in item bodies -----
+find_replace:
+  # Workspace-ID swap for every Notebook (consumed by demo CI).
+  - find_value: "placeholder-workspace-id"
+    item_type: Notebook
+    replace_value:
+      DEV:     "$ENV:SIGANTRY_DEMO_WORKSPACE_ID"
+      PREPROD: "$ENV:SIGANTRY_FABRIC_WORKSPACE_ID_PREPROD"
+      PROD:    "$ENV:SIGANTRY_FABRIC_WORKSPACE_ID_PROD"
+
+  # Capacity-ID swap (rarely needed in body content but here for symmetry).
+  - find_value: "placeholder-capacity-id"
+    item_type: Lakehouse
+    replace_value:
+      DEV:     "$ENV:SIGANTRY_DEMO_CAPACITY_ID"
+      PREPROD: "$ENV:SIGANTRY_FABRIC_CAPACITY_ID_PREPROD"
+      PROD:    "$ENV:SIGANTRY_FABRIC_CAPACITY_ID_PROD"
+
+# ----- key_value_replace: JSON-path substitution -----
+key_value_replace:
+  - find_key: "$.properties.activities[?(@.name=='Stage1')].typeProperties.url"
+    replace_value:
+      _ALL_: "$items.DataPipeline.Stage1.$id"
+
+# ----- spark_pool: per-env Spark pool selection -----
+spark_pool: []

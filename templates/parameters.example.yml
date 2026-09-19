@@ -1,0 +1,36 @@
+# DataOps Fabric Toolkit - parameters.yml starter
+# Example values - replace with your own.
+# Consumer repos own this file. The toolkit's loader
+# (sigantry_core.deploy.load_and_validate) validates shape + "no
+# hard-coded GUIDs" before handing off to fabric-cicd for substitution.
+#
+# Allowed GUID-context forms (everything else will fail validation):
+#   $workspace.$id                 - resolved at deploy time by fabric-cicd
+#   $items.<Type>.<Name>.$id       - resolved at deploy time by fabric-cicd
+#   $ENV:<VAR>                     - resolved at deploy time from environment
+#   _ALL_                          - environment wildcard (applies everywhere)
+#
+# Placeholder strings like "placeholder-bronze-ws" are acceptable as the
+# find_value (fabric-cicd matches them literally in item body files).
+# Consumer repos MUST replace GUID-shaped values with $ENV:<VAR> references
+# or upstream $items / $workspace forms - never raw GUIDs.
+
+find_replace:
+  - find_value: "placeholder-bronze-ws"
+    item_type: Notebook
+    replace_value:
+      DEV: "$ENV:FABRIC_WORKSPACE_ID"
+      TEST: "$ENV:FABRIC_WORKSPACE_ID"
+      PROD: "$ENV:FABRIC_WORKSPACE_ID"
+
+key_value_replace:
+  - find_key: "$.properties.activities[?(@.name=='Stage1')].typeProperties.url"
+    replace_value:
+      _ALL_: "$items.DataPipeline.Stage1.$id"
+
+spark_pool:
+  - instance_pool_id: "placeholder-spark-pool"
+    replace_value:
+      DEV:
+        type: "Capacity"
+        name: "placeholder-pool-dev"

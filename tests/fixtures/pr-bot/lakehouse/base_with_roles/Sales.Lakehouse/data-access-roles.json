@@ -1,0 +1,10 @@
+{
+  "roles": [
+    {
+      "name": "Reader",
+      "members": [
+        {"role": "Reader", "scope": "dbo"}
+      ]
+    }
+  ]
+}

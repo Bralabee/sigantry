@@ -1,0 +1,69 @@
+# templates/steps/fabric-vl-apply.yml
+# ------------------------------------------------------------------
+# Step template: invoke `sigantry variable-library update` under
+# AzureCLI@2 to apply a Variable Library definition to a Fabric
+# workspace (Phase 4 Plan 04-03 variable-library subapp).
+#
+# Sources (Pitfall 14 / Phase 5 Success Criterion 1):
+#   Microsoft Learn - AzureCLI@2 task
+#     https://learn.microsoft.com/azure/devops/pipelines/tasks/reference/azure-cli-v2
+#     ms.date: 2026-04-20
+#   Microsoft Learn - Fabric Variable Library
+#     https://learn.microsoft.com/fabric/cicd/variable-library/variable-library-overview
+#     ms.date: 2026-04-20
+# ------------------------------------------------------------------
+
+parameters:
+  - name: serviceConnection
+    type: string
+  - name: workspaceId
+    type: string
+  - name: variableLibraryName
+    type: string
+  - name: definitionPath
+    type: string
+  - name: artifactsFeed
+    type: string
+    default: 'fabric-dataops-toolkits'
+  - name: pythonVersion
+    type: string
+    default: '3.11'
+  - name: fabricDataopsVersion
+    type: string
+    default: ''
+
+steps:
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: ${{ parameters.pythonVersion }}
+      addToPath: true
+
+  - task: PipAuthenticate@1
+    displayName: 'Authenticate pip to ADO Artifacts (${{ parameters.artifactsFeed }})'
+    inputs:
+      artifactFeeds: ${{ parameters.artifactsFeed }}
+      onlyAddExtraIndex: true
+
+  - script: |
+      set -e
+      python -m pip install --upgrade pip
+      if [ -n '${{ parameters.fabricDataopsVersion }}' ]; then
+        python -m pip install 'sigantry-core==${{ parameters.fabricDataopsVersion }}'
+      else
+        python -m pip install sigantry-core
+      fi
+    displayName: 'pip install sigantry-core'
+
+  - task: AzureCLI@2
+    displayName: 'sigantry variable-library update'
+    inputs:
+      azureSubscription: ${{ parameters.serviceConnection }}
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+      addSpnToEnvironment: true
+      inlineScript: |
+        set -e
+        sigantry variable-library update \
+          --workspace-id '${{ parameters.workspaceId }}' \
+          --name '${{ parameters.variableLibraryName }}' \
+          --definition '${{ parameters.definitionPath }}'

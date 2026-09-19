@@ -1,0 +1,21 @@
+// tests/fixtures/pr-bot/tmdl/head_description_only/Sales.tmdl
+// [VERIFIED: learn.microsoft.com/analysis-services/tmdl/tmdl-overview, fetched 2026-04-28]
+//
+// Variant of base/Sales.tmdl whose ONLY change is a `///` description
+// added above the 'Total Sales' measure. DAX (`= SUM(...)`) and every
+// other byte is identical to base/Sales.tmdl. Per 14-RESEARCH Open
+// Question #2, description-only changes still classify as
+// measures_modified because the `///` block binds to the following
+// object declaration and IS part of the measure's body (Pitfall 6).
+
+/// Sales table — fact records keyed by Customer + Product.
+table Sales
+
+    column 'Sales Amount'
+        dataType: decimal
+        sourceColumn: SalesAmount
+        summarizeBy: sum
+
+    /// Aggregate sales amount across all rows in the Sales fact table.
+    measure 'Total Sales' = SUM('Sales'[Sales Amount])
+        formatString: $ #,##0

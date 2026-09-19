@@ -1,0 +1,19 @@
+// tests/fixtures/pr-bot/tmdl/head/Sales.tmdl
+/// Sales table — fact records keyed by Customer + Product.
+table Sales
+
+    column 'Sales Amount'
+        dataType: decimal
+        sourceColumn: SalesAmount
+        summarizeBy: sum
+
+    column 'Discount Amount'                  // NEW column
+        dataType: decimal
+        sourceColumn: DiscountAmount
+        summarizeBy: sum
+
+    measure 'Total Sales' = SUM('Sales'[Sales Amount]) - SUM('Sales'[Discount Amount])  // MODIFIED
+        formatString: $ #,##0
+
+    measure 'Avg Order Value' = AVERAGE('Sales'[Sales Amount])  // NEW measure
+        formatString: $ #,##0

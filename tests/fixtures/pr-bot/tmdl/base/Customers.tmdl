@@ -1,0 +1,22 @@
+// tests/fixtures/pr-bot/tmdl/base/Customers.tmdl
+// [VERIFIED: learn.microsoft.com/analysis-services/tmdl/tmdl-overview, fetched 2026-04-28]
+//
+// Auxiliary fixture for Plan 14-03 -- the removed-table scenario.
+// No head/Customers.tmdl counterpart exists; diff_tmdl(base, head)
+// therefore reports tables_removed=["Customers"].
+
+/// Customers table -- dimension keyed by Customer ID.
+table Customers
+
+    column 'Customer ID'
+        dataType: int64
+        sourceColumn: CustomerId
+        summarizeBy: none
+
+    column 'Customer Name'
+        dataType: string
+        sourceColumn: CustomerName
+        summarizeBy: none
+
+    measure 'Customer Count' = COUNTROWS('Customers')
+        formatString: #,##0

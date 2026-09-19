@@ -1,0 +1,75 @@
+{
+  "$defs": {
+    "SyncItem": {
+      "additionalProperties": false,
+      "description": "One entry in ``sync.yml`` ``items:``.\n\nFrozen and ``extra='forbid'`` so unintended keys fail fast.",
+      "properties": {
+        "display_name": {
+          "title": "Display Name",
+          "type": "string"
+        },
+        "local_path": {
+          "format": "path",
+          "title": "Local Path",
+          "type": "string"
+        },
+        "logical_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Logical Id"
+        },
+        "target_folder": {
+          "default": "/",
+          "title": "Target Folder",
+          "type": "string"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "local_path",
+        "type",
+        "display_name"
+      ],
+      "title": "SyncItem",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Top-level ``sync.yml`` structure (SemVer-pinned via ``schema_version``).",
+  "properties": {
+    "folders": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Folders",
+      "type": "array"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/SyncItem"
+      },
+      "title": "Items",
+      "type": "array"
+    },
+    "schema_version": {
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "items"
+  ],
+  "title": "SyncManifest",
+  "type": "object"
+}

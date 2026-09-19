@@ -1,0 +1,53 @@
+# templates/jobs/lint-python.yml
+# ------------------------------------------------------------------
+# ruff check + ruff format --check (job template).
+#
+# Sources (Pitfall 14 / Phase 5 Success Criterion 1):
+#   Microsoft Learn - Job templates
+#     https://learn.microsoft.com/azure/devops/pipelines/process/templates
+#     ms.date: 2026-04-20
+#
+# Preserves Phase 1 azure-pipelines.yml python_lint job byte-for-byte.
+# ------------------------------------------------------------------
+
+parameters:
+  - name: pythonVersion
+    type: string
+    default: '3.11'
+  - name: sourcePaths
+    type: string
+    default: 'sigantry_core/ tests/'
+
+jobs:
+  - job: python_lint
+    displayName: 'Python lint (ruff)'
+    steps:
+      - task: UsePythonVersion@0
+        displayName: 'Use Python ${{ parameters.pythonVersion }}'
+        inputs:
+          versionSpec: ${{ parameters.pythonVersion }}
+          addToPath: true
+      - script: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+        displayName: 'Install Python deps'
+      - script: |
+          ruff check ${{ parameters.sourcePaths }}
+          ruff format --check ${{ parameters.sourcePaths }}
+        displayName: 'ruff check + ruff format --check'
+      # BRIEF-06 / Phase 10 Plan 06 -- dual-CI parity lint.
+      # Enforces docs/reference/dual-ci-strategy.md: every PR that adds a
+      # CI template / workflow ships both ADO + GHA variants. PyYAML is
+      # the only runtime dep beyond what `.[dev]` already pulls in.
+      - script: |
+          python -m pip install pyyaml
+          python scripts/ci/check-dual-ci-parity.py --verbose
+        displayName: 'Dual-CI parity lint (BRIEF-06)'
+      # Docs-freshness gate (review S-T4c). Previously wired into nothing, so
+      # it could never fail a build despite existing to do exactly that. Checks
+      # banned phrases, retired versions cited as current, and canonical
+      # test-count/coverage drift vs docs/metrics.json. PyYAML already installed
+      # by the parity-lint step above.
+      - script: |
+          python scripts/docs_freshness.py
+        displayName: 'Docs-freshness gate (S-T4c)'
