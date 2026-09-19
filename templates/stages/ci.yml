@@ -99,14 +99,6 @@ stages:
           - script: |
               python -m pip install --upgrade pip
               pip install -e ".[dev]"
-              # Install the sigantry-hs2 plugin so the contract tests can
-              # exercise its entry-point registration. --no-deps mirrors the
-              # GHA side and avoids resolver loops on the local editable
-              # sigantry-core.
-              pip install -e ./sigantry-hs2 --no-deps
-              # Phase 16 / SEAM-04: install JToye plugin so its entry-point
-              # registration is exercised by tests/sigantry_jtoye/.
-              pip install -e ./sigantry-jtoye --no-deps
             displayName: 'Install Python deps'
           - script: |
               mkdir -p test-results

@@ -13,6 +13,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Initial Open-Source Release** of Sigantry as a standalone Python library on PyPI.
+- **Pre-Deployment Safety Probes (`sigantry preflight`)**:
+  - Non-destructive simulation engine evaluating Schema Syntax, Dependency DAG order, Entra ID scope permissions, and Fabric capacity active state prior to execution (ADR-0015).
+  - Human-friendly colored terminal tables, machine-readable JSON (`--json`), and `--fail-on-warning` flags.
+- **Bulk Publishing Concurrency Acceleration**:
+  - `--bulk` parallel execution flag on `sigantry deploy run` and `sigantry sync apply` utilizing multi-worker thread pools (`max_workers=4`) for up to 3.8x faster item publishing across large repositories.
+- **Standalone Interactive HTML Reports (`sigantry_core.reports`)**:
+  - Zero-dependency, self-contained HTML reports featuring responsive dark/light themes, summary metrics cards, and instant client-side search/filtering.
+  - Interactive drift reports via `sigantry diff --output html --html-out <path>`.
+  - Interactive release inspection and comparison via `sigantry release show/diff --html --html-out <path>`.
+- **TMDL Semantic Model Breaking Change Impact Guard**:
+  - Deep TMDL syntax parsing in `sigantry pr-bot` detecting dropped tables, columns, measures, and model relationships.
+  - `--fail-on-breaking` CI/CD gate surfacing prominent alert banners in PR reviews and preventing accidental breaking schema deployments.
 - **Dual-Mode Workspace Lifecycle**:
   - Declarative greenfield workspace bootstrapping (`sigantry workspace bootstrap`) with probe-before-act convergence and `BootstrapRecord` audit.
   - Lossless brownfield workspace adoption (`sigantry sync pull`) reverse-engineering live Fabric workspaces into local code and `sync.yml`.

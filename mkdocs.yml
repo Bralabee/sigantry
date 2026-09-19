@@ -1,8 +1,8 @@
 site_name: Sigantry
-site_description: Vendor-agnostic platform for Fabric DataOps plugins - protocol seams, registry, config, telemetry glue. (Formerly Fabric DataOps Toolkits; renamed in v3.0 per ADR-0011.)
-site_url: https://example.org/sigantry-core
-repo_url: https://example.org/sigantry-core
-repo_name: sigantry-core
+site_description: Enterprise-grade Git-centric Fabric DataOps CLI, SDK, and Governance Platform.
+site_url: https://github.com/Bralabee/sigantry
+repo_url: https://github.com/Bralabee/sigantry
+repo_name: Bralabee/sigantry
 docs_dir: docs
 use_directory_urls: true
 

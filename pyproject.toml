@@ -46,7 +46,7 @@ Homepage = "https://github.com/Bralabee/sigantry"
 Documentation = "https://bralabee.github.io/sigantry"
 Repository = "https://github.com/Bralabee/sigantry"
 Issues = "https://github.com/Bralabee/sigantry/issues"
-Changelog = "https://github.com/Bralabee/sigantry/blob/master/CHANGELOG.md"
+Changelog = "https://github.com/Bralabee/sigantry/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = [
