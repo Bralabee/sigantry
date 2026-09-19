@@ -16,6 +16,8 @@ algorithm for every protocol seam.
 
 from __future__ import annotations
 
+from typing import cast
+
 from sigantry_core._dispatch import resolve_seam
 from sigantry_core.protocols import (
     DeployContext,
@@ -32,20 +34,18 @@ def deploy(
     profile_name: str | None = None,
     registry: Registry | None = None,
 ) -> DeployResult:
-    """Resolve a :class:`DeployProfile` and run its plan + apply pipeline.
+    """Resolve a :class:`DeployProfile` and execute plan + apply against ``ctx``.
 
     Parameters
     ----------
     ctx
-        :class:`DeployContext` passed to both ``plan`` and ``apply``.
+        Runtime deployment context (workspace, environment, items).
     profile
-        Optional pre-instantiated profile (direct DI). Wins over
-        ``profile_name``.
+        Explicit profile instance (direct DI). Wins over ``profile_name``.
     profile_name
-        Name the profile is registered under in the registry. Required when
-        ``profile`` is ``None``.
+        Plugin name registered under ``sigantry.deploy_profiles``.
     registry
-        Optional :class:`Registry` override; defaults to
+        Optional :class:`Registry` to resolve from. Defaults to
         :func:`default_registry`.
 
     Returns
@@ -73,8 +73,10 @@ def deploy(
         impl=profile,
         registry=registry,
     )
+    if resolved is None:
+        raise KeyError(f"Deploy profile {profile_name!r} could not be resolved from registry")
     plan = resolved.plan(ctx)
-    return resolved.apply(ctx, plan)
+    return cast(DeployResult, resolved.apply(ctx, plan))
 
 
 __all__ = ["deploy"]

@@ -548,4 +548,3 @@ def test_deploy_workspace_bulk_parallel_failure_raises(
             bulk=True,
         )
     assert "1 item(s) failed to publish" in str(exc_info.value)
-

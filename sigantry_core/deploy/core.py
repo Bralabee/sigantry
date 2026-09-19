@@ -212,7 +212,7 @@ def _publish_and_optionally_unpublish(
         ):
             for it_type, bucket in target_workspace.repository_items.items():
                 if isinstance(bucket, dict):
-                    for it_name in bucket.keys():
+                    for it_name in bucket:
                         candidate_items.append(f"{it_type}.{it_name}")
                 elif isinstance(bucket, list):
                     for it in bucket:

@@ -1217,4 +1217,3 @@ def test_apply_sync_bulk_forwarded_to_publish_fn(
 
     fake_publish.assert_called_once()
     assert fake_publish.call_args.kwargs.get("bulk") is True
-

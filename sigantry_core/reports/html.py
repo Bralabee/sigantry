@@ -7,7 +7,7 @@ for drift analysis, release inspection, and release comparisons.
 from __future__ import annotations
 
 import html
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -374,7 +374,7 @@ def render_drift_html_report(
     workspace_id: str,
 ) -> str:
     """Render a standalone interactive HTML drift report from a DriftReport object."""
-    now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    now_utc = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
     added_count = len(report.added)
     removed_count = len(report.removed)
     modified_count = len(report.modified)
@@ -411,10 +411,14 @@ def render_drift_html_report(
             f"</tr>"
         )
 
-    for item in report.modified:
-        lid = html.escape(str(item.get("logical_id", "")))
-        fields = item.get("fields_changed", [])
-        detail = ", ".join(html.escape(str(f)) for f in fields) if isinstance(fields, list) else html.escape(str(fields))
+    for mod_item in report.modified:
+        lid = html.escape(str(mod_item.get("logical_id", "")))
+        fields: Any = mod_item.get("fields_changed", [])
+        detail = (
+            ", ".join(html.escape(str(f)) for f in fields)
+            if isinstance(fields, list)
+            else html.escape(str(fields))
+        )
         rows_html.append(
             f'<tr data-status="modified">'
             f'<td><span class="badge badge-modified">~ modified</span></td>'
@@ -424,8 +428,8 @@ def render_drift_html_report(
             f"</tr>"
         )
 
-    for item in report.unchanged:
-        lid = html.escape(str(item.get("logical_id", "")))
+    for unch_item in report.unchanged:
+        lid = html.escape(str(unch_item.get("logical_id", "")))
         rows_html.append(
             f'<tr data-status="unchanged">'
             f'<td><span class="badge badge-unchanged">= unchanged</span></td>'
@@ -435,7 +439,11 @@ def render_drift_html_report(
             f"</tr>"
         )
 
-    table_body = "\n".join(rows_html) if rows_html else '<tr><td colspan="4" class="empty-state">No items recorded.</td></tr>'
+    table_body = (
+        "\n".join(rows_html)
+        if rows_html
+        else '<tr><td colspan="4" class="empty-state">No items recorded.</td></tr>'
+    )
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -466,7 +474,7 @@ def render_drift_html_report(
         <section class="stats-grid">
             <div class="stat-card">
                 <span class="stat-label">Total Drift</span>
-                <span class="stat-value {'stat-modified' if total_drift > 0 else 'stat-unchanged'}">{total_drift}</span>
+                <span class="stat-value {"stat-modified" if total_drift > 0 else "stat-unchanged"}">{total_drift}</span>
             </div>
             <div class="stat-card">
                 <span class="stat-label">Added</span>
@@ -556,17 +564,26 @@ def render_release_html_report(record_data: dict[str, Any]) -> str:
             f"</tr>"
         )
 
-    table_body = "\n".join(rows_html) if rows_html else '<tr><td colspan="4" class="empty-state">No items changed in this release.</td></tr>'
+    table_body = (
+        "\n".join(rows_html)
+        if rows_html
+        else '<tr><td colspan="4" class="empty-state">No items changed in this release.</td></tr>'
+    )
 
-    evidence_badges = " ".join(
-        f'<span class="meta-pill">{html.escape(k)}: <strong>{html.escape(str(v))}</strong></span>'
-        for k, v in test_evidence.items()
-    ) or '<span class="meta-pill">None</span>'
+    evidence_badges = (
+        " ".join(
+            f'<span class="meta-pill">{html.escape(k)}: <strong>{html.escape(str(v))}</strong></span>'
+            for k, v in test_evidence.items()
+        )
+        or '<span class="meta-pill">None</span>'
+    )
 
-    work_items_badges = " ".join(
-        f'<span class="badge badge-type">{html.escape(str(wi))}</span>'
-        for wi in work_items
-    ) or '<span class="item-detail">None</span>'
+    work_items_badges = (
+        " ".join(
+            f'<span class="badge badge-type">{html.escape(str(wi))}</span>' for wi in work_items
+        )
+        or '<span class="item-detail">None</span>'
+    )
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -594,7 +611,7 @@ def render_release_html_report(record_data: dict[str, Any]) -> str:
             </div>
             <div class="meta-badges" style="margin-top: 0.75rem;">
                 <span class="meta-pill">Audit Hash: <strong style="font-family: monospace;">{audit_hash[:16]}...</strong></span>
-                <span class="meta-pill">Prev Hash: <strong style="font-family: monospace;">{prev_hash[:16] if prev_hash != 'genesis' else 'genesis'}</strong></span>
+                <span class="meta-pill">Prev Hash: <strong style="font-family: monospace;">{prev_hash[:16] if prev_hash != "genesis" else "genesis"}</strong></span>
                 <span class="meta-pill">Evidence: {evidence_badges}</span>
                 <span class="meta-pill">Work Items: {work_items_badges}</span>
             </div>
@@ -698,7 +715,11 @@ def render_release_diff_html_report(diff_data: dict[str, Any]) -> str:
             f"</tr>"
         )
 
-    table_body = "\n".join(rows_html) if rows_html else '<tr><td colspan="4" class="empty-state">No item differences recorded.</td></tr>'
+    table_body = (
+        "\n".join(rows_html)
+        if rows_html
+        else '<tr><td colspan="4" class="empty-state">No item differences recorded.</td></tr>'
+    )
 
     return f"""<!DOCTYPE html>
 <html lang="en">

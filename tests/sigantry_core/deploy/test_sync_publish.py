@@ -660,9 +660,7 @@ def test_publish_absent_items_bulk_parallel_partial_failure(
             raise RuntimeError("API 500 error publishing itemB")
         return {"summary": {"Succeeded": 1, "Failed": 0}}
 
-    _, _, fake_publish = _patch_fabric_cicd(
-        monkeypatch, publish_side_effect=_side_effect
-    )
+    _, _, _fake_publish = _patch_fabric_cicd(monkeypatch, publish_side_effect=_side_effect)
 
     staging = tmp_path / "staging"
     staging.mkdir()
@@ -689,4 +687,3 @@ def test_publish_absent_items_bulk_parallel_partial_failure(
     assert result.outcome == "partial-failure"
     assert "itemA.Notebook" in result.published_items
     assert result.failed_item == "itemB.Notebook"
-

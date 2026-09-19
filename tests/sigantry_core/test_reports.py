@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -74,7 +74,7 @@ def test_render_drift_html_report_structure() -> None:
 
 def test_render_release_html_report() -> None:
     """Release HTML report renders record metadata and changed items."""
-    now = datetime(2026, 9, 19, 12, 0, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 9, 19, 12, 0, 0, tzinfo=UTC)
     record = DeployRecord(
         workspace="ws-sample-999",
         release_id="rel-2026-09-19-1",
@@ -186,7 +186,7 @@ def test_cli_diff_html_output(monkeypatch, tmp_path: Path) -> None:
 
 def test_cli_release_show_and_diff_html(tmp_path: Path) -> None:
     """sigantry release show and diff support --html and --html-out."""
-    now = datetime(2026, 9, 19, 12, 0, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 9, 19, 12, 0, 0, tzinfo=UTC)
     rec1 = DeployRecord(
         workspace="ws-1",
         release_id="rel-1",

@@ -65,6 +65,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 from sigantry_core.auth import TokenProvider
 from sigantry_core.client import FabricRestClient
@@ -238,15 +239,18 @@ def _reconcile_phase(
     abstraction level.
     """
     try:
-        return reconcile_fn(
-            client_obj,
-            workspace_id,
-            repository_directory=staging_dir,
-            apply=apply,
-            unpublish_orphans=unpublish_orphans,
-            force=unpublish_orphans,
-            token_provider=token_provider,
-            preserve_paths=manifest.folders if manifest else None,
+        return cast(
+            ReconcileReport,
+            reconcile_fn(
+                client_obj,
+                workspace_id,
+                repository_directory=staging_dir,
+                apply=apply,
+                unpublish_orphans=unpublish_orphans,
+                force=unpublish_orphans,
+                token_provider=token_provider,
+                preserve_paths=manifest.folders if manifest else None,
+            ),
         )
     except Exception as exc:
         raise ReconcilerWrapError(f"Reconciler failed for workspace {workspace_id}: {exc}") from exc

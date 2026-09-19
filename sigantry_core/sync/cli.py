@@ -255,7 +255,9 @@ def apply_cmd(
         # the _ALL_ wildcard, --environment becomes REQUIRED. Use getattr
         # for forward-compat in case the ParametersConfig dataclass shape
         # evolves in a future deploy-module refactor.
-        envs_seen = getattr(params_config, "environments_seen", frozenset())
+        envs_seen: set[str] | frozenset[str] = getattr(
+            params_config, "environments_seen", frozenset()
+        )
         if envs_seen and environment is None:
             available = ", ".join(sorted(envs_seen))
             raise typer.BadParameter(

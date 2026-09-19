@@ -197,11 +197,12 @@ class KeyVaultSecretStore:
         return logging.getLogger("sigantry_core.governance.audit")
 
     def list_keys(self, prefix: str = "") -> list[str]:
-        return [
-            sp.name
-            for sp in self._client.list_properties_of_secrets()
-            if isinstance(getattr(sp, "name", None), str) and sp.name.startswith(prefix)
-        ]
+        keys: list[str] = []
+        for sp in self._client.list_properties_of_secrets():
+            name = getattr(sp, "name", None)
+            if isinstance(name, str) and name.startswith(prefix):
+                keys.append(name)
+        return keys
 
     def ping(self) -> None:
         # Cheapest reachability check: list one page; raises on auth/network failure.

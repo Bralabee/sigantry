@@ -29,9 +29,7 @@ def test_analyze_tmdl_breaking_changes_detects_all_categories() -> None:
         tables_removed=["LegacySales"],
         columns_removed=[TableChange(table="Customers", name="CreditCardNumber")],
         measures_removed=[MeasureChange(table="Orders", name="DeprecatedRevenue")],
-        relationships_removed=[
-            RelationshipChange(from_table="Orders", to_table="LegacySales")
-        ],
+        relationships_removed=[RelationshipChange(from_table="Orders", to_table="LegacySales")],
     )
 
     changes = analyze_tmdl_breaking_changes(diff)
@@ -114,7 +112,19 @@ def test_cli_pr_bot_fail_on_breaking(tmp_path: Path, monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "sigantry_core.pr_bot.cli.diff_lakehouse",
-        MagicMock(return_value=MagicMock(is_empty=MagicMock(return_value=True), identity_changes=[], schema_toggle=None, tracked_tables_added=[], tracked_tables_removed=[], shortcuts_added=[], shortcuts_removed=[], shortcuts_modified=[], role_changes=[])),
+        MagicMock(
+            return_value=MagicMock(
+                is_empty=MagicMock(return_value=True),
+                identity_changes=[],
+                schema_toggle=None,
+                tracked_tables_added=[],
+                tracked_tables_removed=[],
+                shortcuts_added=[],
+                shortcuts_removed=[],
+                shortcuts_modified=[],
+                role_changes=[],
+            )
+        ),
     )
 
     mock_pr = MagicMock(base_sha="aaa", head_sha="bbb")

@@ -192,7 +192,7 @@ class GithubSecretsSecretStore:
         # The 4-line snippet is verbatim from GitHub's official REST guide.
         public_key_obj = public.PublicKey(
             pubkey_b64.encode("utf-8"),
-            encoding.Base64Encoder(),
+            encoding.Base64Encoder,
         )
         sealed_box = public.SealedBox(public_key_obj)
         encrypted = sealed_box.encrypt(value.encode("utf-8"))
