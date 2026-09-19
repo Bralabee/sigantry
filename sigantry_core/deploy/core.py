@@ -69,6 +69,8 @@ def deploy_workspace(
     folder_path_to_include: list[str] | None = None,
     items_to_include: list[str] | None = None,
     shortcut_exclude_regex: str | None = None,
+    bulk: bool = False,
+    max_workers: int = 4,
 ) -> DeployResult:
     """Deploy a Fabric item tree via fabric-cicd 1.0.0.
 
@@ -99,6 +101,8 @@ def deploy_workspace(
             item names/types. Applies to both publish and orphan-unpublish.
         shortcut_exclude_regex: fabric-cicd pass-through — skip matching
             shortcuts during publish.
+        bulk: If True, publish items concurrently using a worker pool.
+        max_workers: Concurrency worker limit for bulk publish (default: 4).
 
     Raises:
         HardcodedGuidError: parameters.yml contains a raw GUID.
@@ -151,6 +155,9 @@ def deploy_workspace(
             target_workspace=target_workspace,
             workspace_id=workspace_id,
             environment=environment,
+            repository_directory=repository_directory,
+            item_type_in_scope=item_type_in_scope,
+            parameters_path=str(substituted_path),
             dot_path=dot_path,
             tp=tp,
             unpublish_orphans=unpublish_orphans,
@@ -161,6 +168,8 @@ def deploy_workspace(
             folder_path_to_include=folder_path_to_include,
             items_to_include=items_to_include,
             shortcut_exclude_regex=shortcut_exclude_regex,
+            bulk=bulk,
+            max_workers=max_workers,
         )
     finally:
         _params_tmpdir.cleanup()
@@ -171,6 +180,9 @@ def _publish_and_optionally_unpublish(
     target_workspace: FabricWorkspace,
     workspace_id: str,
     environment: str,
+    repository_directory: str,
+    item_type_in_scope: list[str],
+    parameters_path: str,
     dot_path: str,
     tp: TokenProvider,
     unpublish_orphans: bool,
@@ -181,6 +193,8 @@ def _publish_and_optionally_unpublish(
     folder_path_to_include: list[str] | None,
     items_to_include: list[str] | None,
     shortcut_exclude_regex: str | None,
+    bulk: bool = False,
+    max_workers: int = 4,
 ) -> DeployResult:
     """Internal helper: publish + (optionally) orphan-unpublish + assemble result.
 
@@ -189,6 +203,74 @@ def _publish_and_optionally_unpublish(
     fabric-cicd reads ``parameter_file_path`` lazily during ``publish_all_items``,
     so the tempfile must outlive the publish call.
     """
+    if bulk:
+        candidate_items: list[str] = []
+        if items_to_include:
+            candidate_items = list(items_to_include)
+        elif hasattr(target_workspace, "repository_items") and isinstance(
+            target_workspace.repository_items, dict
+        ):
+            for it_type, bucket in target_workspace.repository_items.items():
+                if isinstance(bucket, dict):
+                    for it_name in bucket.keys():
+                        candidate_items.append(f"{it_type}.{it_name}")
+                elif isinstance(bucket, list):
+                    for it in bucket:
+                        name = getattr(it, "name", str(it))
+                        candidate_items.append(f"{it_type}.{name}")
+                else:
+                    candidate_items.append(str(it_type))
+
+        if len(candidate_items) > 1:
+            import concurrent.futures
+
+            def _publish_single_item(spec: str) -> bool:
+                ws = FabricWorkspace(
+                    workspace_id=workspace_id,
+                    environment=environment,
+                    repository_directory=repository_directory,
+                    item_type_in_scope=item_type_in_scope,
+                    token_credential=tp.get_credential(),
+                    parameter_file_path=parameters_path,
+                )
+                try:
+                    publish_all_items(ws, items_to_include=[spec])
+                    return True
+                except Exception:
+                    return False
+
+            workers = min(max_workers, len(candidate_items))
+            with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+                results = list(executor.map(_publish_single_item, candidate_items))
+                published = results.count(True)
+                failed = results.count(False)
+
+            orphans = 0
+            if unpublish_orphans:
+                orphans = _unpublish_orphans_gated(
+                    target_workspace,
+                    force=unpublish_force,
+                    runbook_id=unpublish_runbook_id,
+                    resource_id=workspace_id,
+                    token_provider=tp,
+                    item_name_exclude_regex=item_name_exclude_regex,
+                    items_to_include=items_to_include,
+                )
+
+            if failed > 0:
+                raise RuntimeError(
+                    f"{failed} item(s) failed to publish (succeeded={published}); "
+                    f"see log for per-item status."
+                )
+
+            return DeployResult(
+                workspace_id=workspace_id,
+                environment=environment,
+                items_published=published,
+                items_failed=failed,
+                orphans_unpublished=orphans,
+                dot_graph_path=dot_path,
+            )
 
     # 4) Publish — forward fabric-cicd's folder/item scope filters.
     publish_result = publish_all_items(
