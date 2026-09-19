@@ -69,6 +69,8 @@ test = [
     "respx>=0.21,<0.24",
     "freezegun>=1.5,<2.0",
     "jsonschema>=4.20,<5.0",
+    "build>=1.2,<2.0",
+    "twine>=7.0,<8.0",
 ]
 docs = [
     "mkdocs>=1.6,<2.0",
