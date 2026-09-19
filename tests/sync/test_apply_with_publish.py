@@ -1178,3 +1178,42 @@ def test_republish_existing_requires_with_publish(
                 params_path=params,
                 **doubles_kwargs,
             )
+
+
+def test_apply_sync_bulk_forwarded_to_publish_fn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """apply_sync forwards bulk=True to publish_fn."""
+    sync_yml, params, audit_dir, _ = _republish_setup(tmp_path)
+    publish_result = PublishResult(
+        outcome="succeeded",
+        published_items=["A.Notebook", "B.Notebook", "C.Notebook"],
+        failed_item=None,
+    )
+
+    fake_publish, _, _, doubles_kwargs = _patch_publish_path(
+        monkeypatch,
+        snapshot_items=[],
+        publish_result=publish_result,
+        reconcile_report=_make_fake_report_for_moves([("A", "Notebook")]),
+    )
+
+    workspace_id = "ws-bulk-forward"
+    with respx.mock(base_url=FABRIC_AUDIENCE) as router:
+        router.get(f"/v1/workspaces/{workspace_id}").mock(
+            return_value=httpx.Response(200, json={"id": workspace_id, "gitConnection": None})
+        )
+        with _client_with_mock_token() as client:
+            apply_sync(
+                manifest_path=sync_yml,
+                workspace_id=workspace_id,
+                client=client,
+                audit_dir=audit_dir,
+                with_publish=True,
+                bulk=True,
+                params_path=params,
+                **doubles_kwargs,
+            )
+
+    fake_publish.assert_called_once()
+    assert fake_publish.call_args.kwargs.get("bulk") is True

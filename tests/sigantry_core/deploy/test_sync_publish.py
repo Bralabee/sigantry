@@ -589,3 +589,101 @@ def test_publish_absent_items_empty_absent_list_short_circuits_no_publish_call(
     assert result.outcome == "succeeded"
     assert result.published_items == []
     assert result.failed_item is None
+
+
+def test_publish_absent_items_bulk_parallel_success(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    reset_feature_flags,
+    mock_token_provider: MagicMock,
+) -> None:
+    """bulk=True uses ThreadPoolExecutor to publish multiple absent items concurrently."""
+    from sigantry_core.deploy.sync_publish import (
+        PublishResult,
+        publish_absent_items,
+    )
+
+    _, _, fake_publish = _patch_fabric_cicd(
+        monkeypatch, publish_return={"summary": {"Succeeded": 1, "Failed": 0}}
+    )
+
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    params = tmp_path / "parameters.yml"
+    params.write_text("# substituted\n", encoding="utf-8")
+
+    absent = [
+        _make_sync_item(display_name="itemA", type_="Notebook"),
+        _make_sync_item(display_name="itemB", type_="Lakehouse"),
+        _make_sync_item(display_name="itemC", type_="DataPipeline"),
+    ]
+
+    result = publish_absent_items(
+        workspace_id="ws-bulk-1",
+        environment="DEV",
+        staging_dir=staging,
+        absent_items=absent,
+        item_type_in_scope=["Notebook", "Lakehouse", "DataPipeline"],
+        parameters_path=params,
+        token_provider=mock_token_provider,
+        bulk=True,
+        max_workers=3,
+    )
+
+    assert isinstance(result, PublishResult)
+    assert result.outcome == "succeeded"
+    assert len(result.published_items) == 3
+    assert set(result.published_items) == {
+        "itemA.Notebook",
+        "itemB.Lakehouse",
+        "itemC.DataPipeline",
+    }
+    assert result.failed_item is None
+    # Concurrency invoked publish_all_items once per item
+    assert fake_publish.call_count == 3
+
+
+def test_publish_absent_items_bulk_parallel_partial_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    reset_feature_flags,
+    mock_token_provider: MagicMock,
+) -> None:
+    """bulk=True captures failed item and returns partial-failure when one worker fails."""
+    from sigantry_core.deploy.sync_publish import (
+        PublishResult,
+        publish_absent_items,
+    )
+
+    def _side_effect(ws, items_to_include=None, **kwargs):
+        if items_to_include and any("itemB" in it for it in items_to_include):
+            raise RuntimeError("API 500 error publishing itemB")
+        return {"summary": {"Succeeded": 1, "Failed": 0}}
+
+    _, _, _fake_publish = _patch_fabric_cicd(monkeypatch, publish_side_effect=_side_effect)
+
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    params = tmp_path / "parameters.yml"
+    params.write_text("# substituted\n", encoding="utf-8")
+
+    absent = [
+        _make_sync_item(display_name="itemA", type_="Notebook"),
+        _make_sync_item(display_name="itemB", type_="Notebook"),
+    ]
+
+    result = publish_absent_items(
+        workspace_id="ws-bulk-2",
+        environment="DEV",
+        staging_dir=staging,
+        absent_items=absent,
+        item_type_in_scope=["Notebook"],
+        parameters_path=params,
+        token_provider=mock_token_provider,
+        bulk=True,
+    )
+
+    assert isinstance(result, PublishResult)
+    assert result.outcome == "partial-failure"
+    assert "itemA.Notebook" in result.published_items
+    assert result.failed_item == "itemB.Notebook"

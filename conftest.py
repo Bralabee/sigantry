@@ -19,6 +19,11 @@ from __future__ import annotations
 
 import os
 
+# Enforce clean non-color CLI output across all runner invocations and CI platforms
+os.environ["NO_COLOR"] = "1"
+os.environ["TERM"] = "dumb"
+os.environ.pop("FORCE_COLOR", None)
+
 collect_ignore: list[str] = []
 if os.environ.get("PYTEST_RUN_SMOKE") != "1":
     collect_ignore.append("tests/smoke/test_deploy_matrix.py")

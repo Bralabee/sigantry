@@ -57,13 +57,15 @@ def create_workspace(
     if domain_id is not None:
         body["domainId"] = domain_id
     resp = client.send("POST", "/v1/workspaces", json=body)
-    return Workspace.from_api(resp.json_body)
+    payload = resp.json_body if isinstance(resp.json_body, dict) else {}
+    return Workspace.from_api(payload)
 
 
 def get_workspace(client: FabricRestClient, workspace_id: str) -> Workspace:
     """GET /v1/workspaces/{id} - 200 sync."""
     resp = client.send("GET", f"/v1/workspaces/{workspace_id}")
-    return Workspace.from_api(resp.json_body)
+    payload = resp.json_body if isinstance(resp.json_body, dict) else {}
+    return Workspace.from_api(payload)
 
 
 def update_workspace(
@@ -80,7 +82,8 @@ def update_workspace(
     if description is not None:
         body["description"] = description
     resp = client.send("PATCH", f"/v1/workspaces/{workspace_id}", json=body)
-    return Workspace.from_api(resp.json_body)
+    payload = resp.json_body if isinstance(resp.json_body, dict) else {}
+    return Workspace.from_api(payload)
 
 
 @destructive_op("workspace", "delete", resource_arg="workspace_id")

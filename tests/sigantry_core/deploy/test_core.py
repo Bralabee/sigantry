@@ -464,3 +464,87 @@ def test_deploy_workspace_counts_nested_repository_items(
     )
     assert result.items_published == 14
     assert result.items_failed == 0
+
+
+def test_deploy_workspace_bulk_parallel_success(
+    monkeypatch, mock_token_provider, tmp_item_tree: Path
+) -> None:
+    """deploy_workspace with bulk=True executes item publish concurrently across workers."""
+    fake_instance = MagicMock(name="fabric_workspace_instance")
+    fake_instance.repository_items = {
+        "Notebook": {"nb1": object(), "nb2": object()},
+        "DataPipeline": {"pipe1": object()},
+    }
+    fake_ws_class = MagicMock(name="FabricWorkspace", return_value=fake_instance)
+    fake_pub = MagicMock(name="publish_all_items", return_value=None)
+    fake_unpub = MagicMock(name="unpublish_all_orphan_items", return_value=None)
+
+    monkeypatch.setattr("sigantry_core.deploy.core.FabricWorkspace", fake_ws_class)
+    monkeypatch.setattr("sigantry_core.deploy.core.publish_all_items", fake_pub)
+    monkeypatch.setattr("sigantry_core.deploy.core.unpublish_all_orphan_items", fake_unpub)
+    monkeypatch.setattr(
+        "sigantry_core.deploy.core.load_and_validate",
+        MagicMock(name="load_and_validate", return_value=MagicMock(raw={})),
+    )
+    monkeypatch.setattr(
+        "sigantry_core.deploy.core.validate_order",
+        MagicMock(name="validate_order", return_value=None),
+    )
+
+    result = deploy_workspace(
+        workspace_id="w1",
+        repository_directory=str(tmp_item_tree),
+        environment="DEV",
+        item_type_in_scope=["Notebook", "DataPipeline"],
+        parameters_path=str(tmp_item_tree / "parameters.yml"),
+        token_provider=mock_token_provider,
+        bulk=True,
+        max_workers=3,
+    )
+    assert result.items_published == 3
+    assert result.items_failed == 0
+    # Each item was dispatched via worker pool
+    assert fake_pub.call_count == 3
+
+
+def test_deploy_workspace_bulk_parallel_failure_raises(
+    monkeypatch, mock_token_provider, tmp_item_tree: Path
+) -> None:
+    """deploy_workspace with bulk=True raises RuntimeError when any worker publish fails."""
+    fake_instance = MagicMock(name="fabric_workspace_instance")
+    fake_instance.repository_items = {
+        "Notebook": {"nb1": object(), "nb2": object()},
+    }
+    fake_ws_class = MagicMock(name="FabricWorkspace", return_value=fake_instance)
+
+    def _pub_side_effect(ws, items_to_include=None, **kwargs):
+        if items_to_include and "Notebook.nb2" in items_to_include:
+            raise RuntimeError("upstream error")
+        return None
+
+    fake_pub = MagicMock(name="publish_all_items", side_effect=_pub_side_effect)
+    fake_unpub = MagicMock(name="unpublish_all_orphan_items", return_value=None)
+
+    monkeypatch.setattr("sigantry_core.deploy.core.FabricWorkspace", fake_ws_class)
+    monkeypatch.setattr("sigantry_core.deploy.core.publish_all_items", fake_pub)
+    monkeypatch.setattr("sigantry_core.deploy.core.unpublish_all_orphan_items", fake_unpub)
+    monkeypatch.setattr(
+        "sigantry_core.deploy.core.load_and_validate",
+        MagicMock(name="load_and_validate", return_value=MagicMock(raw={})),
+    )
+    monkeypatch.setattr(
+        "sigantry_core.deploy.core.validate_order",
+        MagicMock(name="validate_order", return_value=None),
+    )
+
+    with pytest.raises(RuntimeError) as exc_info:
+        deploy_workspace(
+            workspace_id="w1",
+            repository_directory=str(tmp_item_tree),
+            environment="DEV",
+            item_type_in_scope=["Notebook"],
+            parameters_path=str(tmp_item_tree / "parameters.yml"),
+            token_provider=mock_token_provider,
+            bulk=True,
+        )
+    assert "1 item(s) failed to publish" in str(exc_info.value)

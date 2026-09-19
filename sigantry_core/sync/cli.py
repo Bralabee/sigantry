@@ -183,6 +183,11 @@ def apply_cmd(
             "See ADR-0013 for the resolution rule."
         ),
     ),
+    bulk: bool = typer.Option(
+        False,
+        "--bulk",
+        help="Enable concurrent bulk publish acceleration for multi-item publish.",
+    ),
     unpublish_orphans: bool = typer.Option(
         False,
         "--unpublish-orphans",
@@ -250,7 +255,9 @@ def apply_cmd(
         # the _ALL_ wildcard, --environment becomes REQUIRED. Use getattr
         # for forward-compat in case the ParametersConfig dataclass shape
         # evolves in a future deploy-module refactor.
-        envs_seen = getattr(params_config, "environments_seen", frozenset())
+        envs_seen: set[str] | frozenset[str] = getattr(
+            params_config, "environments_seen", frozenset()
+        )
         if envs_seen and environment is None:
             available = ", ".join(sorted(envs_seen))
             raise typer.BadParameter(
@@ -268,6 +275,7 @@ def apply_cmd(
             dry_run=dry_run,
             with_publish=with_publish,
             republish_existing=republish_existing,
+            bulk=bulk,
             params_path=params,
             unpublish_orphans=unpublish_orphans,
         )

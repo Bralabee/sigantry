@@ -251,6 +251,11 @@ def run(
         "--dry-run",
         help="Skip the POST; print the rendered Markdown body to stdout instead.",
     ),
+    fail_on_breaking: bool = typer.Option(
+        False,
+        "--fail-on-breaking",
+        help="Exit 1 if any breaking changes (dropped tables, columns, measures, relationships) are detected in TMDL.",
+    ),
 ) -> None:
     """Run the PR-review bot once: detect provider, diff TMDL + Lakehouse, post comment.
 
@@ -349,17 +354,31 @@ def run(
         head_sha=str(getattr(pr, "head_sha", "")),
         changed_files_count=len(changed_files),
     )
+    from sigantry_core.pr_bot.breaking import (
+        analyze_tmdl_breaking_changes,
+        render_breaking_changes_markdown,
+    )
+
+    breaking_changes = analyze_tmdl_breaking_changes(tmdl_or_none)
+    footer_text = render_breaking_changes_markdown(breaking_changes)
+
     payload = PrCommentPayload(
         summary=summary,
         tmdl_diff=tmdl_or_none,
         lakehouse_diff=lakehouse_or_none,
-        footer="",
+        footer=footer_text,
     ).with_hash()
     body = render_markdown(payload)
 
     # ----- dry-run vs. POST ------------------------------------------------
     if dry_run:
         typer.echo(body)
+        if fail_on_breaking and breaking_changes:
+            typer.echo(
+                f"error: {len(breaking_changes)} breaking change(s) detected in semantic model.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
         raise typer.Exit(code=0)
 
     try:
@@ -372,6 +391,12 @@ def run(
         raise typer.Exit(code=3) from exc
 
     typer.echo(f"Posted comment {comment_id}")
+    if fail_on_breaking and breaking_changes:
+        typer.echo(
+            f"error: {len(breaking_changes)} breaking change(s) detected in semantic model.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
     raise typer.Exit(code=0)
 
 

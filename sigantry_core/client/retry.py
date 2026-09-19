@@ -29,7 +29,7 @@ import email.utils
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import TypeVar
+from typing import TypeVar, cast
 
 import httpx
 import tenacity
@@ -206,12 +206,12 @@ def execute_with_retry(
     """
     policy = build_retry_policy(max_attempts=max_attempts, method=method)
     try:
-        return policy(func)
+        return cast(httpx.Response, policy(func))
     except tenacity.RetryError as exc:
         last = exc.last_attempt
         if last is None or last.failed:
             raise
-        return last.result()
+        return cast(httpx.Response, last.result())
 
 
 def classify_response(resp: httpx.Response) -> None:

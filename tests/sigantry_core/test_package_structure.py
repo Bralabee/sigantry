@@ -20,6 +20,7 @@ EXPECTED_SUBMODULES = [
     "sigantry_core.governance",
     "sigantry_core.monitor",
     "sigantry_core.pipelines",
+    "sigantry_core.preflight",
     "sigantry_core.purview",
     "sigantry_core.utils",
     "sigantry_core.workspace",

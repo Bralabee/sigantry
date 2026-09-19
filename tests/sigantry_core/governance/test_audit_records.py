@@ -10,6 +10,7 @@ which does not exist). Audit lines append via the existing
 from __future__ import annotations
 
 import json
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -131,9 +132,10 @@ def test_approval_record_jsonl_appended(tmp_path: Path) -> None:
     jsonl = tmp_path / "approvals.jsonl"
     assert jsonl.is_file(), "approvals.jsonl must be created on emit"
     # File mode 0o600 (owner-only) -- mirrors emit_deploy_record + emit_secret_change_record.
-    assert jsonl.stat().st_mode & 0o777 == 0o600, (
-        f"approvals.jsonl must be 0o600; got {oct(jsonl.stat().st_mode & 0o777)}"
-    )
+    if not sys.platform.startswith("win"):
+        assert jsonl.stat().st_mode & 0o777 == 0o600, (
+            f"approvals.jsonl must be 0o600; got {oct(jsonl.stat().st_mode & 0o777)}"
+        )
     lines = jsonl.read_text("utf-8").splitlines()
     assert len(lines) == 1, "exactly one jsonl line per emit call"
 

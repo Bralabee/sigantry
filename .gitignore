@@ -58,6 +58,7 @@ docs/tutorial/
 
 # fabric-cicd deploy artefacts (dep-graph.dot from validate_order)
 deploy-artefacts/
+site/
 
 # Remotion video-tutorial scratch project — unrelated side-project for
 # authoring internal walkthrough videos; not part of the toolkit.

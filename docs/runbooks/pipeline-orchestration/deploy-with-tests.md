@@ -122,7 +122,7 @@ are pluggable hooks with sensible defaults. Override via `parameters.yml`:
 ```yaml
 # parameters.yml
 smoke_command: 'sigantry doctor && sigantry workspace list --workspace-id $WS_ID'
-integration_command: 'pytest tests/contract/ -m hs2_post_deploy -v'
+integration_command: 'pytest tests/contract/ -m post_deploy -v'
 ```
 
 Or via pipeline inputs (ADO):

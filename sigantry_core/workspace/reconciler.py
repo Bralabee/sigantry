@@ -350,8 +350,8 @@ def apply_reconcile(
             created_by_path[planned.path] = existing_by_path[planned.path]
             continue
         parent_path = planned.path[:-1]
-        parent_id = existing_by_path.get(parent_path) or created_by_path.get(parent_path)
-        parent_id = parent_id.id if parent_id else None
+        parent_folder = existing_by_path.get(parent_path) or created_by_path.get(parent_path)
+        parent_id = parent_folder.id if parent_folder else None
         folder = create_folder(
             client,
             plan.workspace_id,

@@ -21,7 +21,7 @@ import logging
 import time
 import uuid
 from collections.abc import Iterator
-from typing import Any
+from typing import Any, Self
 
 import httpx
 
@@ -383,7 +383,7 @@ class BaseRestClient:
     def close(self) -> None:
         self._http.close()
 
-    def __enter__(self) -> BaseRestClient:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:

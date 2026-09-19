@@ -85,6 +85,7 @@ def test_wheel_contents_match_package_tree(repo_root: pathlib.Path) -> None:
             "sigantry_core/monitor/__init__.py",
             "sigantry_core/deploy/__init__.py",
             "sigantry_core/pipelines/__init__.py",
+            "sigantry_core/preflight/__init__.py",
             "sigantry_core/purview/__init__.py",
             "sigantry_core/utils/__init__.py",
         }

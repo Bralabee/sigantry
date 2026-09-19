@@ -65,6 +65,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 from sigantry_core.auth import TokenProvider
 from sigantry_core.client import FabricRestClient
@@ -238,15 +239,18 @@ def _reconcile_phase(
     abstraction level.
     """
     try:
-        return reconcile_fn(
-            client_obj,
-            workspace_id,
-            repository_directory=staging_dir,
-            apply=apply,
-            unpublish_orphans=unpublish_orphans,
-            force=unpublish_orphans,
-            token_provider=token_provider,
-            preserve_paths=manifest.folders if manifest else None,
+        return cast(
+            ReconcileReport,
+            reconcile_fn(
+                client_obj,
+                workspace_id,
+                repository_directory=staging_dir,
+                apply=apply,
+                unpublish_orphans=unpublish_orphans,
+                force=unpublish_orphans,
+                token_provider=token_provider,
+                preserve_paths=manifest.folders if manifest else None,
+            ),
         )
     except Exception as exc:
         raise ReconcilerWrapError(f"Reconciler failed for workspace {workspace_id}: {exc}") from exc
@@ -267,6 +271,7 @@ def _emit_combined_publish_record_phase(
     token_provider: TokenProvider | None,
     publish_fn,
     republish_existing: bool = False,
+    bulk: bool = False,
 ) -> SyncApplyReport:
     """W4.2 phase: drive ``publish_fn`` + emit the ONE combined DeployRecord.
 
@@ -301,15 +306,22 @@ def _emit_combined_publish_record_phase(
     item_type_in_scope = sorted({it.type for it in items_to_publish}) or sorted(
         {it.type for it in manifest.items}
     )
-    publish_result = publish_fn(
-        workspace_id=workspace_id,
-        environment=environment,
-        staging_dir=staging_dir,
-        absent_items=items_to_publish,
-        item_type_in_scope=item_type_in_scope,
-        parameters_path=substituted_params_path,
-        token_provider=token_provider or TokenProvider.from_defaults(),
-    )
+    publish_kwargs = {
+        "workspace_id": workspace_id,
+        "environment": environment,
+        "staging_dir": staging_dir,
+        "absent_items": items_to_publish,
+        "item_type_in_scope": item_type_in_scope,
+        "parameters_path": substituted_params_path,
+        "token_provider": token_provider or TokenProvider.from_defaults(),
+    }
+    if bulk:
+        try:
+            publish_result = publish_fn(**publish_kwargs, bulk=True)
+        except TypeError:
+            publish_result = publish_fn(**publish_kwargs)
+    else:
+        publish_result = publish_fn(**publish_kwargs)
     record = _build_combined_record(
         workspace_id=workspace_id,
         manifest=manifest,
@@ -599,6 +611,7 @@ def apply_sync(
     dry_run: bool = False,
     with_publish: bool = False,
     republish_existing: bool = False,
+    bulk: bool = False,
     params_path: str | Path | None = None,
     unpublish_orphans: bool = False,
     client: FabricRestClient | None = None,
@@ -881,6 +894,7 @@ def apply_sync(
                 token_provider=token_provider,
                 publish_fn=publish_fn,
                 republish_existing=republish_existing,
+                bulk=bulk,
             )
         return _emit_default_record_phase(
             workspace_id=workspace_id,
