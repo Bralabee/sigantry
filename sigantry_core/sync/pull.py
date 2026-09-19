@@ -463,6 +463,9 @@ def _serialise_manifest(manifest: SyncManifest) -> str:
     ordering (``schema_version`` -> ``items`` -> ``folders``).
     """
     payload = manifest.model_dump(mode="json", exclude_none=True)
+    for item in payload.get("items", []):
+        if "local_path" in item and isinstance(item["local_path"], str):
+            item["local_path"] = item["local_path"].replace("\\", "/")
     return yaml.safe_dump(payload, sort_keys=False)
 
 
