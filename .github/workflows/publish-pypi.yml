@@ -1,4 +1,4 @@
-# sigantry-dual-ci-exception: pypi-mechanics
+# sigantry-dual-ci-exception: ci-mechanics
 name: Publish to PyPI
 
 on:
