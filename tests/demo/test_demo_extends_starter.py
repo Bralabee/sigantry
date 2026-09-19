@@ -60,7 +60,7 @@ def test_every_starter_file_byte_equal_in_demo() -> None:
     """Every starter file appears byte-equal in demo modulo DEMO_DIVERGENCE_ALLOWED."""
     for src in _iter_starter_files():
         rel = src.relative_to(_STARTER_DIR)
-        if str(rel) in _DEMO_DIVERGENCE_ALLOWED:
+        if rel.as_posix() in _DEMO_DIVERGENCE_ALLOWED:
             continue
         dst = _DEMO_DIR / rel
         assert dst.is_file(), f"demo missing {rel} (must extend starter)"
@@ -77,7 +77,7 @@ def test_demo_has_no_files_outside_starter_skeleton_apart_from_fabric_items() ->
         # Demo-only additions: fabric_items/** + sync.yml at top level.
         if rel.parts and rel.parts[0] in _DEMO_ONLY_TOP_DIRS:
             continue
-        if str(rel) in _DEMO_ONLY_TOP_LEVEL:
+        if rel.as_posix() in _DEMO_ONLY_TOP_LEVEL:
             continue
         raise AssertionError(f"demo carries unexpected file with no starter counterpart: {rel}")
 

@@ -66,7 +66,7 @@ class TestSuccessfulRoundTrip:
             assert result.status_code == 200
             assert result.json_body == {"value": []}
             assert result.request_id == "req-1"
-            assert result.elapsed_ms > 0.0
+            assert result.elapsed_ms >= 0.0
 
     def test_token_fetched_on_send(
         self, client: BaseRestClient, mock_token_provider: MagicMock

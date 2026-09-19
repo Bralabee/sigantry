@@ -1,0 +1,12 @@
+# Auto-detect text files and normalize line endings to LF on checkout
+* text=auto eol=lf
+
+# Explicit LF enforcement for code, markup, configs, and documentation
+*.py text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.sh text eol=lf
+.order text eol=lf
