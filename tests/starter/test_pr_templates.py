@@ -66,7 +66,7 @@ def test_pr_templates_share_checklist_section() -> None:
     assert gh_fenced == partial_fenced, (
         "PR template fenced region has drifted from _partials/pr-checklist.md"
     )
-    assert partial_bytes.rstrip(b"\n") == partial_fenced.rstrip(b"\n"), (
+    assert partial_bytes.rstrip(b"\r\n") == partial_fenced.rstrip(b"\r\n"), (
         "_partials/pr-checklist.md should consist of the fenced block and "
         "nothing else (modulo trailing newline)"
     )

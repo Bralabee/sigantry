@@ -394,16 +394,21 @@ def show_cmd(
         "--audit-dir",
         help="Override ~/.sigantry/audit/.",
     ),
+    html: bool = typer.Option(
+        False,
+        "--html",
+        help="Emit standalone interactive HTML report.",
+    ),
+    html_out: str | None = typer.Option(
+        None,
+        "--html-out",
+        help="Write HTML report to this file path instead of stdout.",
+    ),
 ) -> None:
     """Show one DeployRecord by release_id.
 
-    Output: pretty-printed JSON via ``rich.console.Console.print_json``.
-
-    The ``--json`` flag is currently INERT -- both modes emit the same
-    JSON. The flag is preserved on the surface so CI consumers can pin it
-    today and remain green if a human-mode (table / pretty repr) renderer
-    is added in a future minor release. See WR-01 / IN-05 in
-    ``.planning/phases/12-pipeline-test-orchestration-rollback/12-REVIEW.md``.
+    Output: pretty-printed JSON via ``rich.console.Console.print_json``, or
+    standalone interactive HTML when ``--html`` is specified.
     """
     audit_dir_path = Path(audit_dir) if audit_dir else None
     record = find_by_release_id(release_id, audit_dir=audit_dir_path)
@@ -411,11 +416,16 @@ def show_cmd(
         _console.print(f"[red]No release [bold]{release_id}[/bold] found in ledger.[/red]")
         raise typer.Exit(code=1)
     payload = record.model_dump(mode="json")
-    # WR-01 (review fix): the if/else was dead code -- both branches
-    # called ``_console.print_json(data=payload)``. Emit unconditionally
-    # so the contract on the wire matches the docstring. ``json_output``
-    # is preserved as a placeholder; a future plan may add a human-mode
-    # rich.Table renderer without breaking CI consumers that pin --json.
+    if html:
+        from sigantry_core.reports.html import render_release_html_report
+
+        html_content = render_release_html_report(payload)
+        if html_out:
+            Path(html_out).write_text(html_content, encoding="utf-8")
+            _console.print(f"[green]HTML release report written to:[/green] {html_out}")
+        else:
+            typer.echo(html_content)
+        return
     del json_output  # explicit no-op acknowledgement; see docstring
     _console.print_json(data=payload)
 
@@ -433,6 +443,16 @@ def diff_cmd(
         None,
         "--audit-dir",
         help="Override ~/.sigantry/audit/.",
+    ),
+    html: bool = typer.Option(
+        False,
+        "--html",
+        help="Emit standalone interactive HTML report.",
+    ),
+    html_out: str | None = typer.Option(
+        None,
+        "--html-out",
+        help="Write HTML report to this file path instead of stdout.",
     ),
 ) -> None:
     """Diff fabric_items_changed between two releases (added / removed / unchanged).
@@ -457,6 +477,21 @@ def diff_cmd(
         _console.print(f"[red]No release [bold]{release_id_2}[/bold] in ledger.[/red]")
         raise typer.Exit(code=1)
     diff = diff_records(a, b)
+    if html:
+        from sigantry_core.reports.html import render_release_diff_html_report
+
+        payload = {
+            "release_a": release_id_1,
+            "release_b": release_id_2,
+            **diff,
+        }
+        html_content = render_release_diff_html_report(payload)
+        if html_out:
+            Path(html_out).write_text(html_content, encoding="utf-8")
+            _console.print(f"[green]HTML release diff report written to:[/green] {html_out}")
+        else:
+            typer.echo(html_content)
+        return
     if json_output:
         payload = {
             "release_a": release_id_1,

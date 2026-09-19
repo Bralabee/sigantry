@@ -39,6 +39,8 @@ green ``=`` unchanged).
 
 from __future__ import annotations
 
+from typing import Any
+
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -79,24 +81,24 @@ def _render_human_table(report: DriftReport, *, environment: str) -> None:
     table.add_column("Folder")
     table.add_column("Detail")
 
-    for entry in report.added:
+    for add_entry in report.added:
         table.add_row(
             "[cyan]+[/cyan] added",
-            str(entry.get("type", "")),
-            str(entry.get("display_name", "")),
-            str(entry.get("folder_path", "")),
-            str(entry.get("logical_id", "")),
+            str(add_entry.get("type", "")),
+            str(add_entry.get("display_name", "")),
+            str(add_entry.get("folder_path", "")),
+            str(add_entry.get("logical_id", "")),
         )
-    for entry in report.removed:
+    for rem_entry in report.removed:
         table.add_row(
             "[red]-[/red] removed",
-            str(entry.get("type", "")),
-            str(entry.get("display_name", "")),
-            str(entry.get("folder_path", "")),
-            str(entry.get("logical_id", "")),
+            str(rem_entry.get("type", "")),
+            str(rem_entry.get("display_name", "")),
+            str(rem_entry.get("folder_path", "")),
+            str(rem_entry.get("logical_id", "")),
         )
-    for entry in report.modified:
-        fields_changed = entry.get("fields_changed", [])
+    for mod_entry in report.modified:
+        fields_changed: Any = mod_entry.get("fields_changed", [])
         if isinstance(fields_changed, list):
             detail = ", ".join(str(f) for f in fields_changed)
         else:
@@ -106,15 +108,15 @@ def _render_human_table(report: DriftReport, *, environment: str) -> None:
             "",
             "",
             "",
-            f"{entry.get('logical_id', '')}: {detail}",
+            f"{mod_entry.get('logical_id', '')}: {detail}",
         )
-    for entry in report.unchanged:
+    for unch_entry in report.unchanged:
         table.add_row(
             "[green]=[/green] unchanged",
             "",
             "",
             "",
-            str(entry.get("logical_id", "")),
+            str(unch_entry.get("logical_id", "")),
         )
 
     _console.print(table)
@@ -152,7 +154,12 @@ def diff_cmd(
     output: str = typer.Option(
         "human",
         "--output",
-        help="Output format: 'human' (default) or 'json' (SemVer-pinned wire contract).",
+        help="Output format: 'human' (default), 'json', or 'html'.",
+    ),
+    html_out: str | None = typer.Option(
+        None,
+        "--html-out",
+        help="Write HTML report to this file path instead of stdout.",
     ),
     fail_on_drift: bool = typer.Option(
         False,
@@ -180,8 +187,10 @@ def diff_cmd(
     :class:`WorkspacePendingGitUpdateError`, REST / auth failure):
     exit 2 with a red error message.
     """
-    if output not in {"human", "json"}:
-        _console.print(f"[red]Invalid --output {output!r}; must be 'human' or 'json'.[/red]")
+    if output not in {"human", "json", "html"}:
+        _console.print(
+            f"[red]Invalid --output {output!r}; must be 'human', 'json', or 'html'.[/red]"
+        )
         raise typer.Exit(code=2)
 
     try:
@@ -204,6 +213,21 @@ def diff_cmd(
 
     if output == "json":
         _console.print_json(data=report.to_json())
+    elif output == "html":
+        from pathlib import Path
+
+        from sigantry_core.reports.html import render_drift_html_report
+
+        html_content = render_drift_html_report(
+            report,
+            environment=environment,
+            workspace_id=workspace_id,
+        )
+        if html_out:
+            Path(html_out).write_text(html_content, encoding="utf-8")
+            _console.print(f"[green]HTML drift report written to:[/green] {html_out}")
+        else:
+            typer.echo(html_content)
     else:
         _render_human_table(report, environment=environment)
 

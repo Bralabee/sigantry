@@ -161,6 +161,11 @@ def deploy_cmd(
             "Used in tests + hermetic CI runners."
         ),
     ),
+    bulk: bool = typer.Option(
+        False,
+        "--bulk",
+        help="Enable concurrent bulk publish acceleration for multi-item publish.",
+    ),
 ) -> None:
     """Deploy a Fabric item tree. Non-zero exit on any item-publish failure."""
     # NOTE: rollback branch must execute BEFORE the existing
@@ -285,6 +290,7 @@ def deploy_cmd(
             folder_path_to_include=folder_paths,
             items_to_include=items_include,
             shortcut_exclude_regex=shortcut_exclude_regex,
+            bulk=bulk,
         )
     except Exception as exc:  # CLI boundary: surface anything to the user.
         _console.print(f"[red]deploy failed[/red]: {exc}")

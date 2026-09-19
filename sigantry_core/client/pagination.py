@@ -58,10 +58,10 @@ def _extract_next(body: dict[str, Any]) -> str | None:
     """
     fabric_uri = body.get("continuationUri")
     if fabric_uri:
-        return fabric_uri
+        return str(fabric_uri)
     odata = body.get("@odata.nextLink")
     if odata:
-        return odata
+        return str(odata)
     return None
 
 

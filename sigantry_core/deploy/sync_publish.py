@@ -213,6 +213,8 @@ def publish_absent_items(
     item_type_in_scope: list[str],
     parameters_path: Path,
     token_provider: TokenProvider,
+    bulk: bool = False,
+    max_workers: int = 4,
 ) -> PublishResult:
     """Publish the absent subset of a sync manifest via fabric-cicd.
 
@@ -313,10 +315,52 @@ def publish_absent_items(
         parameter_file_path=str(parameters_path),
     )
 
-    # 6. Publish the absent subset. Wrap the upstream call in a try /
-    # except so we can report ``outcome`` rather than propagate the
-    # raw fabric-cicd exception. T-17-05: the wrapped error message is
-    # BOUNDED and does NOT include str(exc).
+    # 6. Publish items. If bulk=True, run parallel worker pool for multi-item acceleration.
+    if bulk and len(items_to_include) > 1:
+        import concurrent.futures
+
+        succeeded_items: list[str] = []
+        failed_item: str | None = None
+
+        def _publish_single(spec: str) -> tuple[str, bool]:
+            ws = FabricWorkspace(
+                workspace_id=workspace_id,
+                environment=fabric_cicd_environment,
+                repository_directory=str(staging_dir),
+                item_type_in_scope=item_type_in_scope,
+                token_credential=token_provider.get_credential(),
+                parameter_file_path=str(parameters_path),
+            )
+            try:
+                publish_all_items(ws, items_to_include=[spec])
+                return (spec, True)
+            except Exception:
+                return (spec, False)
+
+        workers = min(max_workers, len(items_to_include))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [executor.submit(_publish_single, item) for item in items_to_include]
+            for fut in concurrent.futures.as_completed(futures):
+                spec, ok = fut.result()
+                if ok:
+                    succeeded_items.append(spec)
+                else:
+                    if failed_item is None:
+                        failed_item = spec
+
+        if failed_item is not None:
+            outcome = "partial-failure" if succeeded_items else "failed"
+            return PublishResult(
+                outcome=outcome,
+                published_items=succeeded_items,
+                failed_item=failed_item,
+            )
+        return PublishResult(
+            outcome="succeeded",
+            published_items=succeeded_items,
+            failed_item=None,
+        )
+
     try:
         publish_result: Any = publish_all_items(
             target_workspace,

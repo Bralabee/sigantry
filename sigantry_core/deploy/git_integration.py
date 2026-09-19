@@ -20,7 +20,7 @@ by the CLI layer (``--git-connection-id`` is required).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from sigantry_core.client import FabricRestClient
 from sigantry_core.governance.audit import destructive_op
@@ -108,10 +108,13 @@ def initialize_connection(
     ``tests/sigantry_core/deploy/test_git_integration.py:125-129,155`` assert
     the camelCase contract.
     """
-    return client.send_lro(
-        "POST",
-        f"/v1/workspaces/{workspace_id}/git/initializeConnection",
-        json={"initializationStrategy": strategy},
+    return cast(
+        dict[str, Any] | None,
+        client.send_lro(
+            "POST",
+            f"/v1/workspaces/{workspace_id}/git/initializeConnection",
+            json={"initializationStrategy": strategy},
+        ),
     )
 
 
@@ -219,18 +222,21 @@ def update_from_git(
     allow_override: bool = True,
 ) -> dict[str, Any] | None:
     """POST .../git/updateFromGit - 202 LRO."""
-    return client.send_lro(
-        "POST",
-        f"/v1/workspaces/{workspace_id}/git/updateFromGit",
-        json={
-            "workspaceHead": workspace_head,
-            "remoteCommitHash": remote_commit_hash,
-            "conflictResolution": {
-                "conflictResolutionType": "Workspace",
-                "conflictResolutionPolicy": conflict_policy,
+    return cast(
+        dict[str, Any] | None,
+        client.send_lro(
+            "POST",
+            f"/v1/workspaces/{workspace_id}/git/updateFromGit",
+            json={
+                "workspaceHead": workspace_head,
+                "remoteCommitHash": remote_commit_hash,
+                "conflictResolution": {
+                    "conflictResolutionType": "Workspace",
+                    "conflictResolutionPolicy": conflict_policy,
+                },
+                "options": {"allowOverrideItems": allow_override},
             },
-            "options": {"allowOverrideItems": allow_override},
-        },
+        ),
     )
 
 
@@ -259,10 +265,13 @@ def commit_to_git(
     }
     if mode == "Selective":
         body["items"] = selected_items
-    return client.send_lro(
-        "POST",
-        f"/v1/workspaces/{workspace_id}/git/commitToGit",
-        json=body,
+    return cast(
+        dict[str, Any] | None,
+        client.send_lro(
+            "POST",
+            f"/v1/workspaces/{workspace_id}/git/commitToGit",
+            json=body,
+        ),
     )
 
 

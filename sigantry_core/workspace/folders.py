@@ -69,7 +69,8 @@ def create_folder(
     if parent_folder_id is not None:
         body["parentFolderId"] = parent_folder_id
     resp = client.send("POST", f"/v1/workspaces/{workspace_id}/folders", json=body)
-    return Folder.from_api(resp.json_body, workspace_id)
+    payload = resp.json_body if isinstance(resp.json_body, dict) else {}
+    return Folder.from_api(payload, workspace_id)
 
 
 @destructive_op("folder", "delete", resource_arg="folder_id")

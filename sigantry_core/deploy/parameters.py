@@ -36,7 +36,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
@@ -233,7 +233,7 @@ def substitute_env_references(doc: dict[str, Any]) -> dict[str, Any]:
             return _expand(node)
         return node
 
-    return _walk(doc)
+    return cast(dict[str, Any], _walk(doc))
 
 
 def write_substituted_parameters(config: ParametersConfig, target_path: str | Path) -> Path:

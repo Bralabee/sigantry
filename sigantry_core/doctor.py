@@ -180,8 +180,12 @@ def _dist_name_for_plugin(p: PluginInfo) -> str | None:
     if not p.module:
         return None
     top = p.module.split(".", 1)[0]
-    # Try both the dotted module path and the top-level segment.
-    for candidate in (p.module, top, top.replace("_", "-")):
+    # Try both the dotted module path and the top-level segment, plus stripped _core for sigantry.
+    candidates = [p.module, top, top.replace("_", "-")]
+    if top.endswith("_core"):
+        candidates.append(top[:-5])
+        candidates.append(top[:-5].replace("_", "-"))
+    for candidate in candidates:
         try:
             _pkg_version(candidate)
             return candidate

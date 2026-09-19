@@ -20,6 +20,8 @@ Audit-2026-05-07 W2.2: registry probe goes through the canonical
 
 from __future__ import annotations
 
+from typing import cast
+
 from sigantry_core._dispatch import resolve_seam
 from sigantry_core.protocols import DataQualityGate, DataRef, GateResult
 from sigantry_core.registry import GROUP_DQ_GATES, Registry
@@ -38,15 +40,16 @@ def run_gate(
     Parameters
     ----------
     suite
-        Suite identifier passed straight through to the gate implementation.
+        Name / identifier of the suite to execute (e.g. ``"bronze_trips"``).
     data_ref
-        Opaque :class:`DataRef` describing the dataset to evaluate.
+        Dictionary referencing the dataset to validate.
     gate
-        Optional pre-instantiated gate (direct DI). Wins over ``gate_name``.
+        Explicit implementation instance.  When provided, registry lookup is
+        skipped.
     gate_name
-        Name the gate is registered under. Required when ``gate`` is ``None``.
+        Name of the plugin registered under ``sigantry.dq_gates``.
     registry
-        Optional :class:`Registry` to resolve the gate from; defaults to
+        Explicit :class:`~sigantry_core.registry.Registry`.  Defaults to
         :func:`default_registry`.
 
     Returns
@@ -73,7 +76,9 @@ def run_gate(
         impl=gate,
         registry=registry,
     )
-    return resolved.run(suite, data_ref)
+    if resolved is None:
+        raise KeyError(f"DQ gate {gate_name!r} could not be resolved from registry")
+    return cast(GateResult, resolved.run(suite, data_ref))
 
 
 __all__ = ["run_gate"]

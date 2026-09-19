@@ -404,7 +404,7 @@ def _await_publish(
         )
         body = resp.json_body if isinstance(resp.json_body, dict) else {}
         publish_details = (body.get("properties") or {}).get("publishDetails") or {}
-        last_state = publish_details.get("state", "Unknown")
+        last_state = str(publish_details.get("state", "Unknown"))
 
         if last_state in _PUBLISH_OK_STATES:
             return last_state

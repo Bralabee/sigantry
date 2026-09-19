@@ -383,7 +383,7 @@ def _scoped_capacities(
 
 def _member_type(member: dict[str, Any]) -> str:
     """Map Graph ``@odata.type`` to our principal_type vocabulary."""
-    odata = member.get("@odata.type", "")
+    odata = str(member.get("@odata.type", ""))
     if odata.endswith(".user"):
         return "User"
     if odata.endswith(".group"):

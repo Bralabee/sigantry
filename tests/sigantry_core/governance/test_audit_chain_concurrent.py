@@ -35,6 +35,7 @@ import json
 import logging
 import multiprocessing as mp
 import stat
+import sys
 from datetime import UTC, datetime
 from multiprocessing.synchronize import Barrier
 from pathlib import Path
@@ -98,6 +99,10 @@ def _concurrent_bootstrap_writer(
         emit_bootstrap_record(rec, audit_dir=audit_dir)
 
 
+@pytest.mark.skipif(
+    sys.platform.startswith("win"),
+    reason="POSIX fork not supported on Windows.",
+)
 @pytest.mark.parametrize(
     "n_workers,records_per_worker",
     [(4, 8)],
@@ -158,6 +163,10 @@ def test_concurrent_processes_produce_valid_chain(
         )
 
 
+@pytest.mark.skipif(
+    sys.platform.startswith("win"),
+    reason="POSIX fork not supported on Windows.",
+)
 def test_concurrent_bootstrap_writers_produce_valid_chain(tmp_path: Path) -> None:
     """``emit_bootstrap_record`` shares the lock — chain stays valid under fork."""
     audit_dir = tmp_path / "audit"
@@ -209,6 +218,10 @@ def test_audit_chain_lock_releases_on_exception(tmp_path: Path) -> None:
         pass
 
 
+@pytest.mark.skipif(
+    sys.platform.startswith("win"),
+    reason="POSIX permission modes not supported on Windows.",
+)
 def test_audit_chain_lock_file_carries_owner_only_mode(tmp_path: Path) -> None:
     """The sibling ``.lock`` file is created with mode 0o600 (matches the ledger).
 
@@ -228,6 +241,10 @@ def test_audit_chain_lock_file_carries_owner_only_mode(tmp_path: Path) -> None:
     )
 
 
+@pytest.mark.skipif(
+    sys.platform.startswith("win"),
+    reason="POSIX permission modes not supported on Windows.",
+)
 def test_audit_chain_lock_creates_audit_dir_with_owner_only_mode(tmp_path: Path) -> None:
     """The lock helper creates the audit dir with 0o700 if absent.
 

@@ -60,7 +60,7 @@ def test_all_templates_present() -> None:
         "templates/steps/fabric-vl-apply.yml",
         "templates/steps/fabric-validate.yml",
     }
-    found = {str(p) for p in TEMPLATE_ROOT.rglob("*.yml")}
+    found = {p.as_posix() for p in TEMPLATE_ROOT.rglob("*.yml")}
     missing = expected - found
     assert not missing, f"missing shipped templates: {missing}"
 
