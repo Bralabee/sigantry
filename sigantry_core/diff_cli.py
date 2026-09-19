@@ -152,7 +152,12 @@ def diff_cmd(
     output: str = typer.Option(
         "human",
         "--output",
-        help="Output format: 'human' (default) or 'json' (SemVer-pinned wire contract).",
+        help="Output format: 'human' (default), 'json', or 'html'.",
+    ),
+    html_out: str | None = typer.Option(
+        None,
+        "--html-out",
+        help="Write HTML report to this file path instead of stdout.",
     ),
     fail_on_drift: bool = typer.Option(
         False,
@@ -180,8 +185,8 @@ def diff_cmd(
     :class:`WorkspacePendingGitUpdateError`, REST / auth failure):
     exit 2 with a red error message.
     """
-    if output not in {"human", "json"}:
-        _console.print(f"[red]Invalid --output {output!r}; must be 'human' or 'json'.[/red]")
+    if output not in {"human", "json", "html"}:
+        _console.print(f"[red]Invalid --output {output!r}; must be 'human', 'json', or 'html'.[/red]")
         raise typer.Exit(code=2)
 
     try:
@@ -204,6 +209,21 @@ def diff_cmd(
 
     if output == "json":
         _console.print_json(data=report.to_json())
+    elif output == "html":
+        from pathlib import Path
+
+        from sigantry_core.reports.html import render_drift_html_report
+
+        html_content = render_drift_html_report(
+            report,
+            environment=environment,
+            workspace_id=workspace_id,
+        )
+        if html_out:
+            Path(html_out).write_text(html_content, encoding="utf-8")
+            _console.print(f"[green]HTML drift report written to:[/green] {html_out}")
+        else:
+            typer.echo(html_content)
     else:
         _render_human_table(report, environment=environment)
 
