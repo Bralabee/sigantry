@@ -32,14 +32,13 @@ identity, managed identity, and finally your `az login` session. For this tutori
 
 ## Step 1 — Install
 
+Install the package directly from PyPI into your environment:
+
 ```bash
-git clone <your-monorepo-or-mirror-url> sigantry && cd sigantry
-make conda-create                       # creates the dedicated conda env
-conda activate fabric-dataops-toolkits
-make install-dev                        # editable install + dev extras
+pip install sigantry
 ```
 
-No conda? `python3.11 -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"`.
+*(Or for local development from source: `git clone https://github.com/Bralabee/sigantry.git && cd sigantry && pip install -e ".[dev]"`).*
 
 Verify the entry point exists:
 
@@ -48,7 +47,10 @@ sigantry --help | head -5
 # expect: a usage banner listing subcommands (workspace, sync, deploy, diff, release, ...)
 ```
 
-> Full installation detail, including offline installs: [getting-started/install.md](../getting-started/install.md).
+> [!TIP]
+> If your terminal reports `sigantry: command not found` after `pip install`, run `hash -r` (in Bash) or `rehash` (in Zsh) to refresh your shell's command path cache, or invoke directly via `python -m sigantry_core.cli --help`.
+
+> Full installation detail and troubleshooting: [getting-started/install.md](../getting-started/install.md).
 
 ## Step 2 — Authenticate
 
