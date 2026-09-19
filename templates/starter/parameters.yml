@@ -1,0 +1,48 @@
+# Sigantry starter -- parameters.yml
+# ----------------------------------
+# This file is consumed by `sigantry deploy run` to substitute placeholder
+# values for environment-specific Fabric IDs at deploy time. fabric-cicd
+# shape: see https://microsoft.github.io/fabric-cicd/latest/parameter-yaml/
+#
+# Three envs are pre-wired: DEV, PREPROD, PROD. Replace placeholder
+# values BEFORE running `sigantry deploy run`. Validate locally with:
+#
+#     sigantry config validate parameters.yml
+#
+# Reference: docs/reference/parameters-yml.md (Sigantry docs).
+#
+# Allowed GUID-context forms (anything else fails sigantry's validator):
+#   $workspace.$id                  resolved at deploy time by fabric-cicd
+#   $items.<Type>.<Name>.$id        resolved at deploy time by fabric-cicd
+#   $ENV:<VAR>                      resolved at deploy time from env
+#   _ALL_                           env-wildcard (applies to every env)
+
+# ----- find_replace: bulk text substitution in item bodies -----
+find_replace:
+  # Workspace-ID swap for every Notebook -- one of the most common edits.
+  - find_value: "placeholder-workspace-id"
+    item_type: Notebook
+    replace_value:
+      DEV:     "$ENV:SIGANTRY_FABRIC_WORKSPACE_ID_DEV"
+      PREPROD: "$ENV:SIGANTRY_FABRIC_WORKSPACE_ID_PREPROD"
+      PROD:    "$ENV:SIGANTRY_FABRIC_WORKSPACE_ID_PROD"
+
+  # Capacity-ID swap (rarely needed in body content but here for symmetry).
+  - find_value: "placeholder-capacity-id"
+    item_type: Lakehouse
+    replace_value:
+      DEV:     "$ENV:SIGANTRY_FABRIC_CAPACITY_ID_DEV"
+      PREPROD: "$ENV:SIGANTRY_FABRIC_CAPACITY_ID_PREPROD"
+      PROD:    "$ENV:SIGANTRY_FABRIC_CAPACITY_ID_PROD"
+
+# ----- key_value_replace: JSON-path substitution -----
+key_value_replace:
+  # Variable-library reference example -- replace the placeholder ID with
+  # the deploy-resolved sigantry variable-library reference for the target
+  # pipeline activity.
+  - find_key: "$.properties.activities[?(@.name=='Stage1')].typeProperties.url"
+    replace_value:
+      _ALL_: "$items.DataPipeline.Stage1.$id"
+
+# ----- spark_pool: per-env Spark pool selection -----
+spark_pool: []

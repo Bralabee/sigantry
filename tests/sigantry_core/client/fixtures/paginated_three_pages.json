@@ -1,0 +1,17 @@
+[
+  {
+    "value": [{"id": 1, "name": "a"}, {"id": 2, "name": "b"}],
+    "continuationToken": "t1",
+    "continuationUri": "https://api.fabric.microsoft.com/v1/workspaces?continuationToken=t1"
+  },
+  {
+    "value": [{"id": 3, "name": "c"}, {"id": 4, "name": "d"}],
+    "continuationToken": "t2",
+    "continuationUri": "https://api.fabric.microsoft.com/v1/workspaces?continuationToken=t2"
+  },
+  {
+    "value": [{"id": 5, "name": "e"}],
+    "continuationToken": null,
+    "continuationUri": null
+  }
+]

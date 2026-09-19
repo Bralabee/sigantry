@@ -1,0 +1,13 @@
+index
+01-setup-and-first-contact
+02-sync-notebooks
+03-drift-detection
+04-audit-trail
+05-adopt-existing-workspace
+06-bootstrap-workspace
+07-rollback
+08-scheduled-drift-alerts
+09-pr-review-bot
+10-governance
+11-environments-and-libraries
+12-config-driven-autoupdate

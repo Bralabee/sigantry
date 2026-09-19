@@ -1,0 +1,8 @@
+{
+  "_note": "Measured test-suite metrics, checked by scripts/docs_freshness.py (metric_claims in .docs-freshness.yml). Regenerate rather than hand-edit: NO_COLOR=1 TERM=dumb python -m pytest --color=no, then update the counts here and the canonical line in CONTRIBUTING.md.",
+  "_measured": "2026-08-22, fabric-dataops-toolkits conda env, Python 3.11.15",
+  "tests_passed": 2147,
+  "tests_skipped": 6,
+  "tests_deselected": 17,
+  "tests_failed": 0
+}

@@ -1,0 +1,22 @@
+# Fixture: paired ADO stage template with TWO parameters (string + boolean)
+# for the dual-ci-parity lint tests (BRIEF-06 / Phase 10 Plan 06).
+# Counterpart: tests/ci/fixtures/paired/.github/workflows/params-example.yml.
+#
+# Exercises the parameter-parity check across mixed types and the
+# stage-graph check against a single-stage graph (`smoke`).
+parameters:
+  - name: env_name
+    type: string
+    default: dev
+  - name: dry_run
+    type: boolean
+    default: false
+
+stages:
+  - stage: smoke
+    displayName: Smoke
+    dependsOn: []
+    jobs:
+      - job: run_smoke
+        steps:
+          - script: echo "smoke env=${{ parameters.env_name }} dry_run=${{ parameters.dry_run }}"

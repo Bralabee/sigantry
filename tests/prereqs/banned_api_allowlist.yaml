@@ -1,0 +1,346 @@
+# Audit-2026-05-07 W4.3 -- structured banned-API allowlist.
+#
+# Replaces the inline 90-entry frozenset that previously lived in
+# tests/prereqs/test_phase8_banned_apis.py:253-540. Each entry is a
+# scoped exemption from the repo-wide hs2-substring grep gate
+# (Plan 08-05 PROD-17), with explicit fields:
+#
+#   - path:           file path relative to the repository root
+#   - pattern_class:  which banned-API rule this exempts
+#                      (currently always "hs2_repo_wide_grep" --
+#                       reserved for future per-rule scoping)
+#   - adr:            optional ADR reference for governance trace
+#   - rationale:      free-form justification (carries the comment
+#                      that previously lived inline above the entry)
+#
+# This YAML file is itself the first allowlist entry below -- the
+# structured rationales legitimately mention every plugin-package
+# substring the gate matches.
+
+allowlist:
+  - path: 'tests/prereqs/banned_api_allowlist.yaml'
+    pattern_class: hs2_repo_wide_grep
+    rationale: |
+      Audit-2026-05-07 W4.3: this YAML file replaces the pre-W4.3
+      inline frozenset literal that was self-allowlisted in
+      tests/prereqs/test_phase8_banned_apis.py. The structured
+      rationale strings here legitimately enumerate the same plugin
+      package substrings as the original frozenset comments. Same
+      rationale category as the test_phase8_banned_apis.py
+      self-allowlist below.
+  - path: '.github/pull_request_template.md'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Banned-api checklist (negative assertions against plugin names).'
+  - path: '.azuredevops/pull_request_template.md'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: '.pre-commit-config.yaml'
+    pattern_class: hs2_repo_wide_grep
+    rationale: |
+      Root configs that reference the monorepo package layout. historical hook rename context.
+  - path: 'pyproject.toml'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'author string + testpaths + plugin note.'
+  - path: 'docs/CONSUMING.md'
+    pattern_class: hs2_repo_wide_grep
+    rationale: |
+      Operator-facing meta-doc (moved from repo root to docs/ in the 2026-06-12 docs reorg) enumerating the package distribution channels (PyPI plugin packages + planned public scaffolding repos). By design references plugin package names `sigantry-hs2` / `sigantry-jtoye` and the `Sigantry` / `SigantryHs2` PowerShell module names. Cannot live inside the plugin dirs because operators reading "how do I install Sigantry?" land at the repo root first (README links here).
+  - path: 'docs/CAPABILITIES.md'
+    pattern_class: hs2_repo_wide_grep
+    rationale: |
+      Root capability catalogue (added 2026-05-05, commit c096655). Comprehensive reference document complementing handbook.md; answers "what can Sigantry do today?" with verified citations and 9 mermaid diagrams. By design references the canonical registered seam impls -- `sigantry-hs2`'s `aims` (deploy profile), `dq_framework` (DQ gate), `log_analytics` (telemetry sink), `hs2_entra_group` (auth provider), `hs2_teams` (runbook registry), `hs2` (capacity policy) -- because those ARE the reference plugin implementations operators encounter via `sigantry doctor`. The AIMS 9-notebook canonical fixture is also cited as the worked example for `sync apply` since it's the example the Phase 13 docs ship across the runbook tree. Moving these references into `sigantry-hs2/docs/` would defeat the catalogue's purpose: operators reading "what can the base toolkit do?" land at the repo root, not inside a plugin. Same rationale category as CONSUMING.md.
+  - path: 'docs/USER-GUIDE.md'
+    pattern_class: hs2_repo_wide_grep
+    rationale: |
+      Root operator-facing PDF user guide source (added 2026-05-07, PR #81). Renders to docs/Sigantry-User-Guide.pdf via scripts/userguide/render.py and ships as an email attachment alongside the wheel. Legitimately enumerates the plugin model by naming sigantry-hs2 + sigantry-jtoye as worked examples (the architecture-agnostic point CANNOT be made without naming the customer-specific plugins it explicitly excludes from the base). Section 10's manifest example cites the AIMS 9-notebook canonical fixture the same way docs/runbooks/sync/apply.md does. Moving the plugin-model chapter to sigantry-hs2/docs/ would defeat the guide's purpose -- operators reading "what is the platform?" land at the repo root, not inside one customer's plugin tree. Same rationale category as CONSUMING.md + docs/CAPABILITIES.md.
+  - path: 'docs/operator/OPERATOR-PUNCHLIST.md'
+    pattern_class: hs2_repo_wide_grep
+    rationale: |
+      Operator-action queue (docs/operator/; moved from repo root 2026-06-12) for v3.0 UAT closure. By design references HS2 tenant + JToye SPN + ADO project names because those are the exact tenants/orgs/SPNs the operator must touch to close V3-RISK-1/2/3. Also embeds the canonical absolute path to the working tree for cp -a / git -C invocations operators can paste verbatim. Same allowlist rationale as CONSUMING.md (operator-facing root meta-doc).
+  - path: 'docs/operator/ADOPTION-PLAN.md'
+    pattern_class: hs2_repo_wide_grep
+    rationale: |
+      Operator execution plan (docs/operator/; moved from repo root 2026-06-12) (added 2026-06-11) for AIMS + DQ adoption of the toolkit -- the cross-repo workstream first recorded as an open item on 2026-04-21. By its nature it names the HS2 tenant workspaces, the AIMS/DQ sibling repos, the SPN coverage gap (V3-RISK-3) and the sigantry-hs2 plugin components whose keep/trim verdicts it schedules (W4). Same allowlist rationale as OPERATOR-PUNCHLIST.md and V3.X-ROADMAP.md (operator-facing root meta-doc that necessarily names the orgs/tenants whose actions drive it).
+  - path: 'docs/operator/V3.X-ROADMAP.md'
+    pattern_class: hs2_repo_wide_grep
+    rationale: |
+      v3.x-and-beyond roadmap (docs/operator/; moved from repo root 2026-06-12) capturing session-surfaced discoveries as formal phase candidates (Phase 17 SYNC-PUBLISH, Phase 18 NOTIFICATION-V2, Phase 19 OPERATOR-DOC-HARMONISATION, v3.1 SHIM-DROP). References plugin package names + the `Bralabee/sigantry-jtoye-uat` maintainer-equivalent repo + HS2 tenant / SPN context in the deferral rationale per item. Same allowlist rationale as OPERATOR-PUNCHLIST.md (operator- facing root meta-doc that necessarily names the orgs / SPNs whose absence drives the deferral).
+  - path: '.github/workflows/ci.yml'
+    pattern_class: hs2_repo_wide_grep
+    rationale: |
+      CI workflow references the HS2 plugin package + module by name so PSScriptAnalyzer and Pester can find them.
+  - path: '.github/workflows/release-alpha.yml'
+    pattern_class: hs2_repo_wide_grep
+    rationale: |
+      Plan 10-08 alpha-release workflow: references sigantry-hs2/ as the build path for the plugin wheel + names "HS2 ADO" (the historical owner of the primary v3.0.0-alpha.1 publish feed) in its header comment. Same rationale as azure-pipelines.yml below: literal path references + feed-naming context.
+  - path: 'tests/Pester.config.ps1'
+    pattern_class: hs2_repo_wide_grep
+    adr: ADR-0011
+    rationale: |
+      Pester config prepends the in-repo SigantryHs2 path so the plugin manifest resolves via PSModulePath (renamed from Hs2Fabric in Plan 10-04 per ADR-0011).
+  - path: 'tests/sigantry_core/monitor/conftest.py'
+    pattern_class: hs2_repo_wide_grep
+    adr: ADR-0011
+    rationale: |
+      Negative-assertion unit tests in the monitor suite that verify the base emit.py is HS2-free. (Path renamed from tests/fabric_dataops_toolkits/monitor/ in Plan 10-02 per ADR-0011.)
+  - path: 'tests/sigantry_core/monitor/test_dispatcher.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'tests/sigantry_core/monitor/test_emit.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'tests/docs/test_pr_templates.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Docs tests asserting PR templates enumerate banned package names.'
+  - path: 'tests/Sigantry/Public/Get-FabricToken.Tests.ps1'
+    pattern_class: hs2_repo_wide_grep
+    adr: ADR-0011
+    rationale: |
+      Pester negative-assertion tests verifying the Sigantry/ module (renamed from Fabric/ in Plan 10-04 per ADR-0011) carries no HS2 branding.
+  - path: 'tests/Sigantry/Public/Get-FabricTenantSetting.Tests.ps1'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'tests/ci/test_template_filenames.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: |
+      08-03 test invariant: HS2-branded template filenames stay deleted (references the old filenames as negative assertions).
+  - path: 'tests/ci/test_azure_pipelines_parameterisation.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: |
+      08-03 test invariant: azure-pipelines.yml carries no sc-hs2- SC.
+  - path: 'tests/bicep/test_no_hs2_defaults.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: '08-03 bicep invariant tests (negative assertions on hs2 substrings).'
+  - path: 'tests/bicep/test_dcr_schema.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'tests/prereqs/test_phase7_banned_apis.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Phase 7 banned-api guard (pre-Plan-08-05 test, still active).'
+  - path: 'tests/prereqs/Get-FabricTenantSettings.Tests.ps1'
+    pattern_class: hs2_repo_wide_grep
+    rationale: |
+      Phase 0 prereqs test scripts that exercise HS2 ADO / tenant names as literal test data, plus the sigantry-hs2 path references to the moved scripts (Plan 08-05 path update, renamed in Plan 10-03).
+  - path: 'tests/prereqs/Invoke-ParallelismCheck.Tests.ps1'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'tests/prereqs/Invoke-Phase0Verification.Tests.ps1'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'tests/prereqs/Test-TestCapacityHealth.Tests.ps1'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'tests/prereqs/Test-SpnMembership.Tests.ps1'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'tests/prereqs/Test-WifServiceConnection.Tests.ps1'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'tests/prereqs/test_changelog.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'tests/prereqs/test_wiki_links.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'tests/scripts/test_check_no_sys_path.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'scripts/ci sanity test that references sanitised docstring content.'
+  - path: 'tests/scripts/bootstrap/service-connection-bootstrap.Tests.ps1'
+    pattern_class: hs2_repo_wide_grep
+    rationale: |
+      Bootstrap Pester tests that exercise the HS2 SC bootstrap script (which now lives in the plugin; tests remain against it).
+  - path: 'tests/scripts/ci/test_check_template_refs.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'check-template-refs CI test uses HS2 ADO project name as test data.'
+  - path: 'tests/integration/client/test_live_workspace_lro.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: |
+      Live integration tests that target the HS2 Fabric test tenant via HS2_FABRIC_TEST_* env vars. These only run with PYTEST_RUN_INTEGRATION=1 and are HS2-tenant-specific by design. Future plan may move them to the plugin or parameterise the env-var prefix.
+  - path: 'tests/integration/deploy/test_live_env_sync_wheel.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'tests/integration/deploy/test_live_variable_library_crud.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'tests/integration/deploy/test_live_deploy_aims.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'tests/integration/deploy/test_live_git_connect_disconnect.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'tests/integration/deploy/test_live_deploy_item_tree.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'tests/integration/governance/test_live_tenant_settings.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'tests/integration/workspace/test_live_items_list.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'tests/integration/workspace/test_live_workspace_crud.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'tests/integration/dq/conftest.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'tests/integration/dq/test_live_gate.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'tests/integration/telemetry/conftest.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: |
+      Phase 9 live-validation hardening: live LogAnalyticsSink DCR round-trip test + AIMS sample fixtures + Pester live-token test. Same HS2-tenant-specific design as the above; same "parameterise the prefix" future-plan marker.
+  - path: 'tests/integration/telemetry/test_live_la_emit.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'tests/integration/fixtures/aims/parameters.yml'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'tests/integration/fixtures/aims/build_placeholder_wheel.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'tests/Sigantry/Integration.Tests.ps1'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'tests/sync/test_apply.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: |
+      UAT-FOUND-3 regression test (Phase 13 D-22 round-trip): the `pulled_tree` fixture uses 'AIMS' as the example folder name to mirror the real customer manifest scenario that surfaced the bug (sync pull -> sync apply CWD-vs-manifest-dir resolution). The customer name is load-bearing context for the test's docstring; renaming would obscure the scenario.
+  - path: 'scripts/discover_env_live.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: |
+      Live-tenant discovery helper. Emits a paste-ready HS2_FABRIC_TEST_* block for .env.live, so it references the prefix literally by design. Same "parameterise the prefix" future-plan marker as the live tests above; exempt for the same reason.
+  - path: 'bicep/examples/dcr-telemetry.bicepparam'
+    pattern_class: hs2_repo_wide_grep
+    rationale: |
+      Phase 9 bicep examples bicepparam carries the HS2-convention values as an illustrative fill-in. bicep/examples/ is already excluded from test_no_hs2_defaults.py; this entry covers the repo-wide grep predicate.
+  - path: 'tests/integration/test_hs2_plugin_resolution.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: |
+      Plan 08-05 integration test: resolves HS2 plugin classes via FabricDataOps.from_config(). Names the plugin seam names by design.
+  - path: 'tests/sigantry_core/test_doctor.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: |
+      Plan 08-06 doctor tests: assert the HS2 plugin seam names appear in doctor output when the plugin is installed (test-of-plugin-listing). (Path renamed from tests/fabric_dataops_toolkits/ in Plan 10-02.)
+  - path: 'tests/contract/test_deploy_profile_contract.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: |
+      Plan 08-06 contract tests: parametrise over the HS2 plugin classes to verify each seam implementation satisfies the protocol.
+  - path: 'tests/contract/test_dq_gate_contract.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'tests/contract/test_telemetry_sink_contract.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'tests/contract/test_auth_provider_contract.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'tests/contract/test_runbook_registry_contract.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'tests/contract/test_capacity_policy_contract.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'tests/docs/test_migration_guide.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: |
+      Plan 08-06 docs smoke test: asserts migration-guide contents by searching for the plugin package + filename + consumer-repo names.
+  - path: 'azure-pipelines.yml'
+    pattern_class: hs2_repo_wide_grep
+    rationale: |
+      Plan 08-06 publish jobs (PROD-22): the plugin package directory name + 'hs2-v*' tag pattern are REQUIRED literal references so the PublishPlugin stage can find the plugin source tree and trigger on the plugin release tag.
+  - path: 'templates/stages/ci.yml'
+    pattern_class: hs2_repo_wide_grep
+    rationale: |
+      Plan 10-05 (post Plan 10-03 rename): templates/stages/ci.yml has to `pip install -e ./sigantry-hs2 --no-deps` so the contract tests can exercise the plugin's entry-point registration. The literal path contains the legacy "hs2" suffix; same documented-exception pattern as azure-pipelines.yml above. (The shim install that shared this exception dropped in v3.1.)
+  - path: 'tests/prereqs/test_adr_structure.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: '08-05 updated tests that look in the plugin tree for moved HS2 content.'
+  - path: 'tests/prereqs/test_evidence_schemas.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'tests/prereqs/test_phase8_banned_apis.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: |
+      THIS file — the banned-api test necessarily names the banned tokens in its own pattern strings.
+  - path: 'docs/reference/thread-safety.md'
+    pattern_class: hs2_repo_wide_grep
+    rationale: |
+      08.1 gap-closure meta-docs: reference docs that legitimately name HS2 plugin seams as concrete examples in a thread-safety / observation-planes discussion. They describe plugin architecture, not HS2 code. Moving the content to the plugin would hide the cross-plugin thread-safety contract from base consumers who need to see it.
+  - path: 'docs/reference/observation-planes.md'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'docs/handbook.md'
+    pattern_class: hs2_repo_wide_grep
+    rationale: |
+      Usage handbook: single living day-to-day reference for consumers. Legitimately names the HS2 plugin classes and env vars as concrete examples of how to wire the toolkit against the HS2 tenant. Same rationale as the reference docs above — moving to the plugin would force HS2 users to cross-read two trees to answer basic "how do I use this" questions.
+  - path: 'docs/decisions/ADR-0004-api-version-policy.md'
+    pattern_class: hs2_repo_wide_grep
+    adr: ADR-0004
+    rationale: |
+      08.1 gap-closure ADR-0004: discusses HS2 plugins as test-coverage targets for the api_version policy.
+  - path: 'docs/reference/architecture.md'
+    pattern_class: hs2_repo_wide_grep
+    rationale: |
+      Cross-plugin reference docs that legitimately name the HS2 plugin as a concrete example of toolkit architecture + scope. Same rationale as thread-safety.md / observation-planes.md above: they describe the plugin architecture, not HS2 code. Moving to the plugin would force readers to cross-read two trees to answer "what does this toolkit actually do".
+  - path: 'docs/reference/scope.md'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'docs/PRODUCT-BRIEF.md'
+    pattern_class: hs2_repo_wide_grep
+    adr: ADR-0011
+    rationale: |
+      v3.0 Phase 10 (BRIEF-01..06) paper artefacts. These five documents describe the rename from the HS2 internal toolkit to Sigantry and legitimately name HS2 / AIMS / Hs2Fabric as the prior-product reference implementation or the migration source-of-truth. Allowed under ADR-0011 "Rename to Sigantry" + BRIEF-04 seam map + BRIEF-06 dual-CI strategy. Scope: the exact five filenames -- do NOT expand to docs/**/*.md wildcards. New Phase 10+ documents that need HS2 mentions must add their own explicit entry with a documented ADR.
+  - path: 'docs/decisions/ADR-0010-commercial-model.md'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'docs/decisions/ADR-0011-rename-to-sigantry.md'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'docs/reference/seam-map.md'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'docs/reference/dual-ci-strategy.md'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'docs/reference/sync-schema.md'
+    pattern_class: hs2_repo_wide_grep
+    rationale: |
+      Phase 13 (Plan 13-05 + 13-07) operator documentation that uses the user's canonical 9-notebook AIMS use case (CONTEXT.md "Specific Ideas") as the worked example. The user explicitly anchored the Phase 13 sync engine on `1_AIMS_LOCAL_2026/notebooks/` -> `COE_F_ManagedData/AIMS/01_NOTEBOOKS_AIMS_2026_V2/` so operators reading the runbook see a real-world fixture rather than synthetic placeholders. Same rationale as docs/handbook.md above: a single living operator reference legitimately names AIMS as the demonstrated-against tenant. Scope: the exact filenames listed -- do NOT expand to wildcards. The test fixture in tests/sync/test_pull.py is included for the same reason: SYNC-05's round-trip test (Plan 13-05) wires "AIMS" as the canonical folder name so the live tenant test (gated on SIGANTRY_FABRIC_TEST_*) reads naturally against the user's COE_F_ManagedData workspace.
+  - path: 'docs/reference/api-stability.md'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'docs/runbooks/sync/apply.md'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'docs/runbooks/sync/pull.md'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'docs/runbooks/sync/folder-preservation.md'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'docs/runbooks/sync/snapshot-freshness.md'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'docs/runbooks/drift-detection/scheduled-drift.md'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'docs/runbooks/INDEX.md'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'tests/sync/test_pull.py'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'docs/reference/seams.md'
+    pattern_class: hs2_repo_wide_grep
+    rationale: |
+      Phase 16 (Plan 16-05) reference + runbook docs that legitimately name the HS2 plugin (`sigantry-hs2`) + JToye plugin scaffold as concrete examples of multi-org seam authorship. Same rationale as docs/reference/seam-map.md above: a plugin-architecture doc that names the reference impls is a base/agnostic surface, not HS2-branded code. Scope: the exact two filenames -- do NOT expand to wildcards.
+  - path: 'docs/runbooks/jtoye-onboarding-operator.md'
+    pattern_class: hs2_repo_wide_grep
+    rationale: 'Documented exemption (rationale not captured during extraction).'
+  - path: 'docs/decisions/ADR-0014-plugin-trust-model.md'
+    pattern_class: hs2_repo_wide_grep
+    adr: ADR-0011
+    rationale: |
+      Audit-2026-05-07 W3.4 plugin trust model. The ADR legitimately names sigantry-hs2 + sigantry-jtoye as the two concrete plugin distributions an operator might allowlist via SIGANTRY_TRUSTED_PLUGIN_DISTS (the trust-list mechanism cannot be explained without naming the plugins it would gate). Same rationale as ADR-0011 above.
+      

@@ -1,0 +1,62 @@
+# sigantry-dual-ci-exception: ci-mechanics
+# Paired with the PublishBase / PublishPlugin stages in azure-pipelines.yml.
+# The dual-ci-parity lint skips this file by design.
+#
+# Plan 10-08 Task 2 / BRIEF-05 cutover. Triggers ONLY on v3.0.0-alpha.* tags
+# (not on push to master, not on PR). When the release-alpha tag fires, the
+# job builds the five v3.0 alpha distributions via scripts/release/publish-v3-alpha.sh
+# in --dry-run mode (so the script's upload phase is bypassed -- the ADO
+# Artifacts feed publish is owned by azure-pipelines.yml's PublishBase /
+# PublishPlugin stages on the same tag), then optionally uploads sigantry-core
+# + sigantry-hs2 to test.pypi.org as an alpha-rehearsal channel. Shim wheels
+# are NOT uploaded to test.pypi.org during the alpha to avoid claiming a
+# public namespace for the legacy names while V3-RISK-1 (Sigantry trademark
+# / domain / PyPI clearance) is still deferred per user directive 2026-04-24.
+#
+# Token absence is a SKIP, not a failure: the alpha rehearsal is optional;
+# the primary v3.0.0-alpha.1 publish channel remains the existing HS2 ADO
+# Artifacts feed (azure-pipelines.yml).
+name: release-alpha
+
+on:
+  push:
+    tags:
+      - 'v3.0.0-alpha.*'
+
+jobs:
+  publish-testpypi:
+    name: Publish alpha to test.pypi.org (rehearsal)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    environment: test-pypi
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.11'
+      - name: Install build tooling
+        run: pip install build twine
+      - name: Extract alpha version from tag
+        id: version
+        run: echo "alpha_version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - name: Build wheels
+        env:
+          ALPHA_VERSION: ${{ steps.version.outputs.alpha_version }}
+        run: bash scripts/release/publish-v3-alpha.sh --dry-run
+      - name: Upload sigantry-core + sigantry-hs2 to test.pypi.org
+        # Only uploads the two product wheels; shim wheels stay on the ADO feed
+        # during the alpha rehearsal to avoid public PyPI namespace claim while
+        # trademark clearance is deferred (V3-RISK-1).
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.TEST_PYPI_TOKEN }}
+        run: |
+          if [ -z "$TWINE_PASSWORD" ]; then
+            echo "SKIP: TEST_PYPI_TOKEN not set; test.pypi.org publish is optional for v3.0.0-alpha.1"
+            exit 0
+          fi
+          twine upload --repository-url https://test.pypi.org/legacy/ \
+            dist/sigantry_core-*.whl dist/sigantry_core-*.tar.gz \
+            sigantry-hs2/dist/sigantry_hs2-*.whl sigantry-hs2/dist/sigantry_hs2-*.tar.gz

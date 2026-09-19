@@ -1,0 +1,8 @@
+{
+  "initial_headers": {
+    "x-ms-operation-id": "op-404",
+    "Location": "https://api.fabric.microsoft.com/v1/operations/op-404",
+    "Retry-After": "0"
+  },
+  "poll_sequence": ["404", "404", "404", "404"]
+}

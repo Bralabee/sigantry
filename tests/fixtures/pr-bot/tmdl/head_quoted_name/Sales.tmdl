@@ -1,0 +1,28 @@
+// tests/fixtures/pr-bot/tmdl/head_quoted_name/Sales.tmdl
+// [VERIFIED: learn.microsoft.com/analysis-services/tmdl/tmdl-overview, fetched 2026-04-28]
+//
+// Variant of head/Sales.tmdl that adds a measure whose name contains
+// an escaped single quote ('It''s a sale' -- TMDL-spec '' escape per
+// 14-RESEARCH §Pitfall 7). The parser MUST treat the entire quoted
+// name as ONE identifier, not two.
+/// Sales table — fact records keyed by Customer + Product.
+table Sales
+
+    column 'Sales Amount'
+        dataType: decimal
+        sourceColumn: SalesAmount
+        summarizeBy: sum
+
+    column 'Discount Amount'                  // NEW column
+        dataType: decimal
+        sourceColumn: DiscountAmount
+        summarizeBy: sum
+
+    measure 'Total Sales' = SUM('Sales'[Sales Amount]) - SUM('Sales'[Discount Amount])  // MODIFIED
+        formatString: $ #,##0
+
+    measure 'Avg Order Value' = AVERAGE('Sales'[Sales Amount])  // NEW measure
+        formatString: $ #,##0
+
+    measure 'It''s a sale' = IF([Total Sales] > 0, "yes", "no")
+        formatString: 0

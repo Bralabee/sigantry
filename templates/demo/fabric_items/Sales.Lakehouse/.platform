@@ -1,0 +1,12 @@
+{
+  "version": "2.0",
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/platform/platformProperties.json",
+  "config": {
+    "logicalId": "00000000-0000-0000-0000-00000000d001"
+  },
+  "metadata": {
+    "type": "Lakehouse",
+    "displayName": "Sales",
+    "description": "Demo lakehouse -- bronze-tier orders + customers"
+  }
+}

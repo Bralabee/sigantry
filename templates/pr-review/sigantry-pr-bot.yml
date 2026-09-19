@@ -1,0 +1,69 @@
+# templates/pr-review/sigantry-pr-bot.yml
+# ------------------------------------------------------------------
+# Monorepo product-side PR-review bot pipeline (Plan 14-06 Task 2).
+#
+# Runs the Sigantry PR-review bot on PRs into THIS sigantry-core repo.
+# Paired with .github/workflows/sigantry-pr-bot.yml; parity enforced by
+# scripts/ci/check-dual-ci-parity.py (basename + stage-graph + parameter
+# parity). This is the FIRST consumer of the templates/pr-review/ ADO
+# subdir slot -- the parity script supports it at line 70.
+#
+# Triggers (D-19): pull_request open / synchronize / reopened /
+# ready_for_review on main with paths filter on **/*.tmdl,
+# **/*.Lakehouse/**, **/.platform. ADO PR triggers live in the
+# parent pipeline that 'extends:' or references this template; the
+# patterns are documented in this header for the adopter:
+#   pr.paths.include:
+#     - "**/*.tmdl"
+#     - "**/*.Lakehouse/**"
+#     - "**/.platform"
+#
+# Two-checkout pattern: ADO doesn't have a verb-perfect actions/checkout
+# analog; we 'checkout: self' (head) then git-fetch + stage the base
+# ref into a sibling worktree dir.
+# ------------------------------------------------------------------
+
+parameters:
+  - name: pythonVersion
+    type: string
+    default: '3.11'
+  - name: provider
+    type: string
+    default: 'auto'
+
+stages:
+  - stage: pr_bot
+    displayName: 'Sigantry PR-review bot'
+    dependsOn: []
+    jobs:
+      - job: pr_bot
+        displayName: 'sigantry pr-bot run'
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - checkout: self
+            fetchDepth: 0
+            displayName: 'Checkout self (head ref)'
+          - script: |
+              set -euo pipefail
+              mkdir -p base-tree head-tree
+              git --git-dir=.git --work-tree=head-tree checkout -- .
+              git fetch origin "$(System.PullRequest.TargetBranch)" --depth 1
+              git --git-dir=.git --work-tree=base-tree checkout FETCH_HEAD -- . || true
+            displayName: 'Stage base + head trees'
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: ${{ parameters.pythonVersion }}
+            displayName: 'Set up Python'
+          - script: pip install -e .
+            displayName: 'Install sigantry-core (editable from source)'
+          - script: |
+              sigantry pr-bot run \
+                --provider ${{ parameters.provider }} \
+                --pr-id "$(System.PullRequest.PullRequestId)" \
+                --token "$(System.AccessToken)" \
+                --base-dir base-tree \
+                --head-dir head-tree
+            env:
+              SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+            displayName: 'Run sigantry pr-bot'

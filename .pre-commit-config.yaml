@@ -1,0 +1,107 @@
+# sigantry-core -- pre-commit hook registrations
+#
+# Run ``pre-commit install`` once per clone to activate the hooks.
+# Plan 04-02 (DEPLOY-02 + Pitfall 3 four-layer mitigation); hook IDs
+# renamed from ``hs2-check-*`` to ``fabric-check-*`` in Plan 08-02.
+# Audit-2026-05-07 W3.5: standard set + ruff + detect-secrets + mypy
+# added alongside the 2 custom Fabric hooks.
+#
+# All third-party hooks pin to a known good ``rev:``. Dependabot's
+# ``pip`` ecosystem entry covers pre-commit-hook bumps.
+#
+# The two ``fabric-check-*`` hooks remain ``language: system`` (stdlib
+# only) so they run without installing the sigantry_core wheel into
+# the pre-commit venv. They walk the working tree themselves
+# (``pass_filenames: false``) so per-commit runtime stays deterministic
+# regardless of staged file count.
+
+repos:
+  # ------------------------------------------------------------------
+  # Standard hygiene set (Audit-2026-05-07 W3.5)
+  # ------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+        # Skip ``.platform`` files -- their JSON includes a trailing
+        # newline that fabric-cicd inserts and we must preserve.
+        exclude: '\.platform$'
+      - id: end-of-file-fixer
+        exclude: '\.platform$'
+      - id: check-yaml
+        # Some CI YAML uses Azure Pipelines ``${{ ... }}`` template
+        # expansions that pyyaml refuses to parse without ``--unsafe``.
+        args: [--unsafe]
+      - id: check-json
+      - id: check-toml
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: mixed-line-ending
+        args: [--fix=lf]
+        # ``.platform`` files carry CRLF intentionally per Plan 04-02.
+        exclude: '\.platform$'
+
+  # ------------------------------------------------------------------
+  # Ruff (lint + format) -- mirrors pyproject.toml [tool.ruff] config
+  # ------------------------------------------------------------------
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.7.4
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+
+  # ------------------------------------------------------------------
+  # Secret detection
+  # ------------------------------------------------------------------
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+        # Lockfile, .secrets.baseline itself, and test fixtures
+        # legitimately carry hash-shaped strings.
+        exclude: |
+          (?x)^(
+              requirements-lock\.txt|
+              \.secrets\.baseline|
+              tests/.*/fixtures/.*
+          )$
+
+  # ------------------------------------------------------------------
+  # Static typing (sigantry_core only -- plugins / shims excluded)
+  # ------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.13.0
+    hooks:
+      - id: mypy
+        # Match pyproject.toml [tool.mypy] python_version = "3.11".
+        args: [--ignore-missing-imports, --python-version=3.11]
+        files: ^sigantry_core/
+        # Pre-commit's mypy hook isolates from the project venv; pass
+        # runtime-typed dependencies so imports resolve.
+        additional_dependencies:
+          - pydantic>=2,<3
+          - pydantic-settings>=2,<3
+          - typer>=0.20,<1.0
+          - rich
+
+  # ------------------------------------------------------------------
+  # Custom Fabric hooks (Plan 04-02 / DEPLOY-02 / Pitfall 3 mitigation)
+  # ------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: fabric-check-logical-id
+        name: fabric check duplicate Fabric logicalId
+        entry: python scripts/pre_commit/check_logical_id.py
+        language: system
+        files: \.platform$
+        pass_filenames: false
+      - id: fabric-check-crlf
+        name: fabric check CRLF in Fabric .platform + item-body files
+        entry: python scripts/pre_commit/check_crlf.py
+        language: system
+        files: \.(platform|py|json)$
+        pass_filenames: false

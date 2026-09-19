@@ -1,0 +1,19 @@
+# Fixture: minimal paired GHA workflow for the dual-ci-parity lint tests
+# (BRIEF-06 / Phase 10 Plan 06). Counterpart:
+# tests/ci/fixtures/paired/templates/stages/example-stage.yml.
+name: example-stage
+
+on:
+  workflow_call:
+    inputs:
+      env_name:
+        type: string
+        default: dev
+        required: false
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "deploying to ${{ inputs.env_name }}"

@@ -1,0 +1,13 @@
+{
+  "initial_headers": {
+    "Location": "https://api.fabric.microsoft.com/v1/operations/op-loc-only",
+    "Retry-After": "0"
+  },
+  "poll_responses": [
+    {
+      "body": {"status": "Succeeded"},
+      "headers": {},
+      "status_code": 200
+    }
+  ]
+}

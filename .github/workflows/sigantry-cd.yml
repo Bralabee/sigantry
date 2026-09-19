@@ -1,0 +1,157 @@
+# .github/workflows/sigantry-cd.yml
+# ------------------------------------------------------------------
+# Sigantry five-job GHA workflow (PIPELINE-02).
+# deploy -> smoke -> integration -> approval -> promote
+#
+# Paired with templates/stages/sigantry-cd.yml.
+# Parity enforced by scripts/ci/check-dual-ci-parity.py (Plan 10-06).
+#
+# Documented divergences from the ADO half (BYTE-IDENTICAL to the
+# corresponding lines in templates/stages/sigantry-cd.yml so
+# check-dual-ci-parity.py:466 sees them as `shared_ignores`. The
+# parity script scans the first 20 header lines for these markers --
+# keep them above line 20):
+# sigantry-dual-ci-ignore: gha-uses-oidc-not-service-connection
+# sigantry-dual-ci-ignore: ado-gh-env-naming
+#
+# Renamed from sigantry-deploy-with-tests.yml on 2026-05-12 as part of
+# OPERATOR-PUNCHLIST G3 closure. Real root cause: the ``releaseId`` and
+# ``approver`` input ``default:`` slots carried ``${{ github.run_id }}``
+# / ``${{ github.actor }}`` expressions, which GitHub's parser rejects
+# (defaults are evaluated at parse time, before the github context is
+# bound). The parse failure produced (a) a stuck registration recording
+# the file PATH as the display ``name``, and (b) a 0-job failed "ghost
+# run" on every push event. Defaults now empty; ``github.*`` fallback
+# moved into the promote job's env block where the context resolves
+# correctly. See OPERATOR-PUNCHLIST G3 for the full closure record.
+#
+# Sources:
+#   GitHub Docs - Workflow syntax for GitHub Actions
+#     https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions
+#   GitHub Docs - Using environments for deployment
+#     https://docs.github.com/actions/deployment/targeting-different-environments/using-environments-for-deployment
+#   GitHub Docs - Reviewing deployments
+#     https://docs.github.com/actions/managing-workflow-runs/reviewing-deployments
+# ------------------------------------------------------------------
+name: sigantry-deploy-with-tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      workspaceId:           { type: string,  required: true }
+      environment:           { type: string,  required: true }
+      sourceDir:             { type: string,  required: false, default: 'fabric_items/' }
+      parametersPath:        { type: string,  required: false, default: 'parameters.yml' }
+      itemTypes:             { type: string,  required: false, default: 'Lakehouse,Environment,Notebook,DataPipeline' }
+      smokeCommand:          { type: string,  required: false, default: 'sigantry doctor' }
+      integrationCommand:    { type: string,  required: false, default: 'python -m pytest tests/integration/ -m sigantry_pipeline -v' }
+      ghApprovalEnvironment: { type: string,  required: true }
+      releaseId:             { type: string,  required: false, default: '' }
+      workItems:             { type: string,  required: false, default: '' }
+      approver:              { type: string,  required: false, default: '' }
+  workflow_call:
+    inputs:
+      workspaceId:           { type: string,  required: true }
+      environment:           { type: string,  required: true }
+      sourceDir:             { type: string,  required: false, default: 'fabric_items/' }
+      parametersPath:        { type: string,  required: false, default: 'parameters.yml' }
+      itemTypes:             { type: string,  required: false, default: 'Lakehouse,Environment,Notebook,DataPipeline' }
+      smokeCommand:          { type: string,  required: false, default: 'sigantry doctor' }
+      integrationCommand:    { type: string,  required: false, default: 'python -m pytest tests/integration/ -m sigantry_pipeline -v' }
+      ghApprovalEnvironment: { type: string,  required: true }
+      releaseId:             { type: string,  required: false, default: '' }
+      workItems:             { type: string,  required: false, default: '' }
+      approver:              { type: string,  required: false, default: '' }
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with: { python-version: '3.11', cache: 'pip' }
+      - name: Install sigantry-core
+        run: pip install sigantry-core
+      - name: sigantry deploy run
+        run: |
+          sigantry deploy run \
+            --source '${{ inputs.sourceDir }}' \
+            --workspace-id '${{ inputs.workspaceId }}' \
+            --environment '${{ inputs.environment }}' \
+            --params '${{ inputs.parametersPath }}' \
+            --item-types '${{ inputs.itemTypes }}'
+
+  smoke:
+    name: Smoke
+    runs-on: ubuntu-latest
+    needs: [deploy]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with: { python-version: '3.11' }
+      - run: pip install sigantry-core
+      - name: Run smoke command
+        run: ${{ inputs.smokeCommand }}
+
+  integration:
+    name: Integration
+    runs-on: ubuntu-latest
+    needs: [smoke]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with: { python-version: '3.11' }
+      - run: pip install sigantry-core '.[dev,test]'
+      - name: Run integration command
+        run: ${{ inputs.integrationCommand }}
+
+  approval:
+    name: Awaiting approval
+    runs-on: ubuntu-latest
+    needs: [integration]
+    environment: ${{ inputs.ghApprovalEnvironment }}     # GitHub environment with required_reviewers (D-04)
+    steps:
+      - run: echo "Approval granted for environment ${{ inputs.ghApprovalEnvironment }}"
+
+  promote:
+    name: Promote
+    runs-on: ubuntu-latest
+    needs: [approval]
+    environment: ${{ inputs.environment }}
+    concurrency:
+      group: deploy-${{ inputs.environment }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with: { python-version: '3.11' }
+      - run: pip install sigantry-core
+      - name: sigantry release record
+        # WR-05 review fix: operator inputs are passed via the ``env:``
+        # block (which GHA expands BEFORE bash sees the script) rather
+        # than template-time interpolated into a bash single-quoted
+        # string. The previous form broke on any apostrophe in an
+        # operator-typed value (e.g. approver=Maria O'Connor) and was a
+        # latent command-injection surface.
+        env:
+          # github.run_id / github.actor fallback lives here, not in the input
+          # `default:` slot. GitHub's workflow parser rejects ${{ github.* }}
+          # inside default values (defaults are evaluated at parse time,
+          # before the github context is bound) -- that was the real
+          # ghost-runs root cause (PUNCHLIST G3, fix lands 2026-05-12 follow-up).
+          SIGANTRY_RELEASE_ID: ${{ inputs.releaseId != '' && inputs.releaseId || github.run_id }}
+          SIGANTRY_WORKSPACE_ID: ${{ inputs.workspaceId }}
+          SIGANTRY_WORK_ITEMS: ${{ inputs.workItems }}
+          SIGANTRY_APPROVER: ${{ inputs.approver != '' && inputs.approver || format('{0}@users.noreply.github.com', github.actor) }}
+          SIGANTRY_GITHUB_OWNER: ${{ github.repository_owner }}
+          SIGANTRY_GITHUB_REPO: ${{ github.event.repository.name }}
+        run: |
+          sigantry release record \
+            --release-id "$SIGANTRY_RELEASE_ID" \
+            --workspace "$SIGANTRY_WORKSPACE_ID" \
+            --work-items "$SIGANTRY_WORK_ITEMS" \
+            --approver "$SIGANTRY_APPROVER" \
+            --provider github \
+            --github-owner "$SIGANTRY_GITHUB_OWNER" \
+            --github-repo "$SIGANTRY_GITHUB_REPO"

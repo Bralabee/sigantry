@@ -1,0 +1,16 @@
+# Fixture: single-sided ADO stage template with NO GHA counterpart and NO
+# exception annotation. The dual-ci-parity lint (BRIEF-06 / Phase 10 Plan
+# 06) MUST flag this file as a pair-existence violation and exit non-zero.
+parameters:
+  - name: env_name
+    type: string
+    default: dev
+
+stages:
+  - stage: deploy
+    displayName: Deploy
+    dependsOn: []
+    jobs:
+      - job: run_deploy
+        steps:
+          - script: echo "deploying to ${{ parameters.env_name }}"

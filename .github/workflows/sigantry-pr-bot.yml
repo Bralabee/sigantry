@@ -1,0 +1,77 @@
+# .github/workflows/sigantry-pr-bot.yml
+# ------------------------------------------------------------------
+# Monorepo product-side PR-review bot workflow (Plan 14-06 Task 2).
+#
+# Runs the Sigantry PR-review bot on PRs into THIS sigantry-core repo.
+# Paired with templates/pr-review/sigantry-pr-bot.yml; parity enforced
+# by scripts/ci/check-dual-ci-parity.py (basename + stage-graph +
+# parameter parity).
+#
+# Triggers (D-19): pull_request types open / synchronize / reopened /
+# ready_for_review on main; paths filter on **/*.tmdl, **/*.Lakehouse/**,
+# **/.platform.
+#
+# Concurrency block (T-14-06-03 secondary-rate-limit mitigation):
+# group keys on PR id so only one run executes per PR at a time.
+#
+# Two-checkout pattern: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v4 populates ONE ref by
+# default; the bot needs both base + head trees on disk so we run
+# checkout twice with explicit ref + path.
+# ------------------------------------------------------------------
+name: sigantry-pr-bot
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+    paths:
+      - "**/*.tmdl"
+      - "**/*.Lakehouse/**"
+      - "**/.platform"
+  workflow_call:
+    inputs:
+      pythonVersion:
+        type: string
+        default: '3.11'
+      provider:
+        type: string
+        default: 'auto'
+
+permissions:
+  pull-requests: write   # required for issue-comments POST
+
+concurrency:
+  group: sigantry-pr-bot-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr_bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout base ref
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base-tree
+      - name: Checkout head ref
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: head-tree
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ inputs.pythonVersion || '3.11' }}
+          cache: 'pip'
+      - name: Install sigantry-core (editable from source)
+        run: pip install -e ./head-tree
+      - name: Run sigantry pr-bot
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          sigantry pr-bot run \
+            --provider "${{ inputs.provider || 'auto' }}" \
+            --pr-id "${{ github.event.pull_request.number }}" \
+            --token "$GITHUB_TOKEN" \
+            --base-dir base-tree \
+            --head-dir head-tree

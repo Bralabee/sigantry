@@ -1,0 +1,64 @@
+# templates/stages/cd-test.yml
+# sigantry-dual-ci-exception: ci-mechanics
+# ------------------------------------------------------------------
+# Continuous Deployment to the `fabric-test` ADO environment.
+# Exception rationale (BRIEF-06 / Phase 10 Plan 06): legacy Phase 5
+# ADO-only CD template. Replaced in Phase 12 by paired
+# Sigantry-namespaced deploy templates that the dual-ci-parity
+# lint enforces directly.
+#
+# Sources (Pitfall 14 / Phase 5 Success Criterion 1):
+#   Microsoft Learn - Deployment jobs
+#     https://learn.microsoft.com/azure/devops/pipelines/process/deployment-jobs
+#     ms.date: 2026-04-20
+#   Microsoft Learn - Environments
+#     https://learn.microsoft.com/azure/devops/pipelines/process/environments
+#     ms.date: 2026-04-20
+#
+# The (optional) approval policy for `fabric-test` is attached via the ADO
+# UI - NOT encoded in YAML. Approval policy is enforced by the environment,
+# not the pipeline definition (T-5-03 mitigation).
+# ------------------------------------------------------------------
+
+parameters:
+  - name: workspaceId
+    type: string
+  - name: serviceConnection
+    type: string
+  - name: sourceDir
+    type: string
+    default: 'fabric_items/'
+  - name: parametersPath
+    type: string
+    default: 'parameters.yml'
+  - name: environment
+    type: string
+    default: 'TEST'
+  - name: itemTypes
+    type: string
+    default: 'Lakehouse,Environment,Notebook,DataPipeline'
+  - name: dependsOn
+    type: object
+    default:
+      - cd_dev
+
+stages:
+  - stage: cd_test
+    displayName: 'CD - fabric-test'
+    dependsOn: ${{ parameters.dependsOn }}
+    jobs:
+      - deployment: deploy_test
+        displayName: 'Deploy to fabric-test'
+        environment: 'fabric-test'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - template: ../steps/fabric-deploy.yml
+                  parameters:
+                    workspaceId: ${{ parameters.workspaceId }}
+                    serviceConnection: ${{ parameters.serviceConnection }}
+                    sourceDir: ${{ parameters.sourceDir }}
+                    parametersPath: ${{ parameters.parametersPath }}
+                    environment: ${{ parameters.environment }}
+                    itemTypes: ${{ parameters.itemTypes }}

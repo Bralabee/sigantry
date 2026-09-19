@@ -1,0 +1,66 @@
+# Sigantry -- workspace.yml starter (greenfield workspace bootstrap)
+# ==================================================================
+# Copy + edit, then materialise a governed Fabric workspace with:
+#
+#     sigantry workspace bootstrap workspace.yml --dry-run   # probe only, no writes
+#     sigantry workspace bootstrap workspace.yml             # create for real
+#
+# The bootstrap runs a 5-call probe-before-act sequence:
+#   create workspace -> bind capacity -> create folders -> connect Git -> initialize.
+# It creates FOLDERS, never items -- publish items afterwards with
+# `sigantry deploy run` or `sigantry sync apply --with-publish --params parameters.yml`.
+#
+# Schema: sigantry_core/workspace/bootstrap.py (WORKSPACE_SCHEMA, Draft 2020-12,
+# additionalProperties:false -- typos fail loudly). Full annotated surface:
+# docs/runbooks/workspace-bootstrap-operator.md. Walkthrough: docs/tutorials/06-bootstrap-workspace.md.
+#
+# As-shipped this file VALIDATES CLEAN (placeholder capacity GUID below is
+# schema-valid) but points at nothing real -- replace the capacity_id before use.
+#
+# NOTE on config idiom: unlike parameters.yml, workspace.yml requires a LITERAL
+# capacity GUID -- the schema enforces the GUID pattern and does NOT accept
+# $ENV:/$items forms here. Get yours from `sigantry capacity list`. Keep any
+# real workspace.yml with real IDs out of shared/public repos accordingly.
+
+schema_version: "1.0"                       # locked at "1.0" for the v3.0.x line
+
+workspace:
+  name: my-project-dev                      # display name (required, 1-200 chars)
+  description: "Greenfield workspace bootstrapped by sigantry"  # optional, <=1000 chars
+  capacity_id: "0749b635-c51b-46c6-948a-02f05d7fe177"  # REPLACE -- required GUID from `sigantry capacity list`
+
+  # Stage marker -- one of DEV / TEST / PREPROD / PROD / FEATURE / NONE (default NONE).
+  # When stage_marker_in_name=true the display name is prefixed ([DEV], [TEST], ...).
+  stage: NONE
+  stage_marker_in_name: false
+  # feature_branch: my-feature-branch       # REQUIRED only when stage=FEATURE;
+                                             # forbidden for every other stage.
+  domain_id: null                           # optional Fabric domain id
+
+folders:
+  # Choose EXACTLY ONE of `blueprint:` or `list:` (or omit the whole `folders:`
+  # block to create a workspace with no folders). Supplying both fails validation.
+  blueprint: minimal_starter                # named layout from sigantry_core/workspace/blueprints.py
+                                             #   minimal_starter / medallion (alias) =
+                                             #   000 Orchestrate / 100 Ingest / 200 Store /
+                                             #   300 Prepare / 400 Model / 500 Visualize /
+                                             #   999 Libraries / Archive
+  # --- OR an explicit layout instead of a blueprint: ---
+  # list:
+  #   - "000 Orchestrate"
+  #   - "100 Ingest"
+  #   - "200 Store"
+
+git:
+  enabled: false                            # required key; false = no Git wiring at bootstrap
+  # When enabled=true, ALL of the following are required (provider is ADO-only today;
+  # GitHub-canonical repos are connected out-of-band or via the ADO mirror):
+  # provider: ado
+  # organization_name: my-ado-org
+  # project_name: my-ado-project
+  # repository_name: my-repo
+  # branch_name: main
+  # directory_name: fabric_items
+  # git_connection_id: "<git-connection-guid>"
+  # force_reconnect: false                  # opt-in destructive re-bind when already
+                                            # connected to a DIFFERENT target

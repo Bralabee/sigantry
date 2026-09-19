@@ -1,0 +1,24 @@
+# sigantry-dual-ci-exception: ci-mechanics
+# Fixture: single-sided ADO schedule template annotated as a documented
+# exception per docs/reference/dual-ci-strategy.md (Exceptions section).
+# The dual-ci-parity lint MUST skip this file -- no GHA counterpart is
+# required.
+#
+# This proves the exception-annotation skip path used by templates whose
+# parity counterpart is structurally different (e.g. publish-ado-wiki.yml
+# vs publish-gh-pages.yml).
+schedules:
+  - cron: "0 6 * * *"
+    displayName: 'Daily diagnostic'
+    branches:
+      include:
+        - master
+
+stages:
+  - stage: diagnose
+    displayName: Diagnose
+    dependsOn: []
+    jobs:
+      - job: collect
+        steps:
+          - script: echo "ci-mechanics fixture; not paired by design"

@@ -1,0 +1,130 @@
+# templates/stages/validate-fabric-items.yml
+# sigantry-dual-ci-exception: ci-mechanics
+# ------------------------------------------------------------------
+# Phase 5 Plan 05-02 - ADOPIPE-05. PR-trigger dry-run template.
+# Exception rationale (BRIEF-06 / Phase 10 Plan 06): legacy Phase 5
+# ADO-only PR-validation template. The dual-CI PR-review-bot
+# template pair lands in Phase 14 (PR-REVIEW REQs); until then,
+# this template exists only because of ADO PR-trigger mechanics.
+#
+# Invokes `sigantry deploy validate`, which composes three Phase 4
+# primitives (load_and_validate + validate_order + pre-commit fabric-check-*
+# hooks). Runs ONLY on PR builds so full CD stages aren't triggered for
+# every draft commit.
+#
+# Flow:
+#   1. UsePythonVersion@0 (3.11 default).
+#   2. pip install -e .[dev] - editable install of the PR-branch source so
+#      the PR's CLI + hooks are the ones being validated.
+#   3. sigantry deploy validate --junit-xml --dot-output -> artefacts/.
+#      continueOnError so publish + annotation still run on failure.
+#   4. PublishTestResults@2 surfaces JUnit XML to the ADO test tab.
+#   5. PublishPipelineArtifact@1 uploads the DOT graph + receipts.
+#   6. templates/steps/post-pr-comment.yml@self posts a PR thread with
+#      the validate result (status wired via $AGENT_JOBSTATUS).
+#   7. Final script `exit 1` makes the PR check fail loud even though
+#      step 3 was continueOnError: true (T-5-12 mitigation).
+#
+# Prerequisite: Build Service account needs "Contribute to pull requests:
+# Allow" on the target repo - see Pitfall E in
+# docs/runbooks/service-connection-bootstrap.md.
+#
+# Sources (Pitfall 14):
+#   Microsoft Learn - Build.Reason predefined variable
+#     https://learn.microsoft.com/azure/devops/pipelines/build/variables
+#     ms.date: 2026-04-20
+#   Microsoft Learn - Conditions on stages
+#     https://learn.microsoft.com/azure/devops/pipelines/process/conditions
+#     ms.date: 2026-04-20
+#   Microsoft Learn - PublishTestResults@2 task
+#     https://learn.microsoft.com/azure/devops/pipelines/tasks/reference/publish-test-results-v2
+#     ms.date: 2026-04-20
+# ------------------------------------------------------------------
+
+parameters:
+  - name: sourceDir
+    type: string
+    default: 'fabric_items/'
+  - name: parametersPath
+    type: string
+    default: 'parameters.yml'
+  - name: itemTypes
+    type: string
+    default: 'Lakehouse,Environment,Notebook,DataPipeline'
+  - name: pythonVersion
+    type: string
+    default: '3.11'
+  - name: stageName
+    type: string
+    default: 'validate_fabric'
+  - name: jobName
+    type: string
+    default: 'dry_run'
+
+stages:
+  - stage: ${{ parameters.stageName }}
+    displayName: 'Validate Fabric items (PR dry-run)'
+    # Run ONLY on PR builds - non-PR commits skip this stage entirely.
+    condition: eq(variables['Build.Reason'], 'PullRequest')
+    jobs:
+      - job: ${{ parameters.jobName }}
+        displayName: 'sigantry deploy validate'
+        steps:
+          - task: UsePythonVersion@0
+            displayName: 'Use Python ${{ parameters.pythonVersion }}'
+            inputs:
+              versionSpec: '${{ parameters.pythonVersion }}'
+              addToPath: true
+
+          - script: |
+              set -euo pipefail
+              python -m pip install --upgrade pip
+              python -m pip install -e ".[dev]"
+              mkdir -p validate-artefacts
+            displayName: 'pip install -e .[dev] (editable)'
+
+          - script: |
+              set +e
+              sigantry deploy validate \
+                --source '${{ parameters.sourceDir }}' \
+                --params '${{ parameters.parametersPath }}' \
+                --item-types '${{ parameters.itemTypes }}' \
+                --junit-xml validate-artefacts/junit.xml \
+                --dot-output validate-artefacts/
+              echo "##vso[task.setvariable variable=ValidateExit;isOutput=true]$?"
+            name: ValidateStep
+            continueOnError: true
+            displayName: 'sigantry deploy validate'
+
+          - task: PublishTestResults@2
+            displayName: 'Publish validate JUnit'
+            condition: always()
+            inputs:
+              testResultsFormat: 'JUnit'
+              testResultsFiles: 'validate-artefacts/junit.xml'
+              failTaskOnFailedTests: false
+              testRunTitle: 'sigantry deploy validate'
+
+          - task: PublishPipelineArtifact@1
+            displayName: 'Publish validate-artefacts/'
+            condition: always()
+            inputs:
+              targetPath: 'validate-artefacts'
+              artifact: 'validate-artefacts'
+              publishLocation: 'pipeline'
+
+          - template: templates/steps/post-pr-comment.yml@self
+            parameters:
+              commentBody: |
+                **sigantry deploy validate** - ValidateStep result: $(ValidateStep.result)
+
+                Artefacts (JUnit XML + dependency graph) attached to this run.
+                See the build summary for details.
+
+          - script: |
+              if [ "$AGENT_JOBSTATUS" != "Succeeded" ]; then
+                echo "##[error] Validate stage did not succeed (AGENT_JOBSTATUS=$AGENT_JOBSTATUS)"
+                exit 1
+              fi
+            displayName: 'Fail loud on validate failure'
+            condition: always()

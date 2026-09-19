@@ -1,0 +1,471 @@
+/* Sigantry User Guide -- print stylesheet for WeasyPrint.
+ *
+ * Targets a US-Letter / A4 page with industry-standard manual typography:
+ * - Cover page (full-bleed band, big title, metadata table)
+ * - Running headers + page numbers (suppressed on cover)
+ * - 11pt body, 1.45 line-height, generous margins
+ * - Code blocks: monospace, light grey panel, syntax-highlighted via Pygments
+ * - Diagrams: figure with centered SVG + small caption
+ * - Tables: full-width, banded rows, header rule
+ *
+ * Colour palette anchored on a neutral slate + a single accent (steel-blue 600)
+ * so it prints cleanly on monochrome and looks restrained in colour.
+ */
+
+:root {
+    --ink: #1a1f2e;
+    --muted: #5a6478;
+    --rule: #d0d4dd;
+    --rule-soft: #ebedf2;
+    --accent: #2b5d9b;
+    --accent-soft: #e8eef7;
+    --code-bg: #f6f7f9;
+    --code-border: #e3e6ec;
+    --hl-keyword: #8a3ffc;
+    --hl-string: #006d6d;
+    --hl-comment: #5a6478;
+    --hl-number: #b14a00;
+}
+
+@page {
+    size: A4;
+    margin: 22mm 18mm 22mm 18mm;
+
+    @top-left { content: "Sigantry User Guide"; font-family: "Source Sans 3", "Source Sans Pro", "Helvetica Neue", Arial, sans-serif; font-size: 9pt; color: var(--muted); }
+    @top-right { content: string(chapter); font-family: "Source Sans 3", "Source Sans Pro", "Helvetica Neue", Arial, sans-serif; font-size: 9pt; color: var(--muted); }
+    @bottom-center { content: counter(page) " / " counter(pages); font-family: "Source Sans 3", "Source Sans Pro", "Helvetica Neue", Arial, sans-serif; font-size: 9pt; color: var(--muted); }
+}
+
+@page cover {
+    margin: 0;
+    @top-left { content: ""; }
+    @top-right { content: ""; }
+    @bottom-center { content: ""; }
+}
+
+@page :first {
+    margin: 0;
+    @top-left { content: ""; }
+    @top-right { content: ""; }
+    @bottom-center { content: ""; }
+}
+
+/* Landscape pages -- used by dense diagrams (architecture / decision
+ * trees) so labels get the ~285mm of horizontal real estate they need
+ * to stay legible. Wider side margins keep the running header + page
+ * number visually balanced on the rotated page.
+ */
+@page landscape {
+    size: A4 landscape;
+    margin: 18mm 22mm 18mm 22mm;
+
+    @top-left { content: "Sigantry User Guide"; font-family: "Source Sans 3", "Source Sans Pro", "Helvetica Neue", Arial, sans-serif; font-size: 9pt; color: var(--muted); }
+    @top-right { content: string(chapter); font-family: "Source Sans 3", "Source Sans Pro", "Helvetica Neue", Arial, sans-serif; font-size: 9pt; color: var(--muted); }
+    @bottom-center { content: counter(page) " / " counter(pages); font-family: "Source Sans 3", "Source Sans Pro", "Helvetica Neue", Arial, sans-serif; font-size: 9pt; color: var(--muted); }
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+    color: var(--ink);
+    font-family: "Source Sans 3", "Source Sans Pro", "Helvetica Neue", Arial, sans-serif;
+    font-size: 10.5pt;
+    line-height: 1.45;
+}
+
+/* --- cover -------------------------------------------------------------- */
+
+.cover {
+    page: cover;
+    page-break-after: always;
+    position: relative;
+    width: 210mm;
+    height: 297mm;
+    box-sizing: border-box;
+    padding: 0;
+}
+
+.cover-band {
+    height: 88mm;
+    background: linear-gradient(135deg, var(--accent) 0%, #1a3d6b 100%);
+    position: relative;
+}
+.cover-band::after {
+    content: "";
+    position: absolute;
+    bottom: -1px; left: 0; right: 0; height: 6mm;
+    background: var(--accent-soft);
+}
+
+.cover-body {
+    padding: 18mm 22mm 0 22mm;
+}
+
+.cover-eyebrow {
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    font-size: 9pt;
+    margin: 0 0 6mm 0;
+    font-weight: 600;
+}
+
+.cover-title {
+    font-size: 60pt;
+    line-height: 1;
+    font-weight: 800;
+    color: var(--ink);
+    margin: 0 0 4mm 0;
+    letter-spacing: -0.02em;
+}
+
+.cover-subtitle {
+    font-size: 22pt;
+    line-height: 1.1;
+    font-weight: 300;
+    color: var(--accent);
+    margin: 0 0 10mm 0;
+}
+
+.cover-rule {
+    border: 0;
+    border-top: 1.5pt solid var(--accent);
+    width: 32mm;
+    margin: 0 0 8mm 0;
+}
+
+.cover-blurb {
+    max-width: 130mm;
+    font-size: 11.5pt;
+    color: var(--ink);
+    line-height: 1.5;
+    margin: 0;
+}
+
+.cover-meta {
+    margin: 18mm 22mm 0 22mm;
+}
+.cover-meta table {
+    border-collapse: collapse;
+    border-top: 1pt solid var(--rule);
+    border-bottom: 1pt solid var(--rule);
+    width: 100%;
+    font-size: 10pt;
+}
+.cover-meta th {
+    text-align: left;
+    color: var(--muted);
+    font-weight: 600;
+    padding: 3mm 4mm 3mm 0;
+    width: 40mm;
+    border-bottom: 1pt solid var(--rule-soft);
+}
+.cover-meta td {
+    padding: 3mm 0;
+    border-bottom: 1pt solid var(--rule-soft);
+}
+.cover-meta tr:last-child th,
+.cover-meta tr:last-child td { border-bottom: 0; }
+
+.cover-footer {
+    position: absolute;
+    bottom: 14mm;
+    left: 22mm;
+    right: 22mm;
+    margin: 0;
+    font-size: 8.5pt;
+    color: var(--muted);
+}
+
+/* --- content body ------------------------------------------------------- */
+
+.content {
+    counter-reset: chapter;
+}
+
+h1 {
+    font-size: 22pt;
+    font-weight: 700;
+    color: var(--ink);
+    border-bottom: 1.5pt solid var(--accent);
+    padding-bottom: 2mm;
+    margin: 12mm 0 5mm 0;
+    page-break-before: always;
+    string-set: chapter content();
+    counter-increment: chapter;
+}
+
+h1:first-of-type {
+    page-break-before: avoid;
+}
+
+h2 {
+    font-size: 15pt;
+    font-weight: 700;
+    color: var(--ink);
+    margin: 10mm 0 3mm 0;
+    page-break-after: avoid;
+}
+
+h3 {
+    font-size: 12pt;
+    font-weight: 700;
+    color: var(--accent);
+    margin: 7mm 0 2mm 0;
+    page-break-after: avoid;
+}
+
+h4 {
+    font-size: 10.5pt;
+    font-weight: 700;
+    color: var(--ink);
+    margin: 5mm 0 1.5mm 0;
+    page-break-after: avoid;
+}
+
+p {
+    margin: 0 0 3.5mm 0;
+    text-align: justify;
+    hyphens: auto;
+}
+
+ul, ol {
+    margin: 2mm 0 3mm 6mm;
+    padding: 0;
+}
+li { margin: 1mm 0; }
+
+a, a:link, a:visited {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+strong { font-weight: 700; }
+em { font-style: italic; }
+
+hr {
+    border: 0;
+    border-top: 0.5pt solid var(--rule);
+    margin: 6mm 0;
+}
+
+blockquote {
+    border-left: 3pt solid var(--accent);
+    background: var(--accent-soft);
+    margin: 3mm 0;
+    padding: 3mm 5mm;
+    color: var(--ink);
+    font-size: 10pt;
+}
+blockquote > p:last-child { margin-bottom: 0; }
+
+/* --- code --------------------------------------------------------------- */
+
+code {
+    font-family: "JetBrains Mono", "Source Code Pro", "Menlo", "Consolas", monospace;
+    font-size: 9pt;
+    background: var(--code-bg);
+    border: 0.5pt solid var(--code-border);
+    border-radius: 2pt;
+    padding: 0.5pt 2pt;
+}
+
+pre {
+    background: var(--code-bg);
+    border: 0.5pt solid var(--code-border);
+    border-radius: 2pt;
+    padding: 3mm 4mm;
+    margin: 3mm 0 4mm 0;
+    overflow-x: hidden;
+    font-size: 8.8pt;
+    line-height: 1.4;
+    page-break-inside: avoid;
+}
+pre code {
+    background: transparent;
+    border: 0;
+    padding: 0;
+    font-size: inherit;
+}
+
+/* Pygments classes (codehilite extension default mapping) */
+.codehilite .k, .codehilite .kd, .codehilite .kn, .codehilite .kt { color: var(--hl-keyword); font-weight: 600; }
+.codehilite .s, .codehilite .s1, .codehilite .s2, .codehilite .sb { color: var(--hl-string); }
+.codehilite .c, .codehilite .c1, .codehilite .cm { color: var(--hl-comment); font-style: italic; }
+.codehilite .mi, .codehilite .mf, .codehilite .mo { color: var(--hl-number); }
+.codehilite .nb, .codehilite .nf, .codehilite .nc { color: var(--accent); }
+
+/* --- tables ------------------------------------------------------------- */
+
+table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 3mm 0 4mm 0;
+    font-size: 9.5pt;
+    page-break-inside: avoid;
+}
+th, td {
+    text-align: left;
+    padding: 2mm 3mm;
+    border-bottom: 0.5pt solid var(--rule-soft);
+    vertical-align: top;
+}
+th {
+    background: var(--code-bg);
+    border-bottom: 1pt solid var(--rule);
+    font-weight: 700;
+    color: var(--ink);
+}
+tr:nth-child(even) td {
+    background: #fafbfd;
+}
+
+/* --- diagrams (mermaid SVG) -------------------------------------------- */
+
+figure.mermaid-figure {
+    margin: 6mm auto;
+    page-break-inside: avoid;
+    text-align: center;
+}
+.mermaid-svg-wrap {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+}
+/* Fill the column width fully. The diagram is now a PNG (rendered at
+ * 1600 / 2200px wide so it stays crisp at A4 print DPI) -- WeasyPrint
+ * scales it to the figure's text width via these rules. height:auto
+ * preserves aspect ratio.
+ */
+.mermaid-svg-wrap img.mermaid-png {
+    width: 100%;
+    max-width: none;
+    height: auto;
+    /* Cap portrait diagrams so very tall sequence diagrams stay on
+     * their own page without forcing a giant figure that crowds out
+     * surrounding prose.
+     */
+    max-height: 200mm;
+    object-fit: contain;
+}
+figure.mermaid-figure figcaption {
+    margin-top: 3mm;
+    font-size: 9pt;
+    color: var(--muted);
+    text-align: center;
+    font-style: italic;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+}
+
+/* Landscape figures: rotate the page, give the diagram the entire
+ * landscape text width (~245mm), centre-align top of page, and
+ * suppress page-break-inside so the diagram never gets clipped.
+ */
+figure.mermaid-figure.landscape {
+    page: landscape;
+    page-break-before: always;
+    page-break-after: always;
+    margin: 0 auto;
+    padding: 4mm 0;
+}
+figure.mermaid-figure.landscape .mermaid-svg-wrap img.mermaid-png {
+    /* Fill the landscape page's horizontal real estate (~245mm of
+     * usable area inside the page margins). Cap height at 150mm so
+     * the figcaption + figure padding still fit on the same page
+     * (landscape A4 has ~174mm of vertical space inside our margins;
+     * 150mm image + 10mm caption + ~8mm padding = 168mm, leaves room).
+     */
+    width: 100%;
+    max-width: none;
+    height: auto;
+    max-height: 150mm;
+    object-fit: contain;
+}
+figure.mermaid-figure.landscape figcaption {
+    margin-top: 4mm;
+    font-size: 10pt;
+}
+
+/* --- lists tweaks ------------------------------------------------------- */
+
+dl { margin: 2mm 0; }
+dt { font-weight: 700; margin-top: 2mm; }
+dd { margin: 0 0 1mm 6mm; color: var(--ink); }
+
+/* --- TOC styling for the auto-generated [TOC] block -------------------- */
+
+.toc {
+    background: var(--code-bg);
+    border: 0.5pt solid var(--rule);
+    border-radius: 2pt;
+    padding: 5mm 6mm 5mm 6mm;
+    margin: 6mm 0;
+    page-break-after: always;
+}
+.toc::before {
+    content: "Table of Contents";
+    display: block;
+    font-size: 14pt;
+    font-weight: 700;
+    color: var(--ink);
+    margin-bottom: 4mm;
+}
+.toc ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+.toc > ul > li { font-weight: 700; margin: 2mm 0 1mm 0; }
+.toc ul ul { margin-left: 5mm; font-weight: 400; }
+.toc a { color: var(--ink); }
+
+/* --- List of Figures --------------------------------------------------- */
+
+.lof {
+    background: var(--code-bg);
+    border: 0.5pt solid var(--rule);
+    border-radius: 2pt;
+    padding: 5mm 6mm 5mm 6mm;
+    margin: 6mm 0;
+    page-break-after: always;
+}
+.lof::before {
+    content: "List of Figures";
+    display: block;
+    font-size: 14pt;
+    font-weight: 700;
+    color: var(--ink);
+    margin-bottom: 4mm;
+}
+.lof ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    column-count: 1;
+}
+.lof li {
+    margin: 1.5mm 0;
+    font-size: 10pt;
+    color: var(--ink);
+}
+.lof a { color: var(--ink); }
+.lof-tag {
+    display: inline-block;
+    margin-left: 3mm;
+    padding: 0 1.5mm;
+    border: 0.5pt solid var(--accent);
+    border-radius: 1.5pt;
+    color: var(--accent);
+    font-size: 7.5pt;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    vertical-align: 0.05em;
+}
+
+/* --- callouts (admonitions via blockquote-with-class) ------------------ */
+
+blockquote.note { border-left-color: var(--accent); background: var(--accent-soft); }
+blockquote.warn { border-left-color: #b14a00; background: #fdf3e7; }
+blockquote.tip  { border-left-color: #1a7a3e; background: #e6f4ec; }

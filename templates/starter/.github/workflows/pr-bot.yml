@@ -1,0 +1,70 @@
+# templates/starter/.github/workflows/pr-bot.yml
+# ------------------------------------------------------------------
+# Sigantry starter PR-review bot workflow (STARTER-07 / Plan 14-06).
+# Adopters consume this file from the sigantry-starter template repo.
+#
+# Paired with templates/starter/.azuredevops/jobs/pr-bot.yml; parity
+# enforced by tests/ci/test_starter_dual_ci.py (existence +
+# paths-filter parity + invocation-arg parity).
+#
+# Triggers (D-19 + RESEARCH Pitfall 9):
+#   pull_request: types open / synchronize / reopened / ready_for_review
+#   branches:     main
+#   paths:        **/*.tmdl, **/*.Lakehouse/**, **/.platform
+#
+# Concurrency block (T-14-06-03 secondary-rate-limit mitigation):
+#   group keys on PR id so only one bot run executes per PR at a time.
+#
+# Two checkouts pattern: actions/checkout@v4 populates ONE ref by
+# default; the bot needs both base + head trees on disk so we run
+# checkout twice with explicit ref + path inputs.
+# ------------------------------------------------------------------
+name: sigantry-pr-bot
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+    paths:
+      - "**/*.tmdl"
+      - "**/*.Lakehouse/**"
+      - "**/.platform"
+
+permissions:
+  pull-requests: write   # required for issue-comments POST
+
+concurrency:
+  group: sigantry-pr-bot-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr_bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout base ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base-tree
+      - name: Checkout head ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: head-tree
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install sigantry-core
+        run: pip install sigantry-core
+      - name: Run sigantry pr-bot
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          sigantry pr-bot run \
+            --provider auto \
+            --pr-id "${{ github.event.pull_request.number }}" \
+            --token "$GITHUB_TOKEN" \
+            --base-dir base-tree \
+            --head-dir head-tree

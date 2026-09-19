@@ -1,0 +1,184 @@
+# templates/stages/ci.yml
+# sigantry-dual-ci-exception: ci-mechanics
+# ------------------------------------------------------------------
+# Four-stage CI contract (lint -> test -> build -> publish).
+# Exception rationale (BRIEF-06 / Phase 10 Plan 06): this template is
+# the repo's own ADO bootstrap CI pipeline. Its GHA counterpart
+# (.github/workflows/ci.yml) implements the same four-stage contract
+# using GHA-native job semantics; the stage graphs and parameter
+# surfaces differ by CI-system mechanics (job templates / matrix /
+# Pester vs Pwsh action), not by user-facing behaviour. Phases 12-14
+# replace the dogfood pipeline with paired Sigantry-namespaced
+# templates that the dual-ci-parity lint enforces directly.
+# Preserves Phase 1 azure-pipelines.yml behaviour byte-for-byte at the
+# job level. Shipped as a stageList element so secure-pipeline.yml
+# can iterate it verbatim between the security_scan and post_audit
+# envelope stages.
+#
+# Sources (Pitfall 14 / Phase 5 Success Criterion 1):
+#   Microsoft Learn - Stage templates
+#     https://learn.microsoft.com/azure/devops/pipelines/process/templates
+#     ms.date: 2026-04-20
+#   Microsoft Learn - Conditions on stages
+#     https://learn.microsoft.com/azure/devops/pipelines/process/conditions
+#     ms.date: 2026-04-20
+#
+# Threat mitigations: T-5-05 (preserves four-stage contract), T-5-08
+# (regression ratchet via tests/templates/test_dogfood_pipeline.py).
+# ------------------------------------------------------------------
+
+parameters:
+  - name: pythonVersion
+    type: string
+    default: '3.11'
+  - name: pythonVersionMatrix
+    # 08.1 P1-2: exercise the full supported range. pyproject.toml declares
+    # >=3.11,<3.13, so CI must run both or reality drifts from the pin.
+    type: object
+    default:
+      py311:
+        pythonVersion: '3.11'
+      py312:
+        pythonVersion: '3.12'
+  - name: pesterVersion
+    type: string
+    default: '5.7.1'
+  - name: psscriptanalyzerVersion
+    type: string
+    default: '1.25.0'
+  - name: artifactsFeed
+    type: string
+    default: 'fabric-dataops-toolkits'
+  - name: sourceDir
+    type: string
+    default: 'fabric_items/'
+  - name: parametersPath
+    type: string
+    default: 'parameters.yml'
+  - name: itemTypes
+    type: string
+    default: 'Lakehouse,Environment,Notebook,DataPipeline'
+
+stages:
+  # --------------------------------------------------------------
+  # Stage 1/4: lint
+  # --------------------------------------------------------------
+  - stage: lint
+    displayName: 'Lint'
+    jobs:
+      - template: ../jobs/lint-python.yml
+        parameters:
+          pythonVersion: ${{ parameters.pythonVersion }}
+      - template: ../jobs/lint-powershell.yml
+        parameters:
+          psscriptanalyzerVersion: ${{ parameters.psscriptanalyzerVersion }}
+
+  # --------------------------------------------------------------
+  # Stage 2/4: test (pytest + pester in parallel - matches Phase 1).
+  # Inlined here (not via job templates) for byte-for-byte parity
+  # with Phase 1's `test` stage wiring.
+  # --------------------------------------------------------------
+  - stage: test
+    displayName: 'Test'
+    dependsOn: lint
+    jobs:
+      - job: pytest
+        displayName: 'pytest'
+        strategy:
+          # 08.1 P1-2: explicit matrix across the supported Python range so
+          # a passing CI run proves both 3.11 and 3.12 behave identically.
+          # Legacy single-version pattern is preserved by keeping the first
+          # entry at the declared pythonVersion default.
+          matrix: ${{ parameters.pythonVersionMatrix }}
+          maxParallel: 2
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: $(pythonVersion)
+              addToPath: true
+          - script: |
+              python -m pip install --upgrade pip
+              pip install -e ".[dev]"
+              # Install the sigantry-hs2 plugin so the contract tests can
+              # exercise its entry-point registration. --no-deps mirrors the
+              # GHA side and avoids resolver loops on the local editable
+              # sigantry-core.
+              pip install -e ./sigantry-hs2 --no-deps
+              # Phase 16 / SEAM-04: install JToye plugin so its entry-point
+              # registration is exercised by tests/sigantry_jtoye/.
+              pip install -e ./sigantry-jtoye --no-deps
+            displayName: 'Install Python deps'
+          - script: |
+              mkdir -p test-results
+              pytest tests/ \
+                --junitxml=test-results/pytest-results-py$(pythonVersion).xml \
+                --cov=sigantry_core --cov-report=xml --cov-report=term \
+                --cov-fail-under=85
+            displayName: 'pytest + coverage gate'
+          - task: PublishTestResults@2
+            condition: always()
+            displayName: 'Publish pytest results'
+            inputs:
+              testResultsFiles: 'test-results/pytest-results-py$(pythonVersion).xml'
+              testRunTitle: 'sigantry_core pytest (py$(pythonVersion))'
+          - task: PublishCodeCoverageResults@2
+            condition: always()
+            displayName: 'Publish coverage'
+            inputs:
+              summaryFileLocation: 'coverage.xml'
+
+      - job: pester
+        displayName: 'Pester'
+        steps:
+          - task: PowerShell@2
+            displayName: 'Pester (Phase 0 prereqs + PowerShell module tests)'
+            inputs:
+              targetType: 'inline'
+              pwsh: true
+              script: |
+                Install-Module Pester -RequiredVersion ${{ parameters.pesterVersion }} `
+                    -Scope CurrentUser -Force -SkipPublisherCheck
+                $cfg = & ./tests/Pester.config.ps1
+                $cfg.Run.Exit = $true
+                Invoke-Pester -Configuration $cfg
+
+  # --------------------------------------------------------------
+  # Stage 3/4: build (wheel + PowerShell module artefact).
+  # --------------------------------------------------------------
+  - stage: build
+    displayName: 'Build'
+    dependsOn: test
+    jobs:
+      - template: ../jobs/build-python.yml
+        parameters:
+          pythonVersion: ${{ parameters.pythonVersion }}
+
+  # --------------------------------------------------------------
+  # Stage 4/4: publish (tag-gated).
+  # Preserves Phase 1's publish condition byte-for-byte.
+  # --------------------------------------------------------------
+  - stage: publish
+    displayName: 'Publish to Azure Artifacts (tag only)'
+    dependsOn: build
+    condition: and(succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/tags/v'))
+    jobs:
+      - job: publish_wheel
+        displayName: 'twine upload to sigantry-core feed'
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: ${{ parameters.pythonVersion }}
+              addToPath: true
+          - task: DownloadPipelineArtifact@2
+            displayName: 'Download wheel artifact'
+            inputs:
+              artifact: 'sigantry-core-wheel'
+              path: 'dist'
+          - task: TwineAuthenticate@1
+            displayName: 'Authenticate twine to ADO Artifacts'
+            inputs:
+              artifactFeed: ${{ parameters.artifactsFeed }}
+          - script: |
+              python -m pip install --upgrade twine
+              python -m twine upload -r ${{ parameters.artifactsFeed }} --config-file $(PYPIRC_PATH) dist/*.whl
+            displayName: 'twine upload'

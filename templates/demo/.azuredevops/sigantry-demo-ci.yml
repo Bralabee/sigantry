@@ -1,0 +1,64 @@
+# sigantry-dual-ci-exception: ci-mechanics
+# Adopter-consumed file -- pairs with .github/workflows/sigantry-demo-ci.yml.
+# Byte-args parity asserted by tests/ci/test_demo_dual_ci.py, not by the
+# monorepo dual-CI parity registry (RESEARCH Anti-Pattern 4 + Phase 14
+# pr-bot.yml precedent).
+#
+# Demo CI ADO half (Phase 15 / DEMO-02). Lands in the public demo-sigantry
+# ADO project via 15-HUMAN-UAT Test 1. On every push to main + PR, runs
+# sigantry deploy run + sigantry release record + sigantry diff
+# --fail-on-drift against the demo tenant via the SIGANTRY_DEMO_* secrets
+# in the operator-managed `sigantry-demo-secrets` variable group.
+#
+# All four SIGANTRY_DEMO_* references appear ONLY via $(SIGANTRY_DEMO_*);
+# no literals (RESEARCH Pitfall 8). --environment DEV is hard-coded per
+# the parameters.yml whitelist (RESEARCH Pitfall 9).
+trigger:
+  branches:
+    include: [main]
+  paths:
+    include: [fabric_items, parameters.yml]
+
+pr:
+  branches:
+    include: [main]
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  - group: sigantry-demo-secrets   # holds SIGANTRY_DEMO_*
+
+steps:
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: '3.11'
+    displayName: 'Set up Python'
+  - script: pip install sigantry-core
+    displayName: 'Install sigantry-core'
+  - script: |
+      sigantry deploy run \
+        --params parameters.yml \
+        --workspace-id "$(SIGANTRY_DEMO_WORKSPACE_ID)" \
+        --environment DEV \
+        --source fabric_items
+    env:
+      SIGANTRY_FABRIC_TENANT_ID: $(SIGANTRY_DEMO_TENANT_ID)
+      SIGANTRY_FABRIC_CAPACITY_ID: $(SIGANTRY_DEMO_CAPACITY_ID)
+      SIGANTRY_FABRIC_TOKEN: $(SIGANTRY_DEMO_FABRIC_TOKEN)
+    displayName: 'Deploy'
+  - script: |
+      sigantry release record \
+        --release-id "$(Build.SourceVersion)" \
+        --workspace-id "$(SIGANTRY_DEMO_WORKSPACE_ID)"
+    env:
+      SIGANTRY_FABRIC_TOKEN: $(SIGANTRY_DEMO_FABRIC_TOKEN)
+    displayName: 'Record release'
+  - script: |
+      sigantry diff \
+        --workspace-id "$(SIGANTRY_DEMO_WORKSPACE_ID)" \
+        --manifest sync.yml \
+        --fail-on-drift
+    env:
+      SIGANTRY_FABRIC_TOKEN: $(SIGANTRY_DEMO_FABRIC_TOKEN)
+    displayName: 'Diff (fail on drift)'

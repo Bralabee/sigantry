@@ -1,0 +1,83 @@
+# sigantry-demo-ci.yml -- adopter-consumed GHA workflow (Phase 15 / DEMO-02)
+# Lands in the public demo-sigantry GitHub repo via 15-HUMAN-UAT Test 1.
+# Pair: templates/demo/.azuredevops/sigantry-demo-ci.yml. Parity asserted
+# by tests/ci/test_demo_dual_ci.py.
+#
+# Triggers (CONTEXT D-04 + RESEARCH Pitfall 3):
+#   push:         branches main, paths fabric_items/** + parameters.yml
+#   pull_request: branches main (only the safe `pull_request` event;
+#                 the privileged-target variant is forbidden -- it
+#                 exposes secrets to fork PRs)
+#
+# Each secret-using step is guarded with
+# `if: ${{ secrets.SIGANTRY_DEMO_FABRIC_TOKEN != '' }}` so fork PRs
+# (where secrets are not exposed) skip cleanly to scaffold-only
+# validation rather than failing.
+#
+# All four SIGANTRY_DEMO_* secrets are referenced ONLY via
+# `${{ secrets.SIGANTRY_DEMO_* }}` -- no literals (RESEARCH Pitfall 8).
+# `--environment DEV` is hard-coded per the parameters.yml whitelist
+# (RESEARCH Pitfall 9).
+name: sigantry-demo-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "fabric_items/**"
+      - "parameters.yml"
+  pull_request:
+    branches: [main]
+
+# Default least-privilege at workflow scope; each job re-declares its own
+# block so future seam-expansion jobs cannot silently inherit read-write
+# (RESEARCH Pitfall 3 + Phase 14 pr-bot.yml precedent).
+permissions:
+  contents: read
+
+jobs:
+  deploy_record_diff:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install sigantry-core
+        run: pip install sigantry-core
+      - name: Deploy
+        if: ${{ secrets.SIGANTRY_DEMO_FABRIC_TOKEN != '' }}
+        env:
+          SIGANTRY_FABRIC_TENANT_ID: ${{ secrets.SIGANTRY_DEMO_TENANT_ID }}
+          SIGANTRY_FABRIC_CAPACITY_ID: ${{ secrets.SIGANTRY_DEMO_CAPACITY_ID }}
+          SIGANTRY_FABRIC_TOKEN: ${{ secrets.SIGANTRY_DEMO_FABRIC_TOKEN }}
+          SIGANTRY_DEMO_WORKSPACE_ID: ${{ secrets.SIGANTRY_DEMO_WORKSPACE_ID }}
+        run: |
+          sigantry deploy run \
+            --params parameters.yml \
+            --workspace-id "${SIGANTRY_DEMO_WORKSPACE_ID}" \
+            --environment DEV \
+            --source fabric_items
+      - name: Record release
+        if: ${{ secrets.SIGANTRY_DEMO_FABRIC_TOKEN != '' }}
+        env:
+          SIGANTRY_FABRIC_TOKEN: ${{ secrets.SIGANTRY_DEMO_FABRIC_TOKEN }}
+          SIGANTRY_DEMO_WORKSPACE_ID: ${{ secrets.SIGANTRY_DEMO_WORKSPACE_ID }}
+          SIGANTRY_DEMO_RELEASE_ID: ${{ github.sha }}
+        run: |
+          sigantry release record \
+            --release-id "${SIGANTRY_DEMO_RELEASE_ID}" \
+            --workspace-id "${SIGANTRY_DEMO_WORKSPACE_ID}"
+      - name: Diff (fail on drift)
+        if: ${{ secrets.SIGANTRY_DEMO_FABRIC_TOKEN != '' }}
+        env:
+          SIGANTRY_FABRIC_TOKEN: ${{ secrets.SIGANTRY_DEMO_FABRIC_TOKEN }}
+          SIGANTRY_DEMO_WORKSPACE_ID: ${{ secrets.SIGANTRY_DEMO_WORKSPACE_ID }}
+        run: |
+          sigantry diff \
+            --workspace-id "${SIGANTRY_DEMO_WORKSPACE_ID}" \
+            --manifest sync.yml \
+            --fail-on-drift

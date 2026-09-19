@@ -1,0 +1,21 @@
+# Sigantry demo -- sync manifest (CONTEXT D-11)
+# Operator runs:
+#   sigantry sync apply --manifest templates/demo/sync.yml --workspace-id $WID
+# per 15-HUMAN-UAT.md Test 2.
+#
+# Schema: sigantry_core.sync.manifest.SyncManifest (extra="forbid").
+# Guarded by tests/templates/test_shipped_sync_manifests_validate.py.
+schema_version: "1.0.0"
+items:
+  - display_name: Sales
+    type: Lakehouse
+    local_path: fabric_items/Sales.Lakehouse
+  - display_name: LoadOrders
+    type: Notebook
+    local_path: fabric_items/LoadOrders.Notebook
+  - display_name: RefreshOrdersDaily
+    type: DataPipeline
+    local_path: fabric_items/RefreshOrdersDaily.DataPipeline
+  - display_name: OrdersAnalytics
+    type: SemanticModel
+    local_path: fabric_items/OrdersAnalytics.SemanticModel

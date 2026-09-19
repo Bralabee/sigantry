@@ -1,0 +1,15 @@
+Sigantry release record
+```json
+{
+  "approver": "alice@example.invalid",
+  "audit_hash": "68f05fd71502e2271fec13c30866011bfbcd71f3d61ec6297458481d746ac629",
+  "created_at": "2026-04-26T12:00:00+00:00",
+  "fabric_items_changed_count": 2,
+  "release_id": "R-2026-04-26-1",
+  "test_evidence": {
+    "integration": "passed",
+    "smoke": "passed"
+  },
+  "workspace": "ws-prod"
+}
+```

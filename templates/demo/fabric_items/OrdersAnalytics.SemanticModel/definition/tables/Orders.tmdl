@@ -1,0 +1,13 @@
+table Orders
+
+    column 'OrderId'
+        dataType: int64
+        sourceColumn: OrderId
+
+    column 'Amount'
+        dataType: decimal
+        sourceColumn: Amount
+        summarizeBy: sum
+
+    measure 'Total Sales' = SUM('Orders'[Amount])
+        formatString: $ #,##0

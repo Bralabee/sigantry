@@ -1,0 +1,13 @@
+{
+  "initial_status": 202,
+  "initial_headers": {"Retry-After": "0"},
+  "initial_body": {"operationId": "op-body-1"},
+  "state_url": "https://api.fabric.microsoft.com/v1/operations/op-body-1",
+  "poll_responses": [
+    {
+      "body": {"status": "Succeeded"},
+      "headers": {},
+      "status_code": 200
+    }
+  ]
+}

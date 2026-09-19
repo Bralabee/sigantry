@@ -1,0 +1,45 @@
+# templates/jobs/lint-powershell.yml
+# ------------------------------------------------------------------
+# PSScriptAnalyzer over the PowerShell module path (parameterised) + scripts/ (job template).
+#
+# Sources (Pitfall 14 / Phase 5 Success Criterion 1):
+#   Microsoft Learn - Job templates
+#     https://learn.microsoft.com/azure/devops/pipelines/process/templates
+#     ms.date: 2026-04-20
+#   PSScriptAnalyzer
+#     https://learn.microsoft.com/powershell/utility-modules/psscriptanalyzer/overview
+#     ms.date: 2026-04-20
+#
+# Preserves Phase 1 azure-pipelines.yml ps_lint job byte-for-byte.
+# ------------------------------------------------------------------
+
+parameters:
+  - name: psscriptanalyzerVersion
+    type: string
+    default: '1.25.0'
+  # Plan 08-03: consumer supplies the PS module path. The base toolkit's
+  # dogfood pipeline overrides this via azure-pipelines.yml parameters;
+  # Plan 08-04 renames the module to a generic default.
+  - name: powershellModulePath
+    type: string
+    default: 'PowerShellModule'
+
+jobs:
+  - job: ps_lint
+    displayName: 'PowerShell lint (PSScriptAnalyzer)'
+    steps:
+      - task: PowerShell@2
+        displayName: 'PSScriptAnalyzer over PowerShell module + scripts/'
+        inputs:
+          targetType: 'inline'
+          pwsh: true
+          script: |
+            Install-Module PSScriptAnalyzer -RequiredVersion ${{ parameters.psscriptanalyzerVersion }} `
+                -Scope CurrentUser -Force -SkipPublisherCheck
+            $a = Invoke-ScriptAnalyzer -Path ${{ parameters.powershellModulePath }} -Recurse -Severity Warning
+            $b = Invoke-ScriptAnalyzer -Path scripts -Recurse -Severity Warning
+            $issues = @($a) + @($b)
+            if ($issues) {
+                $issues | Format-Table -AutoSize
+                throw "PSScriptAnalyzer failures: $($issues.Count)"
+            }

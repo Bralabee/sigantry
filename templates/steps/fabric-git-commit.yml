@@ -1,0 +1,67 @@
+# templates/steps/fabric-git-commit.yml
+# ------------------------------------------------------------------
+# Step template: invoke `sigantry git commit` under AzureCLI@2
+# to commit workspace changes to the connected Azure Repos branch
+# (Phase 4 Plan 04-03 git subapp).
+#
+# Sources (Pitfall 14 / Phase 5 Success Criterion 1):
+#   Microsoft Learn - AzureCLI@2 task
+#     https://learn.microsoft.com/azure/devops/pipelines/tasks/reference/azure-cli-v2
+#     ms.date: 2026-04-20
+#   Microsoft Learn - Fabric Core Git REST
+#     https://learn.microsoft.com/rest/api/fabric/core/git
+#     ms.date: 2026-04-20
+# ------------------------------------------------------------------
+
+parameters:
+  - name: serviceConnection
+    type: string
+  - name: workspaceId
+    type: string
+  - name: message
+    type: string
+    default: 'Automated commit from ADO pipeline'
+  - name: artifactsFeed
+    type: string
+    default: 'fabric-dataops-toolkits'
+  - name: pythonVersion
+    type: string
+    default: '3.11'
+  - name: fabricDataopsVersion
+    type: string
+    default: ''
+
+steps:
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: ${{ parameters.pythonVersion }}
+      addToPath: true
+
+  - task: PipAuthenticate@1
+    displayName: 'Authenticate pip to ADO Artifacts (${{ parameters.artifactsFeed }})'
+    inputs:
+      artifactFeeds: ${{ parameters.artifactsFeed }}
+      onlyAddExtraIndex: true
+
+  - script: |
+      set -e
+      python -m pip install --upgrade pip
+      if [ -n '${{ parameters.fabricDataopsVersion }}' ]; then
+        python -m pip install 'sigantry-core==${{ parameters.fabricDataopsVersion }}'
+      else
+        python -m pip install sigantry-core
+      fi
+    displayName: 'pip install sigantry-core'
+
+  - task: AzureCLI@2
+    displayName: 'sigantry git commit'
+    inputs:
+      azureSubscription: ${{ parameters.serviceConnection }}
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+      addSpnToEnvironment: true
+      inlineScript: |
+        set -e
+        sigantry git commit \
+          --workspace-id '${{ parameters.workspaceId }}' \
+          --message '${{ parameters.message }}'

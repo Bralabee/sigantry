@@ -1,0 +1,19 @@
+{
+  "initial_headers": {
+    "x-ms-operation-id": "op-ra-d",
+    "Location": "https://api.fabric.microsoft.com/v1/operations/op-ra-d",
+    "Retry-After": "Wed, 21 Oct 2026 07:28:30 GMT"
+  },
+  "poll_responses": [
+    {
+      "body": {"status": "Running"},
+      "headers": {"Retry-After": "Wed, 21 Oct 2026 07:28:30 GMT"},
+      "status_code": 200
+    },
+    {
+      "body": {"status": "Succeeded"},
+      "headers": {},
+      "status_code": 200
+    }
+  ]
+}

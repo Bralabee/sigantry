@@ -1,0 +1,137 @@
+# live-creds.template — declarative template for live-Azure integration credentials
+# ==================================================================================
+#
+# Copy this file to `.env.live` at the repo root and fill in the values:
+#
+#   cp scripts/live-creds.template .env.live
+#   # edit .env.live with real values (gitignored by .gitignore)
+#
+# The integration test suite (`tests/integration/conftest.py`) and
+# `fabric-dataops-toolkits-hs2-livecheck --load-env .env.live` both auto-read
+# the file, so you never have to `export` anything in your shell.
+#
+# Secrets-in-Key-Vault bootstrap (recommended — run this ONCE to populate
+# .env.live directly from KV; no secret ever lands in your shell history):
+#
+#   VAULT=<your-keyvault-short-name>
+#   {
+#     echo "AZURE_TENANT_ID=$(az keyvault secret show --vault-name "$VAULT" --name sp-tenant-id     --query value -o tsv)"
+#     echo "AZURE_CLIENT_ID=$(az keyvault secret show --vault-name "$VAULT" --name sp-client-id     --query value -o tsv)"
+#     echo "AZURE_CLIENT_SECRET=$(az keyvault secret show --vault-name "$VAULT" --name sp-client-secret --query value -o tsv)"
+#   } > .env.live
+#   # Then append the non-secret HS2_FABRIC_TEST_* values from the platform team.
+#
+# NEVER commit `.env.live`. NEVER log the file's contents.
+
+# ----- Service principal (EnvironmentCredential path of DefaultAzureCredential) -----
+
+AZURE_TENANT_ID=
+AZURE_CLIENT_ID=
+AZURE_CLIENT_SECRET=
+
+# ----- Fabric test-tenant resources -----
+# Supplied by the platform team with the SP. Do NOT use a production workspace.
+
+HS2_FABRIC_TEST_TENANT_ID=
+HS2_FABRIC_TEST_WORKSPACE_ID=
+HS2_FABRIC_TEST_CAPACITY_ID=
+HS2_FABRIC_TEST_ENVIRONMENT_ID=
+
+# ----- Telemetry (from bicep/modules/dcr-telemetry.bicep outputs) -----
+
+HS2_FABRIC_TEST_DCE_URI=
+HS2_FABRIC_TEST_DCR_IMMUTABLE_ID=
+
+# ----- AIMS deploy test (optional — defaults to Phase 9 sample fixtures) -----
+
+HS2_FABRIC_TEST_WHEEL_PATH=
+HS2_FABRIC_TEST_ITEMS_DIR=
+HS2_FABRIC_TEST_PARAMS=
+
+# ----- Git integration test (optional) -----
+
+HS2_FABRIC_TEST_GIT_CONN_ID=
+# The GIT_* values below default to sensible public values and only need
+# overriding if your test tenant uses different ADO coordinates.
+# HS2_FABRIC_TEST_GIT_ORG=<ADO organisation>
+# HS2_FABRIC_TEST_GIT_PROJECT=<ADO project>
+# HS2_FABRIC_TEST_GIT_REPO=<ADO repository>
+# HS2_FABRIC_TEST_GIT_BRANCH=<branch>
+# HS2_FABRIC_TEST_GIT_DIR=<subfolder>
+
+# ----- Opt-in gate (always set when running live) -----
+
+PYTEST_RUN_INTEGRATION=1
+
+# ----- Phase 11 (TRACE-08) work-item live tests -----
+# Required for Phase 11 sigantry_ado- and sigantry_github-marked integration
+# tests (tests/integration/workitems/test_live_{ado,github}_round_trip.py).
+# Each test runs ping + fetch + link_release and DELETEs its own comment in
+# a finally block (idempotent; teardown failure is loud, not silent).
+#
+# ADO: identity is whichever DefaultAzureCredential resolves (SPN env vars
+# above, or laptop `az login`). The identity needs `vso.work_write` scope
+# on the chosen project. Pick a low-stakes throwaway Bug/Task to comment on.
+#
+# GitHub: PAT (or GitHub App credentials) with `issues:write` scope on the
+# chosen repo. The issue must already exist; the test only adds a comment.
+#
+# See 11-HUMAN-UAT.md Tests 1 + 2 for the operator setup procedure.
+SIGANTRY_ADO_TEST_ORGANIZATION=
+SIGANTRY_ADO_TEST_PROJECT=
+SIGANTRY_ADO_TEST_WORK_ITEM_ID=
+SIGANTRY_GITHUB_TEST_OWNER=
+SIGANTRY_GITHUB_TEST_REPO=
+SIGANTRY_GITHUB_TEST_ISSUE_NUMBER=
+SIGANTRY_GITHUB_TEST_PAT=
+
+# ----- Phase 12 (PIPELINE-05) live e2e test -----
+
+SIGANTRY_FABRIC_TEST_WORKSPACE=
+SIGANTRY_FABRIC_TEST_TENANT_ID=
+SIGANTRY_FABRIC_TEST_REPOSITORY_DIR=
+
+# ----- Phase 14 PR-bot live tests -----
+# Required for Phase 14 sigantry_pr_bot-marked integration tests
+# (tests/integration/pr_bot/test_live_*_pr_comment.py). Operator
+# creates a throwaway test repo per provider with at least one PR
+# whose PR-id matches SIGANTRY_PR_BOT_TEST_PR_NUMBER. See
+# 14-HUMAN-UAT.md Test 2 for the operator setup procedure.
+SIGANTRY_GITHUB_TEST_PR_REPO=
+SIGANTRY_ADO_TEST_PR_PROJECT=
+SIGANTRY_PR_BOT_TEST_PR_NUMBER=
+
+# ----- Phase 15 demo-tenant live tests -----
+# Required for Phase 15 sigantry_demo-marked integration tests
+# (tests/integration/demo/test_live_sync_apply.py). Operator
+# provisions a dedicated demo Fabric tenant + capacity + workspace
+# per docs/runbooks/demo-tenant-operator.md (Plan 15-04 ships the
+# runbook). See 15-HUMAN-UAT.md Test 2 for operator setup. Per
+# RESEARCH §Pitfall 6: the demo SPN MUST hold permissions only on
+# the demo tenant -- never any HS2/JToye prod tenant.
+SIGANTRY_DEMO_TENANT_ID=
+SIGANTRY_DEMO_WORKSPACE_ID=
+SIGANTRY_DEMO_CAPACITY_ID=
+SIGANTRY_DEMO_FABRIC_TOKEN=
+
+# ----- Phase 16 jtoye live tests -----
+# Required for Phase 16 sigantry_jtoye-marked integration tests
+# (tests/integration/jtoye/test_live_e2e.py). Operator provisions a
+# JToye-owned Fabric tenant + workspace + a JToye SPN with deploy +
+# release-record permissions per docs/runbooks/jtoye-onboarding-operator.md
+# (Plan 16-05 ships the runbook). See 16-HUMAN-UAT.md Test 3 for the
+# operator setup. The JToye SPN MUST hold permissions only on the JToye
+# tenant -- never any HS2 prod tenant. There are NO codebase-level
+# defaults for SIGANTRY_JTOYE_GITHUB_* -- the operator's GitHub
+# coordinates are not the toolkit's concern; the live test skips cleanly
+# when any of these are unset.
+SIGANTRY_JTOYE_FABRIC_TOKEN=
+SIGANTRY_JTOYE_TENANT_ID=
+SIGANTRY_JTOYE_WORKSPACE_ID=
+SIGANTRY_JTOYE_GITHUB_OWNER=
+SIGANTRY_JTOYE_GITHUB_REPO=
+SIGANTRY_JTOYE_GITHUB_WORK_ITEM_ID=
+# GITHUB_TOKEN feeds the `sigantry release record --github-pat` envvar
+# fallback. SIGANTRY_GITHUB_TEST_PAT is honoured as a secondary fallback
+# so operators can share one PAT across Phase 11 + Phase 14 + Phase 16.
+# GITHUB_TOKEN=

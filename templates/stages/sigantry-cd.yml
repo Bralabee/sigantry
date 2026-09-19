@@ -1,0 +1,158 @@
+# templates/stages/sigantry-cd.yml
+# ------------------------------------------------------------------
+# Sigantry five-stage deploy template (PIPELINE-01).
+# deploy -> smoke -> integration -> approval -> promote
+#
+# Renamed from sigantry-deploy-with-tests.yml on 2026-05-12 to match the
+# GHA half rename. See .github/workflows/sigantry-cd.yml header + the
+# OPERATOR-PUNCHLIST.md G3 closure record for context.
+#
+# Paired with .github/workflows/sigantry-cd.yml.
+# Parity enforced by scripts/ci/check-dual-ci-parity.py (Plan 10-06).
+#
+# Documented divergences from the GHA half (must appear BYTE-IDENTICALLY
+# in the GHA workflow header so check-dual-ci-parity.py:466 sees them as
+# `shared_ignores`; either reason alone silences all parameter extras):
+# sigantry-dual-ci-ignore: gha-uses-oidc-not-service-connection
+# sigantry-dual-ci-ignore: ado-gh-env-naming
+#
+# Sources (Pitfall 14 / Phase 5 Success Criterion 1):
+#   Microsoft Learn - Deployment jobs
+#     https://learn.microsoft.com/azure/devops/pipelines/process/deployment-jobs
+#     ms.date: 2025-07-17
+#   Microsoft Learn - Approvals and checks
+#     https://learn.microsoft.com/azure/devops/pipelines/process/approvals
+#   Microsoft Learn - Stages
+#     https://learn.microsoft.com/azure/devops/pipelines/process/stages
+# ------------------------------------------------------------------
+
+parameters:
+  - name: workspaceId
+    type: string
+  - name: serviceConnection
+    type: string
+  - name: environment
+    type: string
+  - name: sourceDir
+    type: string
+    default: 'fabric_items/'
+  - name: parametersPath
+    type: string
+    default: 'parameters.yml'
+  - name: itemTypes
+    type: string
+    default: 'Lakehouse,Environment,Notebook,DataPipeline'
+  - name: smokeCommand
+    type: string
+    default: 'sigantry doctor'
+  - name: integrationCommand
+    type: string
+    default: 'python -m pytest tests/integration/ -m sigantry_pipeline -v'
+  - name: adoApprovalEnvironment
+    type: string
+  - name: releaseId
+    type: string
+    default: '$(Build.BuildId)'
+  - name: workItems
+    type: string
+    default: ''
+  - name: approver
+    type: string
+    default: '$(Build.RequestedForEmail)'
+
+stages:
+  - stage: deploy
+    displayName: 'Deploy'
+    dependsOn: []
+    jobs:
+      - deployment: deploy
+        displayName: 'sigantry deploy run'
+        environment: ${{ parameters.environment }}
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - template: ../steps/fabric-deploy.yml
+                  parameters:
+                    workspaceId: ${{ parameters.workspaceId }}
+                    serviceConnection: ${{ parameters.serviceConnection }}
+                    sourceDir: ${{ parameters.sourceDir }}
+                    parametersPath: ${{ parameters.parametersPath }}
+                    environment: ${{ parameters.environment }}
+                    itemTypes: ${{ parameters.itemTypes }}
+
+  - stage: smoke
+    displayName: 'Smoke'
+    dependsOn: [deploy]
+    jobs:
+      - job: smoke
+        displayName: 'Smoke checks'
+        steps:
+          - script: ${{ parameters.smokeCommand }}
+            displayName: 'Run smoke command'
+
+  - stage: integration
+    displayName: 'Integration'
+    dependsOn: [smoke]
+    jobs:
+      - job: integration
+        displayName: 'Integration tests'
+        steps:
+          - script: ${{ parameters.integrationCommand }}
+            displayName: 'Run integration command'
+
+  - stage: approval
+    displayName: 'Awaiting approval'
+    dependsOn: [integration]
+    jobs:
+      - deployment: gate
+        displayName: 'Approval gate'
+        environment: ${{ parameters.adoApprovalEnvironment }}    # required reviewers attached via UI (D-04)
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - script: |
+                    echo "Approval granted for environment ${{ parameters.adoApprovalEnvironment }}"
+                  displayName: 'Approval acknowledged'
+
+  - stage: promote
+    displayName: 'Promote (record release)'
+    dependsOn: [approval]
+    jobs:
+      - deployment: promote
+        displayName: 'sigantry release record'
+        environment: ${{ parameters.environment }}
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: AzureCLI@2
+                  displayName: 'sigantry release record'
+                  # WR-05 review fix: operator inputs are passed via the
+                  # ``env:`` block (which ADO escapes correctly) rather
+                  # than template-time interpolated into a bash
+                  # single-quoted string. The previous form broke on any
+                  # apostrophe in an operator-typed value (e.g.
+                  # approver=Maria O'Connor) and was a latent
+                  # command-injection surface even inside the
+                  # service-connection trust boundary.
+                  env:
+                    SIGANTRY_RELEASE_ID: ${{ parameters.releaseId }}
+                    SIGANTRY_WORKSPACE_ID: ${{ parameters.workspaceId }}
+                    SIGANTRY_WORK_ITEMS: ${{ parameters.workItems }}
+                    SIGANTRY_APPROVER: ${{ parameters.approver }}
+                  inputs:
+                    azureSubscription: ${{ parameters.serviceConnection }}
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      set -e
+                      sigantry release record \
+                        --release-id "$SIGANTRY_RELEASE_ID" \
+                        --workspace "$SIGANTRY_WORKSPACE_ID" \
+                        --work-items "$SIGANTRY_WORK_ITEMS" \
+                        --approver "$SIGANTRY_APPROVER" \
+                        --provider ado \
+                        --ado-organization "$(System.CollectionUri)" \
+                        --ado-project "$(System.TeamProject)"

@@ -1,0 +1,64 @@
+# GSD planning — kept local, never committed
+.planning/
+
+# Evidence files — schema + README committed, actual evidence gitignored
+docs/00-prerequisites/evidence/**
+!docs/00-prerequisites/evidence/README.md
+!docs/00-prerequisites/evidence/.gitkeep
+!docs/00-prerequisites/evidence/schema/
+!docs/00-prerequisites/evidence/schema/**
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+env/
+dist/
+build/
+*.egg-info/
+
+# PowerShell / Pester
+*.log
+TestResults.xml
+testResults.xml
+coverage.xml
+.coverage
+.coverage.*
+htmlcov/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Secrets & local config
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+azure-credentials.json
+service-principal.json
+local.settings.json
+
+# Insync
+.insyncdl/
+*.insyncdl
+
+# Phase 0 — committed sample attestations (redacted)
+!docs/00-prerequisites/evidence/samples/
+!docs/00-prerequisites/evidence/samples/**
+docs/tutorial/
+
+# fabric-cicd deploy artefacts (dep-graph.dot from validate_order)
+deploy-artefacts/
+
+# Remotion video-tutorial scratch project — unrelated side-project for
+# authoring internal walkthrough videos; not part of the toolkit.
+remotion-tutorial/

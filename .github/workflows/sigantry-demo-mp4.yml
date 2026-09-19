@@ -1,0 +1,77 @@
+# .github/workflows/sigantry-demo-mp4.yml
+# sigantry-dual-ci-exception: ci-mechanics
+#
+# (mp4 build is GHA-only; no ADO equivalent needed -- the dual-CI gate
+# applies to user-facing CI templates that adopters consume, not to
+# meta-tooling that builds the demo's own walkthrough video. See
+# scripts/ci/check-dual-ci-parity.py EXCEPTION_PATTERN regex.)
+#
+# Phase 15 / DEMO-03 -- builds scripts/remotion/out/walkthrough.mp4
+# from the 5-scene Remotion composition + placeholder/demo asset
+# fallback (CONTEXT D-08, RESEARCH §Pattern 4). The mp4 itself is
+# never committed; this workflow uploads it as an artefact and the
+# operator promotes a chosen run to a public GitHub Release per the
+# demo-tenant operator runbook (Plan 15-04).
+name: sigantry-demo-mp4
+
+on:
+  pull_request:
+    paths:
+      - "scripts/remotion/**"
+      - "scripts/build-walkthrough.sh"
+      - ".github/workflows/sigantry-demo-mp4.yml"
+  push:
+    branches: [master, main]
+    paths:
+      - "scripts/remotion/**"
+      - "scripts/build-walkthrough.sh"
+      - ".github/workflows/sigantry-demo-mp4.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version-file: scripts/remotion/.nvmrc
+          cache: npm
+          cache-dependency-path: scripts/remotion/package-lock.json
+
+      - name: Install Chromium-headless-shell deps
+        # RESEARCH §Pitfall 2 -- bare ubuntu-latest lacks several .so
+        # libraries Remotion's headless-shell renderer needs; without
+        # these apt packages the render hangs and the job times out.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libnss3 \
+            libatk-bridge2.0-0 \
+            libdrm2 \
+            libxkbcommon0 \
+            libxcomposite1 \
+            libxdamage1 \
+            libxrandr2 \
+            libgbm1 \
+            libasound2t64
+
+      - name: Install npm deps (deterministic via npm ci)
+        working-directory: scripts/remotion
+        run: npm ci
+
+      - name: Render Walkthrough composition
+        working-directory: scripts/remotion
+        run: npm run render -- Walkthrough out/walkthrough.mp4 --codec h264 --jpeg-quality 80
+
+      - name: Upload walkthrough.mp4 artefact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: walkthrough-mp4
+          path: scripts/remotion/out/walkthrough.mp4
+          retention-days: 30
+          if-no-files-found: error

@@ -1,0 +1,101 @@
+site_name: Sigantry
+site_description: Vendor-agnostic platform for Fabric DataOps plugins - protocol seams, registry, config, telemetry glue. (Formerly Fabric DataOps Toolkits; renamed in v3.0 per ADR-0011.)
+site_url: https://example.org/sigantry-core
+repo_url: https://example.org/sigantry-core
+repo_name: sigantry-core
+docs_dir: docs
+use_directory_urls: true
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - content.code.annotate
+  palette:
+    - scheme: default
+
+nav:
+  - Home: index.md
+  - Usage Handbook: handbook.md
+  - Getting Started:
+    - Install: getting-started/install.md
+    - Quickstart: getting-started/quickstart.md
+  - Tutorials:
+    - Index: tutorials/index.md
+    - 01 Setup & first contact: tutorials/01-setup-and-first-contact.md
+    - 02 Sync notebooks: tutorials/02-sync-notebooks.md
+    - 03 Drift detection: tutorials/03-drift-detection.md
+    - 04 Audit trail: tutorials/04-audit-trail.md
+    - 05 Adopt existing workspace: tutorials/05-adopt-existing-workspace.md
+    - 06 Bootstrap workspace: tutorials/06-bootstrap-workspace.md
+    - 07 Rollback: tutorials/07-rollback.md
+    - 08 Scheduled drift alerts: tutorials/08-scheduled-drift-alerts.md
+    - 09 PR review bot: tutorials/09-pr-review-bot.md
+    - 10 Governance: tutorials/10-governance.md
+    - 11 Environments & libraries: tutorials/11-environments-and-libraries.md
+    - 12 Config-driven auto-update: tutorials/12-config-driven-autoupdate.md
+  - Demo:
+    - Quickstart: demo/QUICKSTART.md
+    - Walkthrough Script: demo/walkthrough-script.md
+    - Operator Runbook: runbooks/demo-tenant-operator.md
+  - Reference:
+    - Protocol seams: reference/protocols.md
+    - Seams: reference/seams.md
+    - Observation planes: reference/observation-planes.md
+    - Starter Repo Parameters: reference/parameters-yml.md
+    - Thread safety: reference/thread-safety.md
+  - Runbooks:
+    - Index: runbooks/INDEX.md
+    - PR Bot Operator: runbooks/pr-bot-operator.md
+    - OPA Approval Gate Quickstart: runbooks/approval-gates/opa-quickstart.md
+    - JToye Onboarding: runbooks/jtoye-onboarding-operator.md
+  - API Reference:
+    - Overview: api/index.md
+    - sigantry_core.auth: api/auth.md
+    - sigantry_core.client: api/client.md
+    - sigantry_core.workspace: api/workspace.md
+    - sigantry_core.capacity: api/capacity.md
+    - sigantry_core.governance: api/governance.md
+    - sigantry_core.deploy: api/deploy.md
+    - sigantry_core.monitor: api/monitor.md
+    - sigantry_core.dq: api/dq.md
+  - Migration:
+    - 2.x -> 3.0: migration/2.x-to-3.0.md
+    - 1.x -> 2.0: migration/1.x-to-2.0.md
+    - PR-bot migration: migration/3.x-pr-bot.md
+  - Contributing: contributing.md
+  - Release Process: release-process.md
+
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths: ["."]
+          options:
+            docstring_style: google
+            show_root_heading: true
+            show_source: false
+            separate_signature: true
+            show_signature_annotations: true
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - attr_list
+
+extra:
+  generator: false

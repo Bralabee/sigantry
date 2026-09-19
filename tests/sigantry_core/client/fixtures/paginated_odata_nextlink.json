@@ -1,0 +1,9 @@
+[
+  {
+    "value": [{"id": "g1"}, {"id": "g2"}],
+    "@odata.nextLink": "https://api.powerbi.com/v1.0/myorg/groups?$skip=2"
+  },
+  {
+    "value": [{"id": "g3"}]
+  }
+]

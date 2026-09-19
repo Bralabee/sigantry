@@ -1,0 +1,21 @@
+{
+  "initial_headers": {
+    "x-ms-operation-id": "op-fail",
+    "Location": "https://api.fabric.microsoft.com/v1/operations/op-fail",
+    "Retry-After": "0"
+  },
+  "poll_responses": [
+    {
+      "body": {
+        "status": "Failed",
+        "error": {
+          "errorCode": "BadRequest",
+          "message": "bad input",
+          "moreDetails": [{"field": "displayName"}]
+        }
+      },
+      "headers": {},
+      "status_code": 200
+    }
+  ]
+}

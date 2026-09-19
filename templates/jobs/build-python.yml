@@ -1,0 +1,58 @@
+# templates/jobs/build-python.yml
+# ------------------------------------------------------------------
+# python -m build --wheel + twine check + PublishPipelineArtifact@1.
+#
+# Sources (Pitfall 14 / Phase 5 Success Criterion 1):
+#   Microsoft Learn - Job templates
+#     https://learn.microsoft.com/azure/devops/pipelines/process/templates
+#     ms.date: 2026-04-20
+#   Python `build` project
+#     https://pypa-build.readthedocs.io/en/stable/
+#     ms.date: 2026-04-20
+#
+# Preserves Phase 1 azure-pipelines.yml `wheel` job byte-for-byte.
+# Pytest + coverage lives in the ci.yml stage template's `test` stage, NOT here
+# (keeps lint -> test -> build -> publish contract).
+# ------------------------------------------------------------------
+
+parameters:
+  - name: pythonVersion
+    type: string
+    default: '3.11'
+  - name: wheelArtifactName
+    type: string
+    default: 'sigantry-core-wheel'
+  # Plan 08-03: PowerShell module name/path is supplied by the consumer.
+  # The base toolkit's dogfood pipeline passes the current module name via
+  # azure-pipelines.yml parameters; Plan 08-04 renames the module to a
+  # generic name and drops the override.
+  - name: powershellArtifactName
+    type: string
+    default: 'powershell-module'
+  - name: powershellModulePath
+    type: string
+    default: 'PowerShellModule'
+
+jobs:
+  - job: wheel
+    displayName: 'Build + check wheel'
+    steps:
+      - task: UsePythonVersion@0
+        inputs:
+          versionSpec: ${{ parameters.pythonVersion }}
+          addToPath: true
+      - script: |
+          python -m pip install --upgrade pip build twine
+          python -m build --wheel
+          python -m twine check dist/*.whl
+        displayName: 'python -m build + twine check'
+      - task: PublishPipelineArtifact@1
+        displayName: 'Publish wheel artifact'
+        inputs:
+          targetPath: 'dist'
+          artifact: ${{ parameters.wheelArtifactName }}
+      - task: PublishPipelineArtifact@1
+        displayName: 'Publish PS module artifact'
+        inputs:
+          targetPath: ${{ parameters.powershellModulePath }}
+          artifact: ${{ parameters.powershellArtifactName }}

@@ -1,0 +1,7 @@
+# Phase 15 -- Remotion subproject .gitignore
+# Excludes outputs that bloat the monorepo (RESEARCH §Pitfall 4)
+# and operator-local secrets (never commit credentials).
+node_modules/
+out/
+.env.local
+.DS_Store

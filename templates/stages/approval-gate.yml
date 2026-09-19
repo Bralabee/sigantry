@@ -1,0 +1,56 @@
+# templates/stages/approval-gate.yml
+# sigantry-dual-ci-exception: ci-mechanics
+# ------------------------------------------------------------------
+# Reusable approval-gate wrapper (deployment-job boilerplate that
+# triggers the ADO environment's attached approval check).
+# Exception rationale (BRIEF-06 / Phase 10 Plan 06): legacy Phase 5
+# ADO-only deploy template; its GHA equivalent will land in Phase 16
+# via the SEAM-04 ApprovalGate seam. Until then, this file exists
+# only because of ADO environment-mechanics (UI-attached approvers).
+#
+# IMPORTANT: Approval policy is attached to the ADO environment via the
+# ADO UI (Environment -> Approvals and checks -> Approvals). This template
+# does NOT encode the policy - it is the deployment-job skeleton the
+# environment's policy hooks onto (T-5-03 mitigation).
+#
+# Sources (Pitfall 14 / Phase 5 Success Criterion 1):
+#   Microsoft Learn - Approvals and checks
+#     https://learn.microsoft.com/azure/devops/pipelines/process/approvals
+#     ms.date: 2026-04-20
+#   Microsoft Learn - Deployment jobs
+#     https://learn.microsoft.com/azure/devops/pipelines/process/deployment-jobs
+#     ms.date: 2026-04-20
+# ------------------------------------------------------------------
+
+parameters:
+  - name: stageName
+    type: string
+    default: 'approval_gate'
+  - name: displayName
+    type: string
+    default: 'Awaiting approval'
+  - name: dependsOn
+    type: object
+    default: []
+  - name: environment
+    type: string
+  - name: condition
+    type: string
+    default: 'succeeded()'
+
+stages:
+  - stage: ${{ parameters.stageName }}
+    displayName: ${{ parameters.displayName }}
+    dependsOn: ${{ parameters.dependsOn }}
+    condition: ${{ parameters.condition }}
+    jobs:
+      - deployment: gate
+        displayName: 'Approval gate'
+        environment: ${{ parameters.environment }}
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - script: |
+                    echo "Approval granted for environment ${{ parameters.environment }}"
+                  displayName: 'Approval granted'

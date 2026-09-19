@@ -1,0 +1,13 @@
+// tests/fixtures/pr-bot/tmdl/base/Sales.tmdl
+// [VERIFIED: learn.microsoft.com/analysis-services/tmdl/tmdl-overview, fetched 2026-04-28]
+
+/// Sales table — fact records keyed by Customer + Product.
+table Sales
+
+    column 'Sales Amount'
+        dataType: decimal
+        sourceColumn: SalesAmount
+        summarizeBy: sum
+
+    measure 'Total Sales' = SUM('Sales'[Sales Amount])
+        formatString: $ #,##0

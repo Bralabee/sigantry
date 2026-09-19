@@ -1,0 +1,24 @@
+{
+  "initial_headers": {
+    "x-ms-operation-id": "op-1",
+    "Location": "https://api.fabric.microsoft.com/v1/operations/op-1",
+    "Retry-After": "0"
+  },
+  "poll_responses": [
+    {
+      "body": {"status": "Running", "percentComplete": 50},
+      "headers": {"Retry-After": "0"},
+      "status_code": 200
+    },
+    {
+      "body": {"status": "Succeeded"},
+      "headers": {"Location": "https://api.fabric.microsoft.com/v1/operations/op-1/result"},
+      "status_code": 200
+    },
+    {
+      "body": {"workspaceId": "ws-abc"},
+      "headers": {},
+      "status_code": 200
+    }
+  ]
+}

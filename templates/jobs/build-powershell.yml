@@ -1,0 +1,49 @@
+# templates/jobs/build-powershell.yml
+# ------------------------------------------------------------------
+# Pester test runner + PublishTestResults@2 (job template).
+#
+# Sources (Pitfall 14 / Phase 5 Success Criterion 1):
+#   Microsoft Learn - Job templates
+#     https://learn.microsoft.com/azure/devops/pipelines/process/templates
+#     ms.date: 2026-04-20
+#   Pester 5 - Configuration reference
+#     https://pester.dev/docs/usage/configuration
+#     ms.date: 2026-04-20
+#
+# Plan 05-01 keeps pytest + pester in the ci.yml `test` stage; this template
+# exists for consumers who want Pester as a standalone `build`-adjacent job.
+# Phase 1 `pester` job in azure-pipelines.yml lives under `test` stage and is
+# preserved inline inside ci.yml's `test` stage - this template is additive.
+# ------------------------------------------------------------------
+
+parameters:
+  - name: pesterVersion
+    type: string
+    default: '5.7.1'
+  - name: pesterConfigPath
+    type: string
+    default: './tests/Pester.config.ps1'
+
+jobs:
+  - job: pester
+    displayName: 'Pester'
+    steps:
+      - task: PowerShell@2
+        displayName: 'Pester 5 run'
+        inputs:
+          targetType: 'inline'
+          pwsh: true
+          script: |
+            Install-Module Pester -RequiredVersion ${{ parameters.pesterVersion }} `
+                -Scope CurrentUser -Force -SkipPublisherCheck
+            $cfg = & ${{ parameters.pesterConfigPath }}
+            $cfg.Run.Exit = $true
+            Invoke-Pester -Configuration $cfg
+      - task: PublishTestResults@2
+        condition: always()
+        displayName: 'Publish Pester test results'
+        inputs:
+          testResultsFormat: 'NUnit'
+          testResultsFiles: 'TestResults.xml'
+          failTaskOnFailedTests: true
+          testRunTitle: 'PowerShell module Pester'
