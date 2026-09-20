@@ -58,9 +58,10 @@ def repo_tracked_files(root: Path | None = None) -> tuple[tuple[Path, str], ...]
     drift apart. ``git ls-files`` is the precise expression of the intent, and
     it is the same set on every machine and in CI.
 
-    Fails closed. If git is unavailable or this is not a work tree there is no
-    repository content to police, and quietly scanning some other set of files
-    is the very defect this helper exists to remove.
+    Fails closed twice over: if git is unavailable or this is not a work tree,
+    and if the inventory comes back EMPTY. Quietly scanning some other set of
+    files is the defect this helper exists to remove; quietly scanning NO
+    files is worse, because every guard then reports green having read nothing.
     """
     base = _REPO_ROOT if root is None else Path(root).resolve()
     try:
@@ -87,6 +88,19 @@ def repo_tracked_files(root: Path | None = None) -> tuple[tuple[Path, str], ...]
         if not path.is_file():
             continue
         files.append((path, rel))
+
+    # Fail closed on an EMPTY inventory, not only on a git error. `git ls-files`
+    # exits 0 with no output in a work tree it considers empty, and every guard
+    # that iterates this helper would then pass without reading a single file --
+    # a whole battery green on a repository full of violations. An assertion that
+    # cannot fail certifies nothing, so refuse the empty answer rather than
+    # returning it.
+    if not files:
+        raise RuntimeError(
+            f"repo_tracked_files: `git ls-files` returned no files in {base}. "
+            "The repo-wide guards would pass vacuously on an empty inventory; "
+            "refusing to report a clean scan that read nothing."
+        )
     return tuple(sorted(files, key=lambda item: item[1]))
 
 
