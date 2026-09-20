@@ -25,8 +25,8 @@
 - [ ] No emojis in code, commits, or docs.
 - [ ] No `Co-Authored-By:` trailers.
 - [ ] `pytest -q` passes locally with zero failures. There is no longer a carve-out for `test_wiki_links.py` - it runs in CI now. See CLAUDE.md for the current measured baseline rather than repeating a count here.
-- [ ] `ruff check .` clean.
-- [ ] `mypy sigantry_core/` clean.
+- [ ] `ruff check sigantry_core/ tests/ scripts/` clean (CI enforces this).
+- [ ] `mypy sigantry_core/` clean (CI enforces this — the `Type Check (mypy)` job).
 - [ ] `pwsh -c "Invoke-Pester -Configuration (& ./tests/Pester.config.ps1)"` passes (if PowerShell surface touched).
 - [ ] `make docs-doctest` passes (if any docstring examples were added or edited).
 - [ ] CHANGELOG.md updated under `## [Unreleased]` with a user-facing entry (if user-facing change).

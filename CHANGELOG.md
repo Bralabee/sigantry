@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **CI now runs `mypy`.** The project has configured mypy under `[tool.mypy]`
+  since before v1.0.0 and no workflow ever invoked it, so it reported nothing
+  for as long as that was true — including a real `attr-defined` bug in
+  `scripts/ci/check-no-sys-path.py` that crashed the guard on any malformed
+  `.py` file. Scoped to `sigantry_core/`, which is clean today, so the job
+  starts green and any regression belongs to the PR that caused it.
+- `tests/ci/test_quality_gates_run.py` asserts that a quality tool the project
+  configures is actually invoked by CI, and that the artifact build depends on
+  every quality job. A configured-but-unrun tool is worse than an absent one:
+  the config advertises a gate that does not exist.
+
+### Changed
+- `ruff` now covers `scripts/` in CI alongside `sigantry_core/` and `tests/`.
+  The CI guard scripts — the files whose whole job is policing the repo — were
+  themselves unlinted. They were already clean; this stops that drifting.
+- The artifact build now depends on the type-check job as well as lint and
+  test, so a wheel is never built from a tree that skipped a gate.
+
 ## [1.0.0] - 2026-09-19
 
 ### Added
