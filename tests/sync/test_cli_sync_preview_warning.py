@@ -11,8 +11,8 @@ regression where the warning silently never fires (or fires more than once
 per process) is caught at CI time.
 
 Council D #1: the Folders REST endpoint family is Preview as of Feb 2026;
-operators acknowledge by setting the flag in `.fabric-dataops.toml` (or via
-the ``FDT_WORKFLOW__PREVIEW_APIS_ACKNOWLEDGED`` env var).
+operators acknowledge by setting the flag in `.sigantry.toml` (or via
+the ``SIGANTRY_WORKFLOW__PREVIEW_APIS_ACKNOWLEDGED`` env var).
 """
 
 from __future__ import annotations
@@ -112,7 +112,7 @@ def test_preview_warning_emits_when_flag_false(
     )
     msg = preview_records[0].message
     assert "preview_apis_acknowledged" in msg
-    assert "FDT_WORKFLOW__PREVIEW_APIS_ACKNOWLEDGED" in msg
+    assert "SIGANTRY_WORKFLOW__PREVIEW_APIS_ACKNOWLEDGED" in msg
 
 
 def test_preview_warning_suppressed_when_flag_true(
@@ -125,6 +125,10 @@ def test_preview_warning_suppressed_when_flag_true(
 
     Sets the env var (which beats the TOML default) and asserts the
     warning emission path short-circuits before the logger call.
+
+    Deliberately still uses the legacy ``FDT_`` prefix: this is the
+    end-to-end proof that the one-minor legacy env surface keeps working
+    through the CLI, not just in the loader's own unit tests.
     """
     monkeypatch.setenv("FDT_WORKFLOW__PREVIEW_APIS_ACKNOWLEDGED", "true")
     _stub_apply_to_raise_validation_error(monkeypatch)

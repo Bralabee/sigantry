@@ -29,7 +29,7 @@ If you see an unlabelled claim, I missed a label — flag it.
 ### 1.2 Plugin infrastructure  — **VERIFIED**
 
 - Entry-point-based registry with 11 plugin groups (canonical `sigantry.<seam>`); first-wins on duplicates; per-plugin import error captured on `PluginInfo`, not raised. `sigantry_core/registry.py`.
-- TOML + `FDT_` env-var config loader. `sigantry_core/config.py`.
+- TOML + `SIGANTRY_` env-var config loader. `sigantry_core/config.py`.
 - `FabricDataOps` front door with 3 behaviour methods (`deploy`, `run_dq_gate`, `emit`). Supports direct-DI and `from_config(...)`. `sigantry_core/api.py`.
 - `doctor` CLI surfaces registered plugins and import failures. `sigantry_core/doctor.py`.
 - pytest11 entry point autoregisters contract fixtures on install. `pyproject.toml [project.entry-points.pytest11]`.

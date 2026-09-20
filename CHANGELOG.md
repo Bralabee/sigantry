@@ -9,6 +9,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Config surface renamed to match the product (ADR-0011, V3.X-ROADMAP
+  LEGACY-SURFACE-DROP item 2).** `load_settings()` and
+  `FabricDataOps.from_config()` now resolve `.sigantry.toml` by default, and
+  settings env overrides use the `SIGANTRY_<SECTION>__<KEY>` prefix. Before
+  this, the documented `.sigantry.toml` filename was read by nothing: an
+  operator who followed the migration guide got a config file that was
+  silently ignored and a run on all defaults.
+
+### Deprecated
+- `.fabric-dataops.toml` and the `FDT_` settings env prefix. Both are still
+  read for one more minor release and each emits a `DeprecationWarning` naming
+  its replacement. Where a setting is supplied under both prefixes, `SIGANTRY_`
+  wins.
+
+### Fixed
+- `sigantry sync` no longer swallows a config-load failure in silence. An
+  unreadable or malformed config is logged as a warning saying the command is
+  continuing on defaults, instead of a bare `except Exception` that left the
+  operator with no signal their settings were never applied.
+- `load_settings`' docstring claimed a missing config file raised
+  `ValidationError`. It never did — no settings field is required — so the
+  documented fail-fast did not exist. The docstring now states the real
+  behaviour and says who is responsible for checking.
+
+### Security
+- Settings env overrides are now restricted to `<PREFIX><SECTION>__<KEY>` forms
+  whose section names a real settings field, and the root model no longer
+  enables pydantic-settings' own env source. `SIGANTRY_` is shared with ~70
+  operational variables, several of them credentials
+  (`SIGANTRY_SMTP_PASSWORD`, `SIGANTRY_GITHUB_TEST_PAT`,
+  `SIGANTRY_FABRIC_TOKEN`). Because `ToolkitSettings` allows extra fields, an
+  unfiltered sweep under the new prefix would have bound those onto the
+  settings object and exposed them through `model_dump()`.
+
 ## [1.0.0] - 2026-09-19
 
 ### Added

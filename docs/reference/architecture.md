@@ -206,7 +206,7 @@ caller ── FabricDataOps.from_config(path)
               ▼
      config.load_settings(path)
        ├─ tomllib.load(TOML)
-       ├─ _apply_env_overrides(FDT_*__* environ)   ← env wins over TOML
+       ├─ _apply_env_overrides(SIGANTRY_*__* env)  ← env wins over TOML
        └─ ToolkitSettings(**data)                  ← pydantic-settings v2 validate
               │
               ▼

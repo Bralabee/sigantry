@@ -37,9 +37,11 @@ from __future__ import annotations
 import json as _json
 import logging
 import sys
+import tomllib
 from pathlib import Path
 
 import typer
+from pydantic import ValidationError
 from rich.console import Console
 
 from sigantry_core.config import ToolkitSettings, load_settings
@@ -79,9 +81,14 @@ def _emit_preview_warning_once(settings: ToolkitSettings | None = None) -> None:
     or ``sigantry sync pull`` invocation.
 
     The function is intentionally tolerant of a missing or malformed
-    ``.fabric-dataops.toml`` -- a config-load failure must NOT break the
-    sync command. A defensive ``except Exception`` short-circuits to a
-    fresh ``ToolkitSettings()`` (which carries the False default).
+    config file -- a config-load failure must NOT break the sync command.
+    It falls back to a fresh ``ToolkitSettings()`` (which carries the False
+    default), but it *logs* that it did so: a governance tool that silently
+    swallows an unreadable config runs the operator's whole session on
+    defaults with no signal that their settings were never applied. The
+    handler names the three ways loading can legitimately fail rather than
+    catching ``Exception``, so a genuine defect inside the loader still
+    surfaces instead of being absorbed as "bad config".
 
     ``snapshot_cmd`` does NOT call this helper: snapshot is read-only and
     operator-explicit; we do not want to interrupt the operator's
@@ -90,7 +97,14 @@ def _emit_preview_warning_once(settings: ToolkitSettings | None = None) -> None:
     if settings is None:
         try:
             settings = load_settings()
-        except Exception:  # defensive: a missing or malformed TOML must not crash sync
+        except (OSError, tomllib.TOMLDecodeError, ValidationError) as exc:
+            logger.warning(
+                "Could not load Sigantry settings (%s: %s); continuing with "
+                "defaults, so no operator configuration is in effect for this "
+                "command.",
+                type(exc).__name__,
+                exc,
+            )
             settings = ToolkitSettings()
     if settings.workflow.preview_apis_acknowledged:
         return
@@ -100,9 +114,9 @@ def _emit_preview_warning_once(settings: ToolkitSettings | None = None) -> None:
     msg = (
         "Sigantry depends on the Preview Microsoft Fabric Folders REST "
         "endpoint (Council D #1). Set `workflow.preview_apis_acknowledged "
-        "= true` in .fabric-dataops.toml (or "
-        "FDT_WORKFLOW__PREVIEW_APIS_ACKNOWLEDGED=true) to acknowledge and "
-        "suppress this warning."
+        "= true` in .sigantry.toml (or "
+        "SIGANTRY_WORKFLOW__PREVIEW_APIS_ACKNOWLEDGED=true) to acknowledge "
+        "and suppress this warning."
     )
     logger.warning(msg)
     _console.print(f"[yellow]preview-API warning:[/yellow] {msg}")

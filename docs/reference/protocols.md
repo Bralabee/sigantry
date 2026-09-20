@@ -221,9 +221,9 @@ virtual environment. **Install plugins only from trusted feeds**
 runs plugin import code on the first `FabricDataOps.from_config()`
 call.
 
-Namespaced plugin tables in `.fabric-dataops.toml` pass through to the
+Namespaced plugin tables in `.sigantry.toml` pass through to the
 plugin's own pydantic model. **Do not put secrets in the TOML file.**
-Use env-var overrides (`FDT_<SECTION>__<KEY>`) or `kv://` references
+Use env-var overrides (`SIGANTRY_<SECTION>__<KEY>`) or `kv://` references
 resolved by the configured `AuthProvider`.
 
 ## See also
@@ -231,7 +231,7 @@ resolved by the configured `AuthProvider`.
 - [`sigantry_core.registry`](../api/index.md) -- plugin
   registry and entry-point discovery.
 - [`sigantry_core.config`](../api/index.md) --
-  `pydantic-settings` loader for `.fabric-dataops.toml`.
+  `pydantic-settings` loader for `.sigantry.toml`.
 - [`sigantry_core.api.FabricDataOps`](../api/index.md) --
   public front door composing registry + config + seams.
 - [`sigantry_core.testing`](../api/index.md) -- in-memory

@@ -47,7 +47,7 @@ print(result.items_published, result.items_failed)
 
 ## 3. Switch to a real plugin
 
-Install a plugin package, then wire via `.fabric-dataops.toml`:
+Install a plugin package, then wire via `.sigantry.toml`:
 
 ```bash
 pip install <your-plugin-package>
@@ -63,7 +63,7 @@ profile = "<plugin-profile-name>"
 
 ```python
 from sigantry_core import FabricDataOps
-fdo = FabricDataOps.from_config(".fabric-dataops.toml")
+fdo = FabricDataOps.from_config(".sigantry.toml")
 ```
 
 `from_config` discovers installed plugins via their entry points and

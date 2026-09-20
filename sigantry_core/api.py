@@ -13,7 +13,7 @@ of two wiring paths:
 
 2. **Config-driven discovery** (recommended for production):
 
-       fdo = FabricDataOps.from_config(".fabric-dataops.toml")
+       fdo = FabricDataOps.from_config()   # resolves .sigantry.toml
 
    ``from_config`` composes ``load_settings`` (:mod:`sigantry_core.config`)
    with ``default_registry()`` (:mod:`sigantry_core.registry`) to
@@ -106,11 +106,15 @@ class FabricDataOps:
     @classmethod
     def from_config(
         cls,
-        path: str | Path = ".fabric-dataops.toml",
+        path: str | Path | None = None,
         *,
         registry: Registry | None = None,
     ) -> FabricDataOps:
-        """Build a ``FabricDataOps`` from ``.fabric-dataops.toml`` + registry.
+        """Build a ``FabricDataOps`` from ``.sigantry.toml`` + registry.
+
+        ``path`` defaults to ``None``, which resolves ``.sigantry.toml`` from
+        the working directory, falling back to the legacy
+        ``.fabric-dataops.toml`` with a ``DeprecationWarning`` (ADR-0011).
 
         Steps:
 
