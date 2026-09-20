@@ -41,6 +41,7 @@ nav:
     - Walkthrough Script: demo/walkthrough-script.md
     - Operator Runbook: runbooks/demo-tenant-operator.md
   - Reference:
+    - Audit ledger threat model: reference/audit-ledger-threat-model.md
     - Protocol seams: reference/protocols.md
     - Seams: reference/seams.md
     - Observation planes: reference/observation-planes.md

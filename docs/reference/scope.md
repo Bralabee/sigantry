@@ -167,7 +167,7 @@ tooling (`fabric-cicd`, the `fab` CLI, the Terraform provider). The defensible i
 **governance, audit, and traceability layer on top of official tooling**. Concretely, most
 capability is one of three tiers (per LANDSCAPE §1): commodity wrapped-convenience (correct
 engineering, zero standalone value), uncontested original work (drift detection, deploy
-rollback, headless TMDL PR-bot, tamper-evident audit ledger), and a thin under-erosion middle.
+rollback, headless TMDL PR-bot, integrity-checked audit ledger), and a thin under-erosion middle.
 
 **Re-verification of the three "deltas" often cited as why this exists (2026-06-17, primary sources):**
 
@@ -175,13 +175,16 @@ rollback, headless TMDL PR-bot, tamper-evident audit ledger), and a thin under-e
 |---|---|---|
 | Notebook env/lakehouse re-binding | `fabric-cicd` parameterization + deployment-pipeline default-lakehouse rules + Git auto-binding **cover it** (same-workspace; currently buggy — [fabric-cicd #311](https://github.com/microsoft/fabric-cicd/issues/311) leaves stale lakehouse entries) | Cross-workspace + REST-path correctness edge **today**; not durable |
 | Environment custom-library (wheel) management | Environment **Git integration versions custom libraries** (`Libraries/CustomLibraries`, add/delete files) + deployment pipelines deploy them | Only the **REST/feed-wheel** model (a workflow choice) needs the reconcile verb |
-| Deploy audit | **Purview audits all activities incl. REST ops**; deployment-pipeline history exists | Differentiates **only** on tamper-evident, deploy-scoped, tooling-owned provenance |
+| Deploy audit | **Purview audits all activities incl. REST ops**; deployment-pipeline history exists | Differentiates **only** on integrity-checked, deploy-scoped, tooling-owned provenance |
 
 **Decision (positioning, not the §6 multi-engine axis).** Keep the toolkit, narrow its identity
 to governance + audit + the uncontested originals, and **delegate deploy mechanics to
 `fabric-cicd`** rather than maintaining parallel binding/env-library code. The single input that
 could flip this to "shrink toward native" is whether a **tamper-evident provenance ledger is an
-actual compliance requirement** vs Purview being sufficient — a question for the compliance
+actual compliance requirement** vs Purview being sufficient (note: the shipped ledger is
+integrity-checked but unkeyed and unanchored, so it does not yet meet a tamper-evidence
+requirement on its own — see
+[audit ledger threat model](audit-ledger-threat-model.md)) — a question for the compliance
 owner, not the code.
 
 ---

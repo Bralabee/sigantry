@@ -578,9 +578,13 @@ def verify_cmd(
     Exposes :func:`sigantry_core.governance.audit_io.verify_audit_chain` as an
     operator command. Before this existed, ``sigantry release`` offered
     ``record`` / ``list`` / ``show`` / ``diff`` and no way to check the
-    tamper-evidence property the ledger is built for -- an auditor had to
-    import the library and write Python. A tamper-evident record store whose
-    tamper-evidence cannot be checked from the CLI is unfinished.
+    integrity property the ledger is built for -- an auditor had to import the
+    library and write Python. An integrity-checked record store whose integrity
+    cannot be checked from the CLI is unfinished.
+
+    What this proves, and what it does not: the chain is an UNKEYED SHA-256, so
+    a valid result means the file is internally consistent -- not that it is the
+    file that was written. See docs/reference/audit-ledger-threat-model.md.
 
     Records are read in FILE (append) order, which is the order the chain was
     written in. Note this differs from ``release list``, which sorts by

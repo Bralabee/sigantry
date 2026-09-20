@@ -38,7 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Forward deployments with topological dependency ordering and `$ENV:` parameter substitution.
   - One-command release rollback (`--rollback --to-release <release-id> --rollback-force`) restoring historical item states.
 - **Audit & Provenance Ledger (`sigantry release` & `governance.audit`)**:
-  - Tamper-evident, append-only JSONL ledgers with cryptographic SHA-256 hash chains.
+  - Integrity-checked, append-only JSONL ledgers with SHA-256 hash chains (unkeyed and
+    unanchored - see docs/reference/audit-ledger-threat-model.md for what that resists).
   - Independent chain verification CLI command (`sigantry release verify`).
   - Work-item linkage linking releases to GitHub Issues or Azure DevOps work items.
 - **Headless PR-Review Bot (`sigantry pr-bot`)**:

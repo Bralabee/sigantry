@@ -98,7 +98,7 @@ Evaluators routinely ask when to use Microsoft's [Terraform provider](https://re
 |---|---|
 | You run fleet-scale, state-managed IaC and already operate Terraform (state backends, plan/apply pipelines, modules). | You want an operator-driven, single-verb, stateless flow -- `workspace bootstrap workspace.yml` probes live state and converges, no state file to manage or drift against. |
 | Provisioning-level resources are the concern: workspaces, RBAC, domains, gateways, tenant settings as code. | Item-level lifecycle is the concern: manifest-driven sync, first-time publish, folder preservation, deploy rollback to a prior release. |
-| `terraform plan` drift coverage of provisioned resources is sufficient. | You need scheduled drift detection against a manifest plus a tamper-evident audit ledger of every deploy, bootstrap, secret change, and approval. |
+| `terraform plan` drift coverage of provisioned resources is sufficient. | You need scheduled drift detection against a manifest plus an integrity-checked audit ledger of every deploy, bootstrap, secret change, and approval. |
 | Your change-control process is PR-reviewed HCL. | Your change-control process needs work-item traceability (release records written back to ADO / GitHub items) and destructive-op gating with `force=True` + runbook ids. |
 
 Notable gap on the Terraform side (as of 2026-06-11): no Variable Library resource ([provider issue #515](https://github.com/microsoft/terraform-provider-fabric/issues/515)) -- `sigantry variable-library` is one of the few non-portal paths. Full ecosystem comparison: [docs/LANDSCAPE-2026-06.md](LANDSCAPE-2026-06.md).

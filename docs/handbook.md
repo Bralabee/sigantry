@@ -27,7 +27,7 @@ From the 18 wired CLI subapps (`sigantry_core/cli.py`) plus the `diagnose-auth` 
 | Variable Library CRUD | `sigantry variable-library` |
 | "Which plugins are installed, and did any fail to import?" | `sigantry doctor` |
 | "Why is auth failing — 401 or 403?" | `diagnose-auth` |
-| Cryptographic release records — `record` / `list` / `show` / `diff` with tamper-evident audit hash and `--html` reports | `sigantry release` |
+| Release records — `record` / `list` / `show` / `diff` with an integrity-checked audit hash ([threat model](reference/audit-ledger-threat-model.md)) and `--html` reports | `sigantry release` |
 | Lossless Fabric workspace round-trip adoption and local sync (`apply`, `pull`, `snapshot`, `--bulk`) | `sigantry sync` |
 | Scheduled or CI drift detection with CLI table, SemVer JSON, or standalone interactive HTML (`--output html`) | `sigantry diff` |
 | Headless PR review bot diffing TMDL and schemas, with breaking change guards (`--fail-on-breaking`) | `sigantry pr-bot` |

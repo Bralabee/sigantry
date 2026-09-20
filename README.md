@@ -7,7 +7,7 @@
 
 **Sigantry** is an enterprise-grade governance, drift detection, and rollback engine for Microsoft Fabric CI/CD pipelines.
 
-Built by **JToye Digital**, Sigantry wraps Microsoft's official deployment tooling (`fabric-cicd`, `fab` CLI, and Fabric REST APIs) rather than replacing them. While Microsoft owns the automation lane, Sigantry provides the mission-critical governance layer enterprise platform teams require: **tamper-evident deploy ledgers, automated rollback, scheduled drift detection, destructive-operation gating, and headless PR-review bots**.
+Built by **JToye Digital**, Sigantry wraps Microsoft's official deployment tooling (`fabric-cicd`, `fab` CLI, and Fabric REST APIs) rather than replacing them. While Microsoft owns the automation lane, Sigantry provides the mission-critical governance layer enterprise platform teams require: **integrity-checked deploy ledgers, automated rollback, scheduled drift detection, destructive-operation gating, and headless PR-review bots**.
 
 ---
 
@@ -20,7 +20,7 @@ Built by **JToye Digital**, Sigantry wraps Microsoft's official deployment tooli
 - 🛡️ **Automated Release Rollback**: `sigantry deploy run --rollback --to-release <id>` re-publishes the exact historical version of items from immutable ledger snapshots.
 - 🔍 **Interactive Drift Detection**: `sigantry diff` continuously compares live Fabric workspaces against Git manifests, outputting rich CLI tables, SemVer JSON, or standalone interactive HTML reports (`--output html`).
 - 🛑 **TMDL Breaking Change Impact Guard**: `sigantry pr-bot run --fail-on-breaking` intercepts Power BI semantic model edits in CI/CD, highlighting dropped measures, columns, and tables before downstream reports break.
-- 📜 **Tamper-Evident Audit Ledger**: Cryptographic SHA-256 hash-chained JSONL records (`DeployRecord`, `BootstrapRecord`) independently verifiable via `sigantry release verify`.
+- 📜 **Integrity-Checked Audit Ledger**: SHA-256 hash-chained JSONL records (`DeployRecord`, `BootstrapRecord`) independently verifiable via `sigantry release verify`. The chain is **unkeyed and unanchored**: it detects accidental corruption, unsealed edits and middle-record deletion, but anyone who can write the ledger file can re-seal it, and tail truncation is undetectable without an external anchor. Read the [audit ledger threat model](docs/reference/audit-ledger-threat-model.md) before treating the ledger as evidence against an insider.
 - 🔌 **11 Protocol Seams**: Pluggable architecture supporting custom notification sinks (Teams, Slack, Email), secret stores (Key Vault, GitHub, ADO), approval gates (OPA, ADO, GHA), and data quality gates.
 
 ---
