@@ -7,7 +7,7 @@
 # job builds the five v3.0 alpha distributions via scripts/release/publish-v3-alpha.sh
 # in --dry-run mode (so the script's upload phase is bypassed -- the ADO
 # Artifacts feed publish is owned by azure-pipelines.yml's PublishBase /
-# PublishPlugin stages on the same tag), then optionally uploads sigantry-core
+# PublishPlugin stages on the same tag), then optionally uploads sigantry
 # + sigantry-hs2 to test.pypi.org as an alpha-rehearsal channel. Shim wheels
 # are NOT uploaded to test.pypi.org during the alpha to avoid claiming a
 # public namespace for the legacy names while V3-RISK-1 (Sigantry trademark
@@ -45,7 +45,7 @@ jobs:
         env:
           ALPHA_VERSION: ${{ steps.version.outputs.alpha_version }}
         run: bash scripts/release/publish-v3-alpha.sh --dry-run
-      - name: Upload sigantry-core + sigantry-hs2 to test.pypi.org
+      - name: Upload sigantry + sigantry-hs2 to test.pypi.org
         # Only uploads the two product wheels; shim wheels stay on the ADO feed
         # during the alpha rehearsal to avoid public PyPI namespace claim while
         # trademark clearance is deferred (V3-RISK-1).

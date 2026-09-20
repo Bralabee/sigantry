@@ -19,7 +19,7 @@ convention. See ADR-0004 + 16-RESEARCH.md §3 + Open-Q-3 for the cross-seam
 asymmetry rationale.
 
 SemVer commitment: breaking changes to any protocol bump the major version of
-``sigantry-core``. Plugin authors consume from
+``sigantry``. Plugin authors consume from
 ``sigantry_core.protocols`` ONLY (never an ``_internal`` module).
 
 The eleven seams:

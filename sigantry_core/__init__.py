@@ -1,4 +1,4 @@
-"""sigantry-core -- base platform for Sigantry plugins.
+"""sigantry -- base platform for Sigantry plugins.
 
 (Renamed from ``fabric-dataops-toolkits`` in v3.0 per ADR-0011.)
 
@@ -25,7 +25,7 @@ The in-package ``_LegacyShimFinder`` meta-path finder that aliased
 ``fabric_dataops_toolkits.X`` -> ``sigantry_core.X`` was DROPPED in W2.7.
 ``import fabric_dataops_toolkits.X`` now works ONLY when the v2 shim
 wheel (``shim/fabric-dataops-toolkits/`` published as
-``fabric-dataops-toolkits==3.0.*``) is installed alongside ``sigantry-core``.
+``fabric-dataops-toolkits==3.0.*``) is installed alongside ``sigantry``.
 The dist shim was already the canonical migration path per ADR-0011 +
 Plan 10-05; the in-package finder was a redundant duplicate.
 

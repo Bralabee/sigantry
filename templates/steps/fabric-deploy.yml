@@ -1,6 +1,6 @@
 # templates/steps/fabric-deploy.yml
 # ------------------------------------------------------------------
-# Step template: install `sigantry-core` from the ADO Artifacts feed
+# Step template: install `sigantry` from the ADO Artifacts feed
 # then invoke `sigantry deploy run` under AzureCLI@2 with a
 # workload-identity-federation service connection (Pitfall C - no
 # `$(System.AccessToken)` needed; the SC supplies credentials).
@@ -56,11 +56,11 @@ steps:
       set -e
       python -m pip install --upgrade pip
       if [ -n '${{ parameters.fabricDataopsVersion }}' ]; then
-        python -m pip install 'sigantry-core==${{ parameters.fabricDataopsVersion }}'
+        python -m pip install 'sigantry==${{ parameters.fabricDataopsVersion }}'
       else
-        python -m pip install sigantry-core
+        python -m pip install sigantry
       fi
-    displayName: 'pip install sigantry-core (from ADO Artifacts)'
+    displayName: 'pip install sigantry (from ADO Artifacts)'
 
   - task: AzureCLI@2
     displayName: 'sigantry deploy run (${{ parameters.environment }})'

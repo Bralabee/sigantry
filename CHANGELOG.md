@@ -9,6 +9,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Shipped templates and workflows told consumers to `pip install
+  sigantry-core`, which 404s.** The distribution is `sigantry`
+  (`pyproject.toml` declares it; `sigantry-core` has never existed on PyPI —
+  ADR-0017 records the amendment to ADR-0011). Every consumer following a
+  shipped ADO step template, starter workflow or demo quickstart hit a package
+  that is not there. 49 references corrected across `templates/`,
+  `.github/workflows/`, `scripts/` and `.pre-commit-config.yaml`. Because the
+  old name resolves for nobody, this fix cannot break an existing install.
+- `sigantry --help` announced the tool as "Fabric DataOps Toolkit", a name the
+  project left behind in v3.0, and `sigantry doctor` titled its plugin table
+  "sigantry-core plugins".
+- A broken link in the demo quickstart pointed at
+  `github.com/sigantry/sigantry-core`, which does not exist.
+- `tests/demo/test_demo_quickstart.py` *required* the string `sigantry-core`
+  to appear in the demo quickstart, pinning the dead name in place. The test
+  now requires the real distribution name.
+
+### Added
+- `tests/ci/test_distribution_name.py` keeps the shipped surface — templates,
+  workflows, scripts and the package — free of the dead distribution name, so
+  it cannot creep back. It reads the expected name from `pyproject.toml`
+  rather than hardcoding it, and its one carve-out (the ADO artifact
+  identifier `sigantry-core-wheel`) is itself guarded by a test asserting the
+  carve-out is still in use.
+
+### Known remaining
+- 16 `pip install` / dependency lines under `docs/` still name the dead
+  distribution. They are prose rather than shipped artefacts and are tangled
+  with a separate version-scheme inconsistency (docs say `>=3.0`, the shipped
+  line is 1.0.x), so they are deliberately left for their own change rather
+  than half-corrected here.
+- The ADO artifact identifier `sigantry-core-wheel` and the template parameter
+  `fabricDataopsVersion` are public interface names. Renaming them breaks
+  consumer pipelines that reference them, so both need a deprecation window
+  rather than a find-and-replace.
+
 ## [1.0.0] - 2026-09-19
 
 ### Added

@@ -10,8 +10,8 @@ See also:
 - [`docs/decisions/ADR-0010-commercial-model.md`](../../docs/decisions/ADR-0010-commercial-model.md)
   -- the Apache-2.0 + pure-OSS stance the deploy strategy assumes.
 - [`docs/decisions/ADR-0011-rename-to-sigantry.md`](../../docs/decisions/ADR-0011-rename-to-sigantry.md)
-  -- the `fabric-dataops-toolkits -> sigantry-core` rename. The legacy
-  name's shim window closed in v3.1, so pin `sigantry-core` in your
+  -- the `fabric-dataops-toolkits -> sigantry` rename. The legacy
+  name's shim window closed in v3.1, so pin `sigantry` in your
   `pyproject.toml`.
 
 ## Trunk-based development

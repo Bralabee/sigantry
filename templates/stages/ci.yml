@@ -155,7 +155,7 @@ stages:
     condition: and(succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/tags/v'))
     jobs:
       - job: publish_wheel
-        displayName: 'twine upload to sigantry-core feed'
+        displayName: 'twine upload to sigantry feed'
         steps:
           - task: UsePythonVersion@0
             inputs:

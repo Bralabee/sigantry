@@ -1,7 +1,7 @@
 # Demo quickstart
 
 > The canonical 15-minute quickstart for trying Sigantry against the
-> demo lives at `docs/demo/QUICKSTART.md` in the sigantry-core
+> demo lives at `docs/demo/QUICKSTART.md` in the sigantry
 > monorepo (Plan 15-04 / DEMO-04). This file is the in-template
 > stub -- when an operator mirrors `templates/demo/` into the
 > public `demo-sigantry` repo, this file becomes the QUICKSTART
@@ -14,7 +14,7 @@ See the canonical version: <DOCS-URL-DEMO-QUICKSTART>
 ## Prerequisites
 
 - Python 3.11 or 3.12 (`requires-python` is `>=3.11,<3.13`)
-- `pip install "sigantry-core>=3.0.0"`
+- `pip install "sigantry>=3.0.0"`
 - Access to a Fabric tenant (a free trial is fine -- see
   `docs/runbooks/demo-tenant-operator.md`).
 

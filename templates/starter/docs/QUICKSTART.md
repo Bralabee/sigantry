@@ -4,7 +4,7 @@ Get from a fresh clone of `sigantry-starter` to a green
 `sigantry deploy run --dry-run` against `DEV` placeholder values in
 under 15 minutes.
 
-This walkthrough assumes you have Python 3.11 or 3.12 (`sigantry-core`
+This walkthrough assumes you have Python 3.11 or 3.12 (`sigantry`
 declares `requires-python = ">=3.11,<3.13"`, so 3.13 is refused at install)
 and a recent `git`.
 You will need a Fabric workspace ID + capacity ID for each of `DEV`,
@@ -20,10 +20,10 @@ Fabric, so dummy values work for the first pass.
    conda activate sigantry-starter
    ```
 
-2. **Install `sigantry-core`** from PyPI:
+2. **Install `sigantry`** from PyPI:
 
    ```bash
-   pip install sigantry-core
+   pip install sigantry
    ```
 
 3. **Verify the install** by running:

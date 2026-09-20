@@ -1,4 +1,4 @@
-"""``sigantry-core dq gate`` Typer subapp (PROD-06).
+"""``sigantry dq gate`` Typer subapp (PROD-06).
 
 Delegates to the :func:`sigantry_core.dq.dispatcher.run_gate`
 dispatcher. No DQ framework is imported here — the named gate plugin owns

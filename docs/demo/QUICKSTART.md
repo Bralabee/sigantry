@@ -75,7 +75,7 @@ export SIGANTRY_DEMO_FABRIC_TOKEN="..."
 ```
 
 If you prefer a dotenv-style file, copy `scripts/live-creds.template`
-from the [sigantry-core monorepo](https://github.com/sigantry/sigantry-core)
+from the [sigantry monorepo](https://github.com/Bralabee/sigantry)
 into `.env.live` (gitignored), populate the four `SIGANTRY_DEMO_*`
 keys, and `source` it.
 

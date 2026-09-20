@@ -1,4 +1,4 @@
-# sigantry-core -- pre-commit hook registrations
+# sigantry -- pre-commit hook registrations
 #
 # Run ``pre-commit install`` once per clone to activate the hooks.
 # Plan 04-02 (DEPLOY-02 + Pitfall 3 four-layer mitigation); hook IDs

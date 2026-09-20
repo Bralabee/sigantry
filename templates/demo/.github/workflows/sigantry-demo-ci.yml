@@ -46,8 +46,8 @@ jobs:
         with:
           python-version: '3.11'
           cache: 'pip'
-      - name: Install sigantry-core
-        run: pip install sigantry-core
+      - name: Install sigantry
+        run: pip install sigantry
       - name: Deploy
         if: ${{ secrets.SIGANTRY_DEMO_FABRIC_TOKEN != '' }}
         env:

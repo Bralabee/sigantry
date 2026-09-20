@@ -45,7 +45,7 @@ def test_quickstart_references_sigantry_deploy_command() -> None:
         "sigantry sync apply",
         "sigantry diff",
         "pip install",  # the install instruction
-        "sigantry-core",  # the package name
+        "sigantry",  # the distribution name (NOT sigantry-core: that 404s on PyPI)
         "SIGANTRY_DEMO_TENANT_ID",
         "SIGANTRY_DEMO_WORKSPACE_ID",
         "SIGANTRY_DEMO_CAPACITY_ID",

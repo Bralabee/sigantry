@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""sigantry-core: dual-CI parity lint (BRIEF-06 / Phase 10 Plan 06).
+"""sigantry: dual-CI parity lint (BRIEF-06 / Phase 10 Plan 06).
 
 Enforces the parity rule from ``docs/reference/dual-ci-strategy.md``:
 every user-facing feature producing a CI template / workflow / scheduled
