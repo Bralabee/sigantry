@@ -76,6 +76,26 @@ A `workflow_dispatch` run against the tag is the manual fallback.
 Verify the artefact appears on PyPI and that `pip install sigantry==X.Y.Z`
 resolves in a clean environment.
 
+## Known gaps in the published record
+
+- **The 1.0.0 PyPI page does not carry the CLI-troubleshooting section.** The
+  `sigantry: command not found` guidance was committed ten minutes *after* the
+  1.0.0 upload, and PyPI forbids re-uploading a released version. The wheel is
+  otherwise byte-identical to what this tree builds. The next patch release is
+  what puts that section on the project page; nothing can change 1.0.0 itself.
+- **The Release trigger has never been observed publishing successfully.** Of
+  the three 1.0.0 publish runs, two fired on the Release trigger and failed --
+  the first on an unresolvable action pin (fixed in `a3b54bc`), the second on
+  PyPI `invalid-publisher` -- and the run that succeeded was a
+  `workflow_dispatch` twenty-three minutes later, on the same tag, the same
+  workflow file and the same `pypi` environment. PyPI matches a trusted
+  publisher on owner, repository, workflow filename and environment, none of
+  which differed, so the publisher record appears to have been corrected
+  server-side in between. That is an inference, not an observation: PyPI's
+  publisher configuration cannot be read back. **Treat the next
+  Release-triggered run as the confirmation, and keep `workflow_dispatch` as
+  the documented fallback if it fails again.**
+
 ## Plugin releases
 
 Plugin packages follow their own SemVer clock. Plugin majors may or

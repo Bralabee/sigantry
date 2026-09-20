@@ -13,6 +13,18 @@ Thank you for your interest in contributing to **Sigantry**, the governance, syn
 
 ## Local Development Setup
 
+Conda (the environment the project is developed in; `environment.yml` and
+`.conda-env` are both committed):
+
+```bash
+git clone https://github.com/Bralabee/sigantry.git
+cd sigantry
+conda env create -f environment.yml
+conda activate "$(cat .conda-env)"
+```
+
+Or a plain virtualenv:
+
 ```bash
 git clone https://github.com/Bralabee/sigantry.git
 cd sigantry
@@ -33,6 +45,26 @@ ruff check sigantry_core/ tests/
 ruff format --check sigantry_core/ tests/
 pytest -q      # expect a non-zero test count, not just exit 0
 ```
+
+### Confirm which tree you are running
+
+If another clone of this project is editable-installed in the same
+environment, `import sigantry_core` resolves to whichever tree comes first on
+`sys.path` -- and from any directory other than this repo root that can
+silently be the *other* clone, at a different version. Every result you take
+from a shell, including a green test run, is then about a tree you did not
+mean to test. Check before you trust it:
+
+```bash
+cd <this repo>
+python -c "import sigantry_core, os; \
+  print(os.path.dirname(sigantry_core.__file__), sigantry_core.__version__)"
+# expect: <this repo>/sigantry_core   and the version in sigantry_core/_version.py
+```
+
+Anything else means the environment is resolving a different checkout: install
+this one editable (`pip install -e .`) into the environment you are using, or
+use the conda environment above.
 
 ## Commit & PR Workflow
 
