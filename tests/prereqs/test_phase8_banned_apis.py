@@ -293,23 +293,20 @@ _SCAN_SUFFIXES: tuple[str, ...] = (
     ".psd1",
 )
 
-# Top-level directories excluded from the scan (plugin dirs, planning,
-# caches, vendored trees).
-_SCAN_EXCLUDED_DIRS: tuple[str, ...] = (
-    ".planning",
-    ".qa-council",
-    ".git",
-    ".pytest_cache",
-    ".ruff_cache",
-    "__pycache__",
-    "node_modules",
-    ".venv",
-    "build",
-    "dist",
-    "sigantry-hs2",  # HS2 plugin package (renamed from fabric-dataops-toolkits-hs2 in Plan 10-03).
-    "SigantryHs2",  # HS2 PowerShell plugin module (Plan 08-04 split as Hs2Fabric; renamed to SigantryHs2 in Plan 10-04 per ADR-0011).
-    "docs/migration",  # Reserved for 08-06 release notes.
-    "remotion-tutorial",  # Unrelated video-tutorial scratch project (gitignored).
+# Trees excluded from the scan (plugin dirs, planning, migration notes),
+# matched as **full relative path prefixes** rather than directory basenames.
+# The basename comparison this replaces could never match the two-segment
+# "docs/migration" entry at all, and applied every other entry at any depth.
+#
+# Caches, build output, virtualenvs, vendored node_modules and untracked
+# scratch directories are no longer listed: the scan enumerates the git index
+# (see the `repo_files` fixture in the project-root conftest), which reports
+# none of them.
+_SCAN_EXCLUDED_PREFIXES: tuple[str, ...] = (
+    ".planning/",
+    "sigantry-hs2/",  # HS2 plugin package (renamed from fabric-dataops-toolkits-hs2 in Plan 10-03).
+    "SigantryHs2/",  # HS2 PowerShell plugin module (Plan 08-04 split as Hs2Fabric; renamed to SigantryHs2 in Plan 10-04 per ADR-0011).
+    "docs/migration/",  # Reserved for 08-06 release notes.
 )
 
 # Filenames excluded from the scan (legacy release notes / contributor
@@ -323,22 +320,20 @@ _SCAN_EXCLUDED_FILES: tuple[str, ...] = (
 )
 
 
-def _iter_scannable_files():
-    """Yield every scannable file relative to the repo root."""
-    for path in _REPO_ROOT.rglob("*"):
-        if not path.is_file():
-            continue
+def _iter_scannable_files(repo_files):
+    """Yield every scannable `(path, rel_str)` pair from the repo inventory.
+
+    `repo_files` is the project-root conftest fixture: the git index rather
+    than a filesystem walk, so gitignored build output (a local `mkdocs
+    build`) and untracked scratch directories are structurally out of scope
+    instead of needing a denylist entry each.
+    """
+    for path, rel_str in repo_files:
         if path.suffix not in _SCAN_SUFFIXES:
             continue
-        rel = path.relative_to(_REPO_ROOT)
-        parts = rel.parts
-        # Exclude tree roots + "docs/migration"-style two-part matches.
-        if any(ex in parts for ex in _SCAN_EXCLUDED_DIRS):
+        if rel_str.startswith(_SCAN_EXCLUDED_PREFIXES):
             continue
-        rel_str = str(rel).replace("\\", "/")
-        if rel_str.startswith("docs/migration/"):
-            continue
-        if rel.name in _SCAN_EXCLUDED_FILES:
+        if path.name in _SCAN_EXCLUDED_FILES:
             continue
         yield path, rel_str
 
@@ -426,10 +421,10 @@ def test_no_hs2_bicepparam_in_base() -> None:
     )
 
 
-def test_repo_wide_grep_clean_outside_plugin_dirs() -> None:
+def test_repo_wide_grep_clean_outside_plugin_dirs(repo_files) -> None:
     """Plan 08-05 grep gate: zero HS2 hits outside plugin + planning + migration."""
     offenders: list[tuple[str, int, str]] = []
-    for path, rel_str in _iter_scannable_files():
+    for path, rel_str in _iter_scannable_files(repo_files):
         if rel_str in _GREP_ALLOWLIST_RELATIVE:
             continue
         for lineno, line in enumerate(_read(path).splitlines(), start=1):

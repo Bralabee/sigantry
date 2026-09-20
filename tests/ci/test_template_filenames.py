@@ -16,13 +16,18 @@ OLD_SPARK = Path("templates/environments/hs2-spark-diagnostic-emitter.yml")
 NEW_SPARK = Path("templates/environments/spark-diagnostic-emitter.yml")
 
 # Carve-outs where historical references are intentional (migration docs,
-# plan text, etc.). The repo-wide scan below excludes these dirs.
-EXCLUDED_DIRS = (
-    Path(".planning"),
-    Path("docs") / "migration",
-    Path(".git"),
-    Path("__pycache__"),
-    Path(".pytest_cache"),
+# plan text, etc.). The repo-wide scan below excludes these trees.
+#
+# Matched as **full relative path prefixes**, not directory basenames: the
+# previous basename comparison meant the `docs/migration/` carve-out silently
+# applied to any directory called `migration` at any depth (GATE-15).
+#
+# Caches, build output and virtualenvs are not listed because the scan
+# enumerates the git index (see the `repo_files` fixture in the project-root
+# conftest) and git never reports them.
+EXCLUDED_PATH_PREFIXES: tuple[str, ...] = (
+    ".planning/",
+    "docs/migration/",
 )
 
 # Files that are allowed to reference the old HS2-branded filenames as
@@ -38,19 +43,18 @@ _ALLOWLISTED_FILES: frozenset[str] = frozenset(
         "CHANGELOG.md",
         # The HS2 plugin ships a consumer-facing migration walkthrough that
         # references the pre-v2.0 template filenames (same rationale as
-        # docs/migration/1.x-to-2.0.md, which is excluded via EXCLUDED_DIRS).
+        # docs/migration/1.x-to-2.0.md, which is excluded via
+        # EXCLUDED_PATH_PREFIXES).
         # Path renamed from fabric-dataops-toolkits-hs2 in Plan 10-03 per ADR-0011.
         "sigantry-hs2/docs/tutorial/README.md",
     }
 )
 
 
-def _is_excluded(path: Path) -> bool:
-    if any(part in (d.name for d in EXCLUDED_DIRS) for part in path.parts):
+def _is_excluded(rel: str) -> bool:
+    """`rel` is a repo-root-relative POSIX path, as `repo_files` yields it."""
+    if rel.startswith(EXCLUDED_PATH_PREFIXES):
         return True
-    rel = str(path).replace("\\", "/")
-    if rel.startswith("./"):
-        rel = rel[2:]
     return rel in _ALLOWLISTED_FILES
 
 
@@ -70,53 +74,49 @@ def test_new_spark_emitter_filename_exists():
     assert NEW_SPARK.exists(), f"Plan 08-03: {NEW_SPARK} must exist"
 
 
-def test_no_references_to_old_secure_pipeline_filename():
+def test_no_references_to_old_secure_pipeline_filename(repo_files):
     """Scan the shippable repo for any reference to `hs2-secure-pipeline.yml`.
 
-    Excludes `.planning/`, `docs/migration/`, `.git/`, and bytecode caches.
+    Scans the git index (`repo_files`), not the working tree, so gitignored
+    build output and untracked scratch directories cannot trip the gate.
+    Excludes `.planning/` and `docs/migration/`.
     """
     pattern = re.compile(r"hs2-secure-pipeline\.yml")
-    root = Path(".")
     violations: list[str] = []
-    for path in root.rglob("*"):
-        if not path.is_file():
+    for path, rel in repo_files:
+        if _is_excluded(rel):
             continue
-        if _is_excluded(path):
+        # Allow this test file itself to mention the old name.
+        if path.resolve() == Path(__file__).resolve():
             continue
         # Skip binary or very large files safely.
         try:
             text = path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
-        # Allow this test file itself to mention the old name.
-        if path.resolve() == Path(__file__).resolve():
-            continue
         if pattern.search(text):
-            violations.append(str(path))
+            violations.append(rel)
     assert not violations, (
         "Plan 08-03: old filename 'hs2-secure-pipeline.yml' still referenced in:\n"
         + "\n".join(sorted(violations))
     )
 
 
-def test_no_references_to_old_spark_emitter_filename():
+def test_no_references_to_old_spark_emitter_filename(repo_files):
     """Scan the shippable repo for any reference to `hs2-spark-diagnostic-emitter.yml`."""
     pattern = re.compile(r"hs2-spark-diagnostic-emitter\.yml")
-    root = Path(".")
     violations: list[str] = []
-    for path in root.rglob("*"):
-        if not path.is_file():
+    for path, rel in repo_files:
+        if _is_excluded(rel):
             continue
-        if _is_excluded(path):
+        if path.resolve() == Path(__file__).resolve():
             continue
         try:
             text = path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
-        if path.resolve() == Path(__file__).resolve():
-            continue
         if pattern.search(text):
-            violations.append(str(path))
+            violations.append(rel)
     assert not violations, (
         "Plan 08-03: old filename 'hs2-spark-diagnostic-emitter.yml' still referenced in:\n"
         + "\n".join(sorted(violations))

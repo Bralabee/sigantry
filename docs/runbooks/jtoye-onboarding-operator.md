@@ -66,7 +66,7 @@ is one-way: JToye's `pyproject.toml` depends on `sigantry-core>=3.0.*`.
 
 ### 1.4 Tooling on the operator's laptop
 
-- Python 3.11+ (`pyproject.toml` pins `>=3.11,<3.13`)
+- Python 3.11+ (`pyproject.toml` pins `>=3.11`, no upper bound)
 - conda or venv (conda recommended -- matches sigantry-core's
   `fabric-dataops-toolkits` env name)
 - `gh` CLI >= 2.40 (for the GitHub path) OR `az` CLI with
