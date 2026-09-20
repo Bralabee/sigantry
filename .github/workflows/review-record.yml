@@ -1,3 +1,7 @@
+# sigantry-dual-ci-exception: ci-mechanics
+# The review-record gate posts a GitHub COMMIT STATUS, which is the mechanism
+# branch protection marks required. There is no Azure DevOps counterpart to
+# pair with, so this file is CI-system-specific tooling by construction.
 # review-record — the SERVER-SIDE backstop for the merge review gate (2026-08-30).
 #
 # The gh() wrapper gates bash-shell merges on this fleet; this workflow closes the
@@ -53,7 +57,7 @@ jobs:
       # in scope, a PR must never grade itself with its own edited copy of the
       # gate. Trade-off, deliberate: a PR that edits the gate is judged by the
       # CURRENT gate; its changes take effect once merged.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           ref: main
       - name: resolve head, run the brain, post the status
