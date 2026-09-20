@@ -126,7 +126,7 @@ When `--with-publish` is set, the D-26-bis boundary trailer described in [§1.2]
 
    ```bash
    conda activate fabric-dataops-toolkits
-   pip install sigantry-core
+   pip install sigantry
    ```
 
 2. Configure auth via `DefaultAzureCredential`:

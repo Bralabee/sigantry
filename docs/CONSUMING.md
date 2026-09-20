@@ -6,7 +6,7 @@
 
 Sigantry ships through two distinct surfaces. You almost certainly want both:
 
-1. **Python distribution** -- `pip install sigantry-core` (+ optional plugins).
+1. **Python distribution** -- `pip install sigantry` (+ optional plugins).
 2. **Public scaffolding repos** -- fork `sigantry/sigantry-starter` for a greenfield Sigantry project, or `sigantry/demo-sigantry` for the 15-minute end-to-end walkthrough.
 
 You **do not** clone this monorepo (`Bralabee/fabric_dataops`) to run Sigantry. This repo is the development surface; it holds the product source, dual-CI parity gates, banned-API contract tests, and the source-of-truth for the public scaffolding.
@@ -26,10 +26,10 @@ You **do not** clone this monorepo (`Bralabee/fabric_dataops`) to run Sigantry. 
 
 ## Channel 1 -- Python distribution (forthcoming)
 
-Once `sigantry-core` is on PyPI:
+The distribution is published on PyPI as `sigantry`:
 
 ```bash
-pip install "sigantry-core>=3.0"
+pip install sigantry
 ```
 
 The legacy `fabric-dataops-toolkits` name no longer resolves: the v3.0 shim
@@ -65,7 +65,7 @@ Once `sigantry/demo-sigantry` is provisioned:
 ```bash
 gh repo clone sigantry/demo-sigantry
 cd demo-sigantry
-pip install "sigantry-core>=3.0"
+pip install sigantry
 # set 4 env vars: SIGANTRY_DEMO_{TENANT_ID,WORKSPACE_ID,CAPACITY_ID,FABRIC_TOKEN}
 sigantry config validate parameters.yml
 sigantry sync apply --manifest sync.yml --workspace-id "$SIGANTRY_DEMO_WORKSPACE_ID"

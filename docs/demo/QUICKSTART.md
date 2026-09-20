@@ -30,7 +30,7 @@ Install Sigantry once into a fresh virtualenv or conda env:
 ```bash
 python -m venv .venv
 source .venv/bin/activate     # Windows: .venv\Scripts\activate
-pip install "sigantry-core>=3.0.0"
+pip install sigantry
 ```
 
 Verify the install:

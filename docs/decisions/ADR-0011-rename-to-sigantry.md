@@ -1,6 +1,6 @@
 # ADR-0011 — Rename `fabric-dataops-toolkits` to `sigantry-core`
 
-- **Status:** Accepted
+- **Status:** Accepted — **superseded in part by [ADR-0017](ADR-0017-distribution-name-sigantry.md)**
 - **Date:** 2026-04-24
 - **Milestone:** v3.0 (Productization)
 - **Deciders:** platform team + product owner
@@ -13,7 +13,7 @@ Rename to **Sigantry**:
 | Old | New |
 |-----|-----|
 | Product name | Sigantry |
-| Package root | `sigantry-core` (dist) / `sigantry_core` (import) |
+| Package root | ~~`sigantry-core`~~ **`sigantry`** (dist, per [ADR-0017](ADR-0017-distribution-name-sigantry.md)) / `sigantry_core` (import) |
 | HS2 plugin | `sigantry-hs2` (dist) / `sigantry_hs2` (import) |
 | Future JToye plugin | `sigantry-jtoye` (dist) / `sigantry_jtoye` (import) |
 | CLI entry point | `sigantry` |
@@ -47,7 +47,7 @@ Published as `docs/migration/2.x-to-3.0.md`. Covers:
 |--------|--------------|
 | **Keep `fabric-dataops-toolkits`** | Not brandable, descriptive-only, trademark-unsuitable. Signals "internal utility" to outside adopters. |
 | **Rename to a generic like "FabricOps" / "DataOpsKit"** | Both are genuinely taken or too close to existing products; descriptive-generic names are weak trademarks. |
-| **`sigantry` as sole prefix (no `-core` suffix)** | The base package is `sigantry-core` deliberately so the root `sigantry` name stays available as the CLI, the docs site, the GitHub org, and potentially a future meta-package. |
+| **`sigantry` as sole prefix (no `-core` suffix)** | *(Rejected here; **adopted** in v1.0.0 — see [ADR-0017](ADR-0017-distribution-name-sigantry.md).)* The base package is `sigantry-core` deliberately so the root `sigantry` name stays available as the CLI, the docs site, the GitHub org, and potentially a future meta-package. |
 | **Defer rename to v3.1 after feature-complete v3.0** | Requires every v3 feature to be built under the old name and then re-migrated. Doubles the rename cost. |
 | **Use codename during v3.0, rename before public launch** | Codenames leak. A public `v3.0.0` under the old name would ship npm/PyPI entries and git tags that long outlive the rename window. |
 
@@ -102,7 +102,7 @@ The actual rename is tracked as its own plan inside Phase 10, separate from this
 ## Supersedes / superseded by
 
 - Supersedes: none (first rename).
-- Superseded by: none.
+- Superseded by: **[ADR-0017 — the PyPI distribution is `sigantry`](ADR-0017-distribution-name-sigantry.md)**, in part: the base-distribution row of the naming table above and the sole-prefix alternative. The rest of this ADR stands.
 - Related: [ADR-0010 — Commercial Model](ADR-0010-commercial-model.md); [Seam Map](../reference/seam-map.md); [PRODUCT-BRIEF.md](../PRODUCT-BRIEF.md).
 
 ---
