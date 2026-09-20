@@ -1,0 +1,87 @@
+# review-record — the SERVER-SIDE backstop for the merge review gate (2026-08-30).
+#
+# The gh() wrapper gates bash-shell merges on this fleet; this workflow closes the
+# other doors — the web UI merge button, zsh, machines without these dotfiles, and
+# the documented `command gh` bypass — by posting a `review-record` commit status
+# on every PR head, which branch protection marks REQUIRED. The brain is
+# gates/review-record-check.sh --status-verdict (selftested; pre-push check 12
+# re-proves its fail directions on every push); this file only resolves the event
+# to (pr, head) and posts what the brain decides.
+#
+# Fail-closed: a VOID verdict fails the job WITHOUT posting a status, and a missing
+# required status blocks the merge. Waives are HEAD-SCOPED (a comment beginning
+# `Review-Record: WAIVED sha=<head12>`, posted by the wrapper): CI stays required —
+# the deliberate alternative to an --admin bypass, which would skip CI too.
+#
+# Chicken-and-egg, expected: comment/review-triggered runs execute THIS file from
+# the DEFAULT branch, so those events only flip the status once this workflow has
+# merged. The PR that introduces it therefore shows a failing (not-yet-required)
+# status on itself; that is the bootstrap, not a defect.
+name: review-record
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  pull_request_review:
+    types: [submitted]
+  pull_request_review_comment:
+    types: [created]
+  issue_comment:
+    types: [created]
+  # Manual re-drive (#156 review, finding 8): the waiver dedupe deliberately
+  # does not re-post an identical record, so a cancelled/failed run would
+  # otherwise have no event left to re-trigger evaluation.
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: 'PR number to re-evaluate'
+        required: true
+permissions:
+  statuses: write
+  pull-requests: read
+  contents: read
+concurrency:
+  group: review-record-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
+  cancel-in-progress: true
+jobs:
+  verdict:
+    # issue_comment fires for plain issues too; only PR comments matter here.
+    if: github.event_name != 'issue_comment' || github.event.issue.pull_request
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Pinned to the DEFAULT branch (#156 review, finding 3): with statuses:write
+      # in scope, a PR must never grade itself with its own edited copy of the
+      # gate. Trade-off, deliberate: a PR that edits the gate is judged by the
+      # CURRENT gate; its changes take effect once merged.
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: resolve head, run the brain, post the status
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PRNUM: ${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
+        run: |
+          # GitHub's default step shell is `bash -e`: without the explicit +e, a
+          # FAILURE verdict (rc 1 — the expected answer for an unreviewed PR)
+          # kills the step at the command substitution BEFORE the failure status
+          # posts, leaving no status at all (measured on this workflow's own
+          # first run; the #156 review's verifier corroborated independently).
+          # rc values here are data, not errors — every exit is explicit.
+          set +e
+          set -uo pipefail
+          HEAD=$(gh pr view "$PRNUM" -R "$GITHUB_REPOSITORY" --json headRefOid -q .headRefOid); rc=$?
+          if [ "$rc" -ne 0 ] || [ -z "$HEAD" ]; then
+            echo "cannot resolve PR #$PRNUM head — failing WITHOUT a status (fail closed)"; exit 2
+          fi
+          out=$(bash scripts/gates/review-record-check.sh --status-verdict \
+                --repo "$GITHUB_REPOSITORY" --pr "$PRNUM" --head "$HEAD" 2>&1); vrc=$?
+          printf '%s\n' "$out"
+          if [ "$vrc" -ge 2 ]; then
+            echo "verdict VOID — failing WITHOUT a status (fail closed)"; exit 2
+          fi
+          state=failure; [ "$vrc" -eq 0 ] && state=success
+          desc=$(printf '%s' "$out" | tail -1 | cut -c1-138)
+          if ! gh api "repos/$GITHUB_REPOSITORY/statuses/$HEAD" \
+               -f state="$state" -f context=review-record -f description="$desc"; then
+            echo "status POST failed — failing loudly (a stale/absent status blocks, fail closed)"; exit 2
+          fi
