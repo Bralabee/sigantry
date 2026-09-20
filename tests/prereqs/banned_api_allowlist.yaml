@@ -18,18 +18,6 @@
 # substring the gate matches.
 
 allowlist:
-  - path: 'environment.yml'
-    pattern_class: hs2_repo_wide_grep
-    rationale: |
-      The conda environment this repository is developed in is named
-      sigantry-hs2-engineer on the maintainer's machine, and `.conda-env`
-      records that name so local tooling resolves the right interpreter.
-      environment.yml must declare the SAME name or the two disagree and
-      `conda activate "$(cat .conda-env)"` lands in the wrong place. The
-      name is a local environment label, not product content: no published
-      page, template or code path carries it - docs/getting-started/
-      install.md deliberately reads the name out of `.conda-env` rather
-      than spelling it. Exempt the env file only.
   - path: 'tests/prereqs/banned_api_allowlist.yaml'
     pattern_class: hs2_repo_wide_grep
     rationale: |

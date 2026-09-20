@@ -1,17 +1,19 @@
 # Conda environment for Sigantry development.
 #
 #   conda env create -f environment.yml
-#   conda activate sigantry-hs2-engineer
+#   conda activate "$(cat .conda-env)"
 #
 # The environment NAME matches `.conda-env`, which is what tooling on a
 # developer machine reads to pick the interpreter for this repository.
+# The name is deliberately vendor-neutral: this is an Apache-2.0 project and
+# no client or tenant name belongs in a file shipped to every contributor.
 #
 # Conda supplies the interpreter only. Every project dependency is resolved
 # by pip from pyproject.toml, so there is exactly one dependency source of
 # truth: `dev` carries the toolchain and `test` the test-only runtime
 # dependencies (freezegun, jsonschema). Installing `dev` alone leaves pytest
 # unable to collect the suite.
-name: sigantry-hs2-engineer
+name: sigantry-dev
 channels:
   - conda-forge
 dependencies:
