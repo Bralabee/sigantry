@@ -17,8 +17,13 @@ Thank you for your interest in contributing to **Sigantry**, the governance, syn
 git clone https://github.com/Bralabee/sigantry.git
 cd sigantry
 python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -e ".[dev,test]"
 ```
+
+Both extras are needed: `dev` carries the toolchain (ruff, mypy, build,
+pre-commit) and `test` carries test-only runtime dependencies (`freezegun`,
+`jsonschema`, `respx`). With `dev` alone, `pytest` aborts during collection
+and runs zero tests.
 
 Verify your setup:
 
@@ -26,7 +31,7 @@ Verify your setup:
 python -c "import sigantry_core; print(sigantry_core.__version__)"
 ruff check sigantry_core/ tests/
 ruff format --check sigantry_core/ tests/
-pytest -q
+pytest -q      # expect a non-zero test count, not just exit 0
 ```
 
 ## Commit & PR Workflow

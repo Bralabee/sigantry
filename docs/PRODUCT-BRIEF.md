@@ -85,7 +85,7 @@ All three of these are involved in the buying decision. The brief addresses each
 |-------|-------|------|-------|
 | 10 | Product brief + architecture refresh (this phase) | BRIEF-01..06 | This document, ADR-0010, ADR-0011, seam-map, dual-CI strategy, codebase rename |
 | 11 | Work-item traceability wedge | TRACE-01..08 | `WorkItemProvider` seam, ADO + GitHub impls, `DeployRecord`, `sigantry release record` CLI |
-| 12 | Pipeline test orchestration + rollback | PIPELINE-01..05 | ADO + GHA 5-stage template pair, deploy ledger, `sigantry deploy --rollback` |
+| 12 | Pipeline test orchestration + rollback | PIPELINE-01..05 | ADO + GHA 5-stage template pair, deploy ledger, `sigantry deploy run --rollback` |
 | 13 | Drift detection | DRIFT-01..03 | `sigantry diff -e <env>`, scheduled drift pipelines (ADO + GHA); see [ADR-0012](decisions/ADR-0012-sync-apply-vs-deploy-run-boundary.md) for the apply-vs-deploy-run boundary surfaced by the 2026-05-01 brownfield test (PR #67). |
 | 14 | Starter repo + PR-review bot | STARTER-01..07 | `sigantry-starter`, TMDL + Lakehouse diff bot (dual-CI), branching + PR-review docs |
 | 15 | Public demo environment | DEMO-01..04 | Public `demo-sigantry` repos, demo Fabric tenant, Remotion-recorded walkthrough |
@@ -97,7 +97,8 @@ All three of these are involved in the buying decision. The brief addresses each
 
 Sigantry's public demo lives at `<DEMO-URL>` (placeholder -- the
 operator updates this URL after the public-mirror exercise per
-[`15-HUMAN-UAT.md` Test 1](../.planning/milestones/v3.0-phases/15-public-demo-environment/15-HUMAN-UAT.md);
+the public-mirror gate (Test 1) of the demo-environment operator
+checklist;
 the trademark / domain / PyPI clearance gate at Test 0 may defer
 publication until a v3.1 rename if a conflict surfaces).
 

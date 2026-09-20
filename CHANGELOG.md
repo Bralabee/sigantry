@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Non-destructive simulation engine evaluating Schema Syntax, Dependency DAG order, Entra ID scope permissions, and Fabric capacity active state prior to execution (ADR-0015).
   - Human-friendly colored terminal tables, machine-readable JSON (`--json`), and `--fail-on-warning` flags.
 - **Bulk Publishing Concurrency Acceleration**:
-  - `--bulk` parallel execution flag on `sigantry deploy run` and `sigantry sync apply` utilizing multi-worker thread pools (`max_workers=4`) for up to 3.8x faster item publishing across large repositories.
+  - `--bulk` parallel execution flag on `sigantry deploy run` and `sigantry sync apply`, publishing items through a multi-worker thread pool (`max_workers=4`, not currently configurable) instead of serially.
 - **Standalone Interactive HTML Reports (`sigantry_core.reports`)**:
   - Zero-dependency, self-contained HTML reports featuring responsive dark/light themes, summary metrics cards, and instant client-side search/filtering.
   - Interactive drift reports via `sigantry diff --output html --html-out <path>`.

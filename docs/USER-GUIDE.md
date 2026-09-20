@@ -258,8 +258,9 @@ before installing.
 
 ### 4.1 Python runtime
 
-You need **Python 3.11 or 3.12**. Python 3.10 will refuse the install
-(`requires-python` mismatch); 3.13 is not yet validated.
+You need **Python 3.11 or newer**: `requires-python` is `>=3.11` with no
+upper bound, and 3.11, 3.12 and 3.13 are all declared supported. Python
+3.10 will refuse the install (`requires-python` mismatch).
 
 The recommended path is a dedicated Conda environment, mirroring how
 the development team works:
@@ -1250,7 +1251,19 @@ Verbs (18 subcommands; run `sigantry <verb> --help` for the full flag set):
   pr-bot run                             -- post TMDL + Lakehouse diffs on a PR
     --provider github|ado --pr-id N
     --base-dir DIR --head-dir DIR        (--dry-run still fetches PR metadata)
-  fabric-item                            -- item folder ops (copy with logicalId regen)
+  fabric-item
+    copy                                 -- duplicate an item folder with a fresh
+                                            logicalId + displayName
+    set-binding                          -- attach an Environment and/or a default
+                                            Lakehouse to a notebook
+      --workspace-id GUID                (required) workspace holding the notebook
+      --item-id GUID                     (required) notebook item
+      --environment-id GUID              Environment to attach
+      --environment-workspace-id GUID    workspace owning the Environment
+      --lakehouse-id GUID                default lakehouse
+      --lakehouse-name TEXT              default lakehouse by name
+      --lakehouse-workspace-id GUID      workspace owning the lakehouse
+      --tenant-id GUID                   override tenant for auth
   git                                    -- workspace <-> ADO Git integration surface
   variable-library                       -- Fabric Variable Library CRUD
   env                                    -- Fabric Environment wheel upload
@@ -1339,7 +1352,7 @@ graph TB
 
 | Symptom | Likely cause | Remedy |
 |---------|--------------|--------|
-| `requires-python` mismatch on install | Python 3.10 (or 3.13) active | Switch to 3.11 or 3.12; redo Section 4.1 |
+| `requires-python` mismatch on install | Python 3.10 or older active | Switch to 3.11+; redo Section 4.1 |
 | `sigantry doctor` works but `sigantry workspace list` fails with `AuthError` | Token resolved without Fabric scope | Re-run `az login`; check `AZURE_*` env vars |
 | `dry-run would create N folders and move 0 items` for `N` larger than expected | Manifest's `folders[]` preservation set is too small | Add the missing paths to `folders[]` |
 | Idempotent re-run still reports `folders_created > 0` | Same as above | Same as above |

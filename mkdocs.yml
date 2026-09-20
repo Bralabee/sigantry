@@ -40,18 +40,49 @@ nav:
     - Quickstart: demo/QUICKSTART.md
     - Walkthrough Script: demo/walkthrough-script.md
     - Operator Runbook: runbooks/demo-tenant-operator.md
+  - Operator Manual: USER-GUIDE.md
   - Reference:
+    - Architecture: reference/architecture.md
+    - Capabilities: CAPABILITIES.md
     - Audit ledger threat model: reference/audit-ledger-threat-model.md
     - Protocol seams: reference/protocols.md
     - Seams: reference/seams.md
+    - Seam map: reference/seam-map.md
     - Observation planes: reference/observation-planes.md
     - Starter Repo Parameters: reference/parameters-yml.md
+    - sync.yml schema: reference/sync-schema.md
+    - API stability: reference/api-stability.md
+    - Dual-CI strategy: reference/dual-ci-strategy.md
     - Thread safety: reference/thread-safety.md
+    - Scope: reference/scope.md
   - Runbooks:
     - Index: runbooks/INDEX.md
     - PR Bot Operator: runbooks/pr-bot-operator.md
     - OPA Approval Gate Quickstart: runbooks/approval-gates/opa-quickstart.md
     - JToye Onboarding: runbooks/jtoye-onboarding-operator.md
+    - Workspace bootstrap: runbooks/workspace-bootstrap-operator.md
+    - Sync - apply: runbooks/sync/apply.md
+    - Sync - pull: runbooks/sync/pull.md
+    - Sync - folder preservation: runbooks/sync/folder-preservation.md
+    - Sync - snapshot freshness: runbooks/sync/snapshot-freshness.md
+    - Scheduled drift detection: runbooks/drift-detection/scheduled-drift.md
+    - Deploy with tests: runbooks/pipeline-orchestration/deploy-with-tests.md
+    - Work-item comment rendering: runbooks/work-item-traceability/comment-rendering.md
+  - Decisions (ADRs):
+    - ADR-0004 API version policy: decisions/ADR-0004-api-version-policy.md
+    - ADR-0010 Commercial model: decisions/ADR-0010-commercial-model.md
+    - ADR-0011 Rename to Sigantry: decisions/ADR-0011-rename-to-sigantry.md
+    - ADR-0012 sync apply vs deploy run: decisions/ADR-0012-sync-apply-vs-deploy-run-boundary.md
+    - ADR-0013 sync publish parameters: decisions/ADR-0013-sync-publish-parameters-resolution.md
+    - ADR-0014 Plugin trust model: decisions/ADR-0014-plugin-trust-model.md
+    - ADR-0015 Config-driven preflight: decisions/ADR-0015-config-driven-preflight.md
+    - ADR-0016 Plugin scope & parity: decisions/ADR-0016-plugin-scope-and-parity-model.md
+    - ADR-0017 Distribution name: decisions/ADR-0017-distribution-name-sigantry.md
+  - Background:
+    - Product brief: PRODUCT-BRIEF.md
+    - Consuming Sigantry: CONSUMING.md
+    - Related work: RELATED-WORK.md
+    - Ecosystem landscape (2026-06): LANDSCAPE-2026-06.md
   - API Reference:
     - Overview: api/index.md
     - sigantry_core.auth: api/auth.md

@@ -16,7 +16,7 @@ Built by **JToye Digital**, Sigantry wraps Microsoft's official deployment tooli
 - 🚀 **Pre-Deployment Safety Probes**: `sigantry preflight` runs four-phase non-destructive simulations (Schema Syntax, Dependency DAG, Entra ID Scope, Capacity State) before deploying.
 - 🔄 **Lossless Brownfield Adoption**: `sigantry sync pull` introspects any hand-built Fabric workspace and generates an exact, round-trip lossless `sync.yml` manifest and code tree.
 - 🏗️ **Declarative Greenfield Scaffolding**: `sigantry workspace bootstrap` provisions brand-new workspaces, capacity bindings, and medallion folder blueprints from a single `workspace.yml` manifest with idempotent probe-before-act convergence.
-- ⚡ **Concurrent Bulk Publishing**: `--bulk` option accelerates workspace deployments via parallel item publishing pools, reducing deploy times by up to 3.8x on multi-item repositories.
+- ⚡ **Concurrent Bulk Publishing**: `--bulk` publishes items through a parallel worker pool instead of one at a time, cutting wall-clock deploy time on multi-item repositories.
 - 🛡️ **Automated Release Rollback**: `sigantry deploy run --rollback --to-release <id>` re-publishes the exact historical version of items from immutable ledger snapshots.
 - 🔍 **Interactive Drift Detection**: `sigantry diff` continuously compares live Fabric workspaces against Git manifests, outputting rich CLI tables, SemVer JSON, or standalone interactive HTML reports (`--output html`).
 - 🛑 **TMDL Breaking Change Impact Guard**: `sigantry pr-bot run --fail-on-breaking` intercepts Power BI semantic model edits in CI/CD, highlighting dropped measures, columns, and tables before downstream reports break.
