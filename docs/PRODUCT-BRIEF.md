@@ -8,7 +8,7 @@
 
 **Sigantry** is an Apache-2.0 open-source **governance, audit, and rollback layer on top of Microsoft's official Fabric tooling**: version-controlled artefacts, traceable releases tied to work items, test-gated promotion across dev → preprod → prod, drift detection, and an immutable audit record — on Azure DevOps or GitHub, in under 15 minutes of setup.
 
-It is deliberately NOT "a Fabric automation toolkit". Automation primitives (item deploy, CRUD, one-command publish) are owned by Microsoft's officially supported stack — `fabric-cicd`, the `fab` CLI, the Terraform provider. Sigantry wraps that stack and adds the layer none of it provides: tamper-evident deploy ledgers, rollback to a prior release, scheduled drift detection, destructive-op gating, and work-item traceability. The 2026-06-11 ecosystem survey ([LANDSCAPE-2026-06.md](LANDSCAPE-2026-06.md) §4) verified that no official or open-source tool offers any of them.
+It is deliberately NOT "a Fabric automation toolkit". Automation primitives (item deploy, CRUD, one-command publish) are owned by Microsoft's officially supported stack — `fabric-cicd`, the `fab` CLI, the Terraform provider. Sigantry wraps that stack and adds the layer none of it provides: integrity-checked deploy ledgers ([threat model](reference/audit-ledger-threat-model.md)), rollback to a prior release, scheduled drift detection, destructive-op gating, and work-item traceability. The 2026-06-11 ecosystem survey ([LANDSCAPE-2026-06.md](LANDSCAPE-2026-06.md) §4) verified that no official or open-source tool offers any of them.
 
 ## Problem
 
@@ -85,7 +85,7 @@ All three of these are involved in the buying decision. The brief addresses each
 |-------|-------|------|-------|
 | 10 | Product brief + architecture refresh (this phase) | BRIEF-01..06 | This document, ADR-0010, ADR-0011, seam-map, dual-CI strategy, codebase rename |
 | 11 | Work-item traceability wedge | TRACE-01..08 | `WorkItemProvider` seam, ADO + GitHub impls, `DeployRecord`, `sigantry release record` CLI |
-| 12 | Pipeline test orchestration + rollback | PIPELINE-01..05 | ADO + GHA 5-stage template pair, deploy ledger, `sigantry deploy --rollback` |
+| 12 | Pipeline test orchestration + rollback | PIPELINE-01..05 | ADO + GHA 5-stage template pair, deploy ledger, `sigantry deploy run --rollback` |
 | 13 | Drift detection | DRIFT-01..03 | `sigantry diff -e <env>`, scheduled drift pipelines (ADO + GHA); see [ADR-0012](decisions/ADR-0012-sync-apply-vs-deploy-run-boundary.md) for the apply-vs-deploy-run boundary surfaced by the 2026-05-01 brownfield test (PR #67). |
 | 14 | Starter repo + PR-review bot | STARTER-01..07 | `sigantry-starter`, TMDL + Lakehouse diff bot (dual-CI), branching + PR-review docs |
 | 15 | Public demo environment | DEMO-01..04 | Public `demo-sigantry` repos, demo Fabric tenant, Remotion-recorded walkthrough |
@@ -97,7 +97,8 @@ All three of these are involved in the buying decision. The brief addresses each
 
 Sigantry's public demo lives at `<DEMO-URL>` (placeholder -- the
 operator updates this URL after the public-mirror exercise per
-[`15-HUMAN-UAT.md` Test 1](../.planning/milestones/v3.0-phases/15-public-demo-environment/15-HUMAN-UAT.md);
+the public-mirror gate (Test 1) of the demo-environment operator
+checklist;
 the trademark / domain / PyPI clearance gate at Test 0 may defer
 publication until a v3.1 rename if a conflict surfaces).
 

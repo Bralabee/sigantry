@@ -47,8 +47,9 @@ sigantry --help | head -5
 # expect: a usage banner listing subcommands (workspace, sync, deploy, diff, release, ...)
 ```
 
-> [!TIP]
-> If your terminal reports `sigantry: command not found` after `pip install`, run `hash -r` (in Bash) or `rehash` (in Zsh) to refresh your shell's command path cache, or invoke directly via `python -m sigantry_core.cli --help`.
+!!! tip
+
+    If your terminal reports `sigantry: command not found` after `pip install`, run `hash -r` (in Bash) or `rehash` (in Zsh) to refresh your shell's command path cache, or invoke directly via `python -m sigantry_core.cli --help`.
 
 > Full installation detail and troubleshooting: [getting-started/install.md](../getting-started/install.md).
 

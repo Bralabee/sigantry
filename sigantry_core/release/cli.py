@@ -21,7 +21,7 @@ a :class:`WorkItemProvider`.
 
 The ``verify`` subcommand exposes
 :func:`sigantry_core.governance.audit_io.verify_audit_chain` so the
-ledger's tamper-evidence can be checked by the operator who needs it,
+ledger's integrity can be checked by the operator who needs it,
 rather than only by a caller willing to import the library. It reads
 lines in FILE order via its own strict parser -- see
 ``_read_ledger_lines_strict`` for why it must not reuse ``iter_records``.
@@ -347,8 +347,7 @@ def list_cmd(
     substring (unlikely). The flag is honest about what it filters; a
     real env-aware filter requires adding an ``environment`` field to
     ``DeployRecord`` (SemVer-minor bump per Pattern 4 schema commitment),
-    deferred to v3.x. See WR-04 in
-    ``.planning/phases/12-pipeline-test-orchestration-rollback/12-REVIEW.md``.
+    and is deferred.
     """
     audit_dir_path = Path(audit_dir) if audit_dir else None
     records = list(iter_records(audit_dir=audit_dir_path))
@@ -578,9 +577,13 @@ def verify_cmd(
     Exposes :func:`sigantry_core.governance.audit_io.verify_audit_chain` as an
     operator command. Before this existed, ``sigantry release`` offered
     ``record`` / ``list`` / ``show`` / ``diff`` and no way to check the
-    tamper-evidence property the ledger is built for -- an auditor had to
-    import the library and write Python. A tamper-evident record store whose
-    tamper-evidence cannot be checked from the CLI is unfinished.
+    integrity property the ledger is built for -- an auditor had to import the
+    library and write Python. An integrity-checked record store whose integrity
+    cannot be checked from the CLI is unfinished.
+
+    What this proves, and what it does not: the chain is an UNKEYED SHA-256, so
+    a valid result means the file is internally consistent -- not that it is the
+    file that was written. See docs/reference/audit-ledger-threat-model.md.
 
     Records are read in FILE (append) order, which is the order the chain was
     written in. Note this differs from ``release list``, which sorts by

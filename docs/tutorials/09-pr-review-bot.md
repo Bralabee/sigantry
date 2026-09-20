@@ -114,7 +114,7 @@ jobs:
         with: { ref: "${{ github.event.pull_request.base.sha }}", path: base }
       - uses: actions/checkout@v6
         with: { ref: "${{ github.event.pull_request.head.sha }}", path: head }
-      - run: pip install sigantry-core  # or install from your checkout
+      - run: pip install sigantry  # or install from your checkout
       - run: |
           sigantry pr-bot run --provider github \
             --pr-id "${{ github.event.pull_request.number }}" \

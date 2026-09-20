@@ -21,13 +21,14 @@ From the 18 wired CLI subapps (`sigantry_core/cli.py`) plus the `diagnose-auth` 
 | Publishing a Git tree of `.platform` items to a Fabric workspace (with `--bulk` parallel workers or `--rollback`) | `sigantry deploy` |
 | Connecting / disconnecting Fabric ↔ ADO Git integration | `sigantry git` |
 | Uploading a wheel to a Fabric Environment (one target or multi-environment sync) | `sigantry env` |
-| Copying a Fabric item with `logicalId` regeneration | `sigantry fabric-item` |
+| Copying a Fabric item with `logicalId` regeneration | `sigantry fabric-item copy` |
+| Attaching an Environment or default Lakehouse to a notebook | `sigantry fabric-item set-binding` |
 | RBAC audit, sensitivity-label sync, tenant-settings baseline | `sigantry rbac-audit`, `sigantry label-sync`, `sigantry tenant-settings` |
 | Running a DQ gate before a deploy step | `sigantry dq` |
 | Variable Library CRUD | `sigantry variable-library` |
 | "Which plugins are installed, and did any fail to import?" | `sigantry doctor` |
 | "Why is auth failing — 401 or 403?" | `diagnose-auth` |
-| Cryptographic release records — `record` / `list` / `show` / `diff` with tamper-evident audit hash and `--html` reports | `sigantry release` |
+| Release records — `record` / `list` / `show` / `diff` with an integrity-checked audit hash ([threat model](reference/audit-ledger-threat-model.md)) and `--html` reports | `sigantry release` |
 | Lossless Fabric workspace round-trip adoption and local sync (`apply`, `pull`, `snapshot`, `--bulk`) | `sigantry sync` |
 | Scheduled or CI drift detection with CLI table, SemVer JSON, or standalone interactive HTML (`--output html`) | `sigantry diff` |
 | Headless PR review bot diffing TMDL and schemas, with breaking change guards (`--fail-on-breaking`) | `sigantry pr-bot` |
@@ -72,11 +73,13 @@ sigantry --help
 sigantry doctor
 ```
 
-> [!TIP]
-> If your terminal displays `sigantry: command not found` after installing via `pip`:
-> - Run `hash -r` in Bash (or `rehash` in Zsh) to refresh the shell command table.
-> - Ensure the virtualenv/conda bin folder is in your `$PATH`.
-> - Alternatively, run `python -m sigantry_core.cli <command>`.
+!!! tip
+
+    If your terminal displays `sigantry: command not found` after installing via `pip`:
+
+    - Run `hash -r` in Bash (or `rehash` in Zsh) to refresh the shell command table.
+    - Ensure the virtualenv/conda bin folder is in your `$PATH`.
+    - Alternatively, run `python -m sigantry_core.cli <command>`.
 
 ---
 
@@ -101,7 +104,7 @@ python -m sigantry_core --help
 | `rbac-audit` | Emit workspace + capacity + item RBAC audit |
 | `tenant-settings` | Export Fabric admin tenant-settings baseline |
 | `deploy` | Deploy Fabric items via `fabric-cicd`; supports `--bulk` and `--rollback --to-release <id>` |
-| `fabric-item` | Fabric item folder operations (copy with logicalId regeneration) |
+| `fabric-item` | Fabric item folder operations: `copy` (with logicalId regeneration) and `set-binding` (attach an Environment and/or default Lakehouse to a notebook) |
 | `git` | Fabric workspace ↔ ADO Git integration (7-endpoint surface) |
 | `variable-library` | Fabric Variable Library CRUD |
 | `env` | Fabric Environment wheel upload, sync, and reconcile |
@@ -123,13 +126,13 @@ Execute non-destructive pre-deployment simulations before triggering any live ch
 
 ```bash
 # Run preflight against target environment
-sigantry preflight --manifest sync.yml --target-env prod
+sigantry preflight --manifest sync.yml --environment prod
 
 # Machine-readable JSON output for CI pipelines
-sigantry preflight --manifest sync.yml --target-env prod --json
+sigantry preflight --manifest sync.yml --environment prod --json
 
-# Fail CI immediately on any warning probe
-sigantry preflight --manifest sync.yml --target-env prod --fail-on-warning
+# Treat warnings as failures (the CI gate)
+sigantry preflight --manifest sync.yml --environment prod --strict
 ```
 
 The preflight engine runs 4 progressive probes:
@@ -249,7 +252,7 @@ sigantry sync pull --workspace-id "<YOUR-WORKSPACE-GUID>" --into ./my-fabric-rep
 sigantry diff --manifest ./my-fabric-repo/sync.yml --workspace-id "<YOUR-WORKSPACE-GUID>"
 
 # 5. Run preflight simulation
-sigantry preflight --manifest ./my-fabric-repo/sync.yml --target-env prod
+sigantry preflight --manifest ./my-fabric-repo/sync.yml --environment prod
 ```
 
 ---

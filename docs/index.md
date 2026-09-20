@@ -53,7 +53,8 @@ sibling plugin packages that ship alongside the base.
 v1.0.0 (2026-09-19). Initial open-source standalone release of Sigantry on PyPI.
 Includes complete dual-mode workspace bootstrapping (`workspace bootstrap`),
 brownfield adoption (`sync pull`), drift detection (`diff`), automated deployment
-and rollback (`deploy`), tamper-evident cryptographic release ledger (`release`),
+and rollback (`deploy`), integrity-checked release ledger (`release`,
+[threat model](reference/audit-ledger-threat-model.md)),
 and headless PR bot (`pr-bot`).
 `sigantry env reconcile` — the upgrade-safe wheel
 reconcile that removes superseded versions and publishes once (the add-only

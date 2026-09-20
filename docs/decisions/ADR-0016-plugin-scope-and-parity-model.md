@@ -126,6 +126,36 @@ plugin's own changelog per the vendor-neutral boundary.
 6. Keep customer branding out of the base tree (the grep gate enforces this); plugin
    specifics live in the plugin package and its own changelog/docs.
 
+### Contract-suite skip policy (added 2026-09-20)
+
+The seam contract batteries run each implementation against its seam's contract
+fixture, and each real-implementation arm is guarded by `pytest.importorskip` so the
+suite stays green where a plugin is not installed. Given this ADR's decision --
+customer plugins live outside core -- that skipping is **correct by design** on a
+clean CI runner, and the Fake-double arm of every battery still runs there, so the
+seam protocols are always exercised.
+
+What is **not** decided, and is recorded here as the gap:
+
+- **The skip is silent and unbounded.** Nothing asserts a floor on how many contract
+  tests actually executed, so the number can drift to zero without a red build.
+  Measured on the v1.0.0 CI run: 20 tests skipped, spanning six seam batteries that
+  lose their real-implementation arm entirely (auth_provider, capacity_policy,
+  deploy_profile, dq_gate, runbook_registry, telemetry_sink) plus notification_sink,
+  workitem_provider and one doctor test.
+- **The local suite is stronger than CI by accident.** Those same tests run locally
+  only because a maintainer's environment happens to have plugin distributions
+  editable-installed from an unrelated tree. That is machine state, not policy: the
+  stronger run is not reproducible and the weaker run is not detected.
+
+**The decision this ADR records: the skip is intended; its invisibility is not.** A
+minimum-run floor -- assert that at least N contract tests executed, failing the
+build when the count falls below the number this ADR expects on a clean runner --
+is the executable half and is deliberately **not** added here, because turning it on
+can red `main` and belongs with the rest of the enforcement-chain work. Any future
+change to which seams ship reference implementations must update that expected count
+in the same commit.
+
 ## Related
 
 - ADR-0004 (api-version policy) — why plugins do not add `api_version` yet.

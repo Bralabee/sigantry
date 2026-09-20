@@ -24,8 +24,8 @@ Template pairs live side-by-side with matching basenames under convention-pinned
 |---------|----------|----------|
 | Deploy-with-tests (5-stage flow) | `templates/stages/sigantry-cd.yml` | `.github/workflows/sigantry-cd.yml` |
 | Scheduled drift check | `templates/schedules/drift-check.yml` | `.github/workflows/drift-check.yml` |
-| PR review bot | `templates/pr-review/pr-review-bot.yml` | `.github/workflows/pr-review-bot.yml` |
-| Release record (post-deploy WI link) | `templates/stages/sigantry-release-record.yml` | `.github/workflows/sigantry-release-record.yml` |
+| PR review bot | `templates/pr-review/sigantry-pr-bot.yml` | `.github/workflows/sigantry-pr-bot.yml` |
+| Release record (post-deploy WI link) | *(no standalone template -- `sigantry release record` runs as the final step of `templates/stages/sigantry-cd.yml`)* | *(same -- final step of `.github/workflows/sigantry-cd.yml`)* |
 
 Rules:
 1. ADO templates live under `templates/` with a `stages/`, `schedules/`, or `pr-review/` subdir by purpose.

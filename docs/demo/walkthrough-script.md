@@ -75,8 +75,8 @@ traces from `AB-1234` -> commit SHA -> deploy record.
 ## Scene 5: Rollback -- one command, full recovery (15s)
 
 A subtle bug surfaces in prod: a downstream report shows `Total
-Sales` rounding incorrectly. Operator runs `sigantry deploy
---rollback --release-id <previous-sha>`. The demo Fabric workspace
+Sales` rounding incorrectly. Operator runs `sigantry deploy run
+--rollback --to-release <previous-release-id>`. The demo Fabric workspace
 returns to the prior committed state in ~30 seconds; a new
 DeployRecord (forward-pointer style) chains the rollback to the
 forward-deploy record from Scene 4. Total time-to-recovery: 90
@@ -104,7 +104,7 @@ For the round-trip checklist from ROADMAP success criterion 3:
 - test gates: smoke + integration (Scene 3)
 - approval gate (end of Scene 2 / start of Scene 4)
 - audit ledger via `sigantry release record` (Scene 4)
-- rollback via `sigantry deploy --rollback` (Scene 5)
+- rollback via `sigantry deploy run --rollback --to-release <id>` (Scene 5)
 
 ## Source
 

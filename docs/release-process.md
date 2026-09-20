@@ -1,10 +1,14 @@
 # Release Process
 
-Canonical release checklist for `sigantry-core` (the base
-platform). Releases are tag-triggered: a `v*` tag on `master` triggers
-the publish stage that pushes the wheel to the configured package feed.
-**Tagging is manual and performed by the maintainer only**; contributors
-and agents MUST NOT push tags.
+Canonical release checklist for `sigantry` (the base platform; see
+[ADR-0017](decisions/ADR-0017-distribution-name-sigantry.md) for the
+distribution name). Releases are **GitHub-Release-triggered**:
+`.github/workflows/publish-pypi.yml` fires on `release: types:
+[published]` and on `workflow_dispatch`. There is **no** `push: tags:`
+trigger, so pushing a tag on its own publishes nothing. The default
+branch is `main`; there is no `master`.
+**Tagging and releasing are manual and performed by the maintainer
+only**; contributors and agents MUST NOT push tags.
 
 ## Release cadence
 
@@ -57,16 +61,40 @@ Run before opening the release PR:
 
 ## Tag + publish
 
-Maintainer only:
+Maintainer only. The tag is necessary but **not sufficient** -- the
+publish fires on the GitHub Release, not on the tag push:
 
 ```bash
 git tag -a vX.Y.Z -m "Release vX.Y.Z"
 git push origin vX.Y.Z
+gh release create vX.Y.Z --title "vX.Y.Z" --notes-file <changelog-excerpt>
 ```
 
-The publish pipeline builds the wheel + sdist and uploads to the
-configured feed. Verify the artefact appears + `pip install` resolves
-the new version.
+Publishing the Release runs `publish-pypi.yml`, which builds the wheel +
+sdist and uploads to PyPI via OIDC trusted publishing (no API token).
+A `workflow_dispatch` run against the tag is the manual fallback.
+Verify the artefact appears on PyPI and that `pip install sigantry==X.Y.Z`
+resolves in a clean environment.
+
+## Known gaps in the published record
+
+- **The 1.0.0 PyPI page does not carry the CLI-troubleshooting section.** The
+  `sigantry: command not found` guidance was committed ten minutes *after* the
+  1.0.0 upload, and PyPI forbids re-uploading a released version. The wheel is
+  otherwise byte-identical to what this tree builds. The next patch release is
+  what puts that section on the project page; nothing can change 1.0.0 itself.
+- **The Release trigger has never been observed publishing successfully.** Of
+  the three 1.0.0 publish runs, two fired on the Release trigger and failed --
+  the first on an unresolvable action pin (fixed in `a3b54bc`), the second on
+  PyPI `invalid-publisher` -- and the run that succeeded was a
+  `workflow_dispatch` twenty-three minutes later, on the same tag, the same
+  workflow file and the same `pypi` environment. PyPI matches a trusted
+  publisher on owner, repository, workflow filename and environment, none of
+  which differed, so the publisher record appears to have been corrected
+  server-side in between. That is an inference, not an observation: PyPI's
+  publisher configuration cannot be read back. **Treat the next
+  Release-triggered run as the confirmation, and keep `workflow_dispatch` as
+  the documented fallback if it fails again.**
 
 ## Plugin releases
 

@@ -165,7 +165,7 @@ Dependency direction is **one-way**: consumer repos depend on `sigantry_core` an
   │  pipelines/     PLACEHOLDER — __init__.py only. No implementation yet.       │  │
   │  testing/       in-memory doubles + pytest11 entry-point autoregistration    │  │
   │                 (contract fixtures auto-install on                           │  │
-  │                  `pip install sigantry-core`)                      │  │
+  │                  `pip install sigantry`)                           │  │
   │                                                                              │  │
   │  Cross-cutting invariants enforced by tests/prereqs/*:                       │  │
   │   • No ACME strings outside fabric-dataops-toolkits-acme/                      │  │
@@ -452,7 +452,7 @@ ADO stage ─▶ templates/stages/{ci,cd-dev,cd-test,cd-prod,
      templates/steps/{fabric-deploy,fabric-validate,fabric-vl-apply,
                      fabric-git-commit,post-pr-comment}.yml
               │
-              ├─ pip install sigantry-core[-acme]
+              ├─ pip install sigantry (+ sigantry-acme)
               ├─ sigantry-acme-livecheck --load-env <file>
               │    env-var presence · DefaultAzureCredential · DCE reach ·
               │    sink schema

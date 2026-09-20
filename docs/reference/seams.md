@@ -205,7 +205,7 @@ class WorkItemProvider(Protocol):
 
 **Entry-point group:** `sigantry.work_item_providers`
 **Audit record:** `DeployRecord` (Phase 11 wedge -- `link_release` carries
-the audit hash forward into work-item comments so the trace is tamper-evident)
+the audit hash forward into work-item comments so the trace is integrity-checked)
 
 **Reference impls in `sigantry-core`:**
 
@@ -341,7 +341,8 @@ client-side timeout from server-side timeout via `last_observed_status`.
 model in `sigantry_core.governance.records`. The
 `emit_approval_record()` writer function in
 `sigantry_core.governance.audit` appends to the jsonl on every
-`request` + `wait` call so the operator trace is tamper-evident.
+`request` + `wait` call so the operator trace is integrity-checked.
+(Unkeyed chain -- see [audit ledger threat model](audit-ledger-threat-model.md).)
 
 **Runbook:** [OPA Approval Gate Quickstart](../runbooks/approval-gates/opa-quickstart.md)
 

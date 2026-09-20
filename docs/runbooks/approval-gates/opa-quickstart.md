@@ -23,7 +23,7 @@ This runbook shows you how to:
 
 - A directory for your Rego policies; we use `policies/sigantry/` below
 - Sigantry installed in your active environment
-  (`pip install sigantry-core` or your preferred method)
+  (`pip install sigantry` or your preferred method)
 
 ## Step 1 -- start the OPA daemon (dev mode)
 

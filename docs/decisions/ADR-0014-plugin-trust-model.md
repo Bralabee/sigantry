@@ -70,6 +70,37 @@ The trust model is **opt-in tightening**, not built-in restriction:
    widening the list -- that is the failure mode the trust list is
    designed to surface.
 
+### Deployment guidance (added 2026-09-20)
+
+Two facts about the default state, stated plainly because they decide
+whether any of the above is switched on in practice:
+
+1. **A fresh install has no trust signal at all.** ``SIGANTRY_TRUSTED_PLUGIN_DISTS``
+   is unset by default, so ``doctor`` reports ``unknown`` for every plugin. That is
+   the intended design -- the allowlist is opt-in acceptance, and an empty list means
+   "nobody has accepted anything yet", not "everything is fine".
+2. **The shipped reusable CD workflow does not follow step 2 above.** Its
+   ``smokeCommand`` input defaults to plain ``sigantry doctor``, without
+   ``--strict-trust``, so every adopter who takes the default gets the visibility
+   mechanism switched off. The registry still imports whatever any installed
+   distribution registers under the eleven ``sigantry.*`` entry-point groups --
+   which is this ADR's deliberate decision, not a defect -- but with no gate
+   reporting on it.
+
+   Changing that default is a **consumer-facing** change: adopters whose plugin set
+   is not yet in ``SIGANTRY_TRUSTED_PLUGIN_DISTS`` would see their CI turn red on
+   upgrade. It also interacts with any change that registers new core plugins, which
+   would move rows from ``unknown`` to ``untrusted`` at the same moment. The two must
+   ship together or not at all, and that decision is **not made here** -- this section
+   records the gap, it does not close it.
+
+Until the default changes, an operator who wants the gate sets ``smokeCommand``
+explicitly:
+
+```
+smokeCommand: 'sigantry doctor --strict-trust'
+```
+
 ## Alternatives considered
 
 | Option                                                                                  | Why rejected |

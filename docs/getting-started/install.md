@@ -96,32 +96,46 @@ pydantic-settings model.
 ### Path A — Conda (first-class, recommended)
 
 Conda is the canonical environment mechanism for this project. The shipped
-`environment.yml` at the repo root pins Python 3.11 (Fabric notebook
-runtime parity) and the conda-distributed runtime dependencies.
+`environment.yml` at the repo root pins Python 3.11 (Fabric notebook runtime
+parity) and installs the package itself, with the `dev`, `test` and `docs`
+extras, through pip — so `pyproject.toml` stays the single dependency source
+of truth.
 
 ```bash
-git clone <repo-url> && cd sigantry-core
+git clone https://github.com/Bralabee/sigantry.git && cd sigantry
 
-# Create and activate the env (idempotent — `make conda-update` after env file changes)
-make conda-create
-conda activate fabric-dataops-toolkits
-
-# Editable install of the base with dev + test extras
-make install-dev
-```
-
-Or using conda directly without the Makefile:
-
-```bash
 conda env create -f environment.yml
-conda activate fabric-dataops-toolkits
-pip install -e ".[dev,test]"
+conda activate "$(cat .conda-env)"
 ```
 
-The env is named `fabric-dataops-toolkits` (`environment.yml`, `Makefile`)
-even though the package renamed to `sigantry-core` in v3.0 — renaming the env
-would break every existing contributor checkout, so it is deferred
-(V3.X-ROADMAP LEGACY-SURFACE-DROP).
+That single command installs the editable package and every extra. There is
+no Makefile in this repository; earlier revisions of this page described
+`make conda-create` / `make install-dev` / `make conda-update` targets that
+have never existed here. The equivalents are:
+
+```bash
+conda env update -f environment.yml --prune   # after the env file changes
+pip install -e ".[dev,test]"                  # re-install extras only
+```
+
+The environment's name lives in one place -- the repo's `.conda-env` file,
+which is also the machine-readable answer to "which interpreter belongs to
+this checkout". `environment.yml` declares the same name, so
+`conda activate "$(cat .conda-env)"` always lands in the right place.
+
+!!! warning "An editable install elsewhere can shadow this checkout"
+
+    If another clone of this project is editable-installed in the same
+    environment, `import sigantry_core` resolves to **whichever tree comes
+    first on `sys.path`** — and from a directory other than this repo root
+    that can be the other tree, silently. Confirm which tree you are running
+    before trusting any result:
+
+    ```bash
+    cd <this repo> && python -c "import sigantry_core, os; \
+      print(os.path.dirname(sigantry_core.__file__), sigantry_core.__version__)"
+    # expect: <this repo>/sigantry_core  and the version in sigantry_core/_version.py
+    ```
 
 Plugin packages install cleanly alongside the base:
 
@@ -145,10 +159,8 @@ sigantry doctor    # lists every discovered plugin
 Keep the env current after pulls:
 
 ```bash
-make conda-update                  # conda env update --prune
+conda env update -f environment.yml --prune
 ```
-
-See `make help` for every conda / install / test / lint target.
 
 ### Path B — venv (fallback for contributors without conda)
 
