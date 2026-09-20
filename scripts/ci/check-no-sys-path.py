@@ -43,9 +43,11 @@ from __future__ import annotations
 
 import io
 import json
+import subprocess
 import sys
 import token
 import tokenize
+from collections.abc import Iterator
 from pathlib import Path
 
 _EXCLUDE_DIR_NAMES = frozenset(
@@ -75,23 +77,112 @@ _ERROR_MSG = (
 )
 
 
-def _iter_candidate_files(root: Path):
-    """Yield `.py` and `.ipynb` files under root, skipping excluded dirs."""
-    for path in root.rglob("*"):
+def _git_tracked_paths(root: Path) -> list[Path] | None:
+    """Return the files git is responsible for under ``root``, or None.
+
+    ``None`` means "``root`` is not a git work tree, or git is unusable here"
+    -- the caller then walks the filesystem instead. That fallback is safe in
+    the direction that matters: walking yields a SUPERSET of the git
+    inventory, so the guard can only ever scan more than it needs to, never
+    miss a violation.
+
+    Uses ``git ls-files --cached --others --exclude-standard``: everything
+    tracked, plus untracked files that are not gitignored, so a violation in a
+    file created but not yet staged is still caught. Honouring ``.gitignore``
+    is the entire point -- a local ``mkdocs build``, a scratch directory, or
+    an audit run's own probe scripts are not repository content, and a guard
+    that fails on them is policing the developer's working tree rather than
+    the repo.
+
+    Fails closed on an EMPTY inventory rather than returning it. ``git
+    ls-files`` exits 0 with no output in a work tree it considers empty, and
+    the scan would then report clean having read nothing at all.
+    """
+    try:
+        inside = subprocess.run(
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if inside.returncode != 0 or inside.stdout.strip() != "true":
+        return None
+
+    try:
+        listed = subprocess.run(
+            ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+            cwd=root,
+            capture_output=True,
+            check=True,
+            text=True,
+            timeout=120,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+    rels = [rel for rel in listed.stdout.split("\0") if rel]
+    if not rels:
+        raise RuntimeError(
+            f"check-no-sys-path: `git ls-files` returned no files in {root}. "
+            "Refusing to report a clean scan that read nothing."
+        )
+    # --cached lists index entries whose working-tree file may be deleted.
+    return [root / rel for rel in rels if (root / rel).is_file()]
+
+
+def _is_excluded(path: Path, root: Path) -> bool:
+    """True if ``path`` sits under an excluded directory *relative to root*.
+
+    Matching on the relative path matters: the absolute path carries the
+    checkout's own ancestry, so a repository cloned under a directory that
+    happens to be named ``build`` or ``dist`` would otherwise exclude every
+    file in itself and pass vacuously.
+    """
+    try:
+        rel = path.relative_to(root)
+    except ValueError:
+        return False
+    return any(part in _EXCLUDE_DIR_NAMES for part in rel.parts)
+
+
+def _iter_candidate_files(root: Path) -> Iterator[Path]:
+    """Yield the `.py` and `.ipynb` files under root that the guard polices.
+
+    Prefers the git inventory (see :func:`_git_tracked_paths`) and falls back
+    to a filesystem walk when ``root`` is not a git work tree -- which is the
+    normal case for this script's own unit tests, and for a consumer who
+    vendors it into an unpacked source tree.
+
+    The excluded-directory filter applies to BOTH sources, so the two modes
+    agree on what counts.
+    """
+    tracked = _git_tracked_paths(root)
+    candidates = tracked if tracked is not None else root.rglob("*")
+    for path in candidates:
+        if path.suffix not in (".py", ".ipynb"):
+            continue
         if not path.is_file():
             continue
-        if any(part in _EXCLUDE_DIR_NAMES for part in path.parts):
+        if _is_excluded(path, root):
             continue
-        if path.suffix in (".py", ".ipynb"):
-            yield path
+        yield path
 
 
 def _scan_tokens(source: str) -> list[int]:
     """Return 1-based line numbers containing genuine sys.path.append/insert calls.
 
     Uses `tokenize` so string literals, comments, and docstrings never
-    produce a hit. Malformed Python is tolerated: a `tokenize.TokenizeError`
+    produce a hit. Malformed Python is tolerated: a `tokenize.TokenError`
     results in zero hits (the file will be flagged by lint/pytest elsewhere).
+
+    The handler used to name `tokenize.TokenizeError`, which does not exist.
+    Python only evaluates an except clause when something is raised, so the
+    typo lay dormant until a genuinely malformed file appeared -- and then
+    raised `AttributeError` from inside the handler instead of tolerating the
+    file. One unparseable `.py` anywhere in a repo crashed the whole guard.
     """
     hit_lines: list[int] = []
     try:
@@ -113,7 +204,7 @@ def _scan_tokens(source: str) -> list[int]:
                 window.pop(0)
             if len(window) == 6 and _matches_sys_path_call(window):
                 hit_lines.append(window[4].start[0])
-    except (tokenize.TokenizeError, IndentationError, SyntaxError):
+    except (tokenize.TokenError, IndentationError, SyntaxError):
         # Malformed source: let the real linters flag it.
         return hit_lines
     return hit_lines
