@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `scripts/ci/check-no-sys-path.py` that crashed the guard on any malformed
   `.py` file. Scoped to `sigantry_core/`, which is clean today, so the job
   starts green and any regression belongs to the PR that caused it.
+
+  Note the scope honestly: `sigantry_core/` does **not** include `scripts/`,
+  so this job would *not* have caught that bug. It is cited as evidence that
+  an unrun type checker reports nothing, not as something this job now
+  prevents. Extending the scope is recorded under *Known remaining*.
 - `tests/ci/test_quality_gates_run.py` asserts that a quality tool the project
   configures is actually invoked by CI, and that the artifact build depends on
   every quality job. A configured-but-unrun tool is worse than an absent one:
@@ -25,8 +30,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ruff` now covers `scripts/` in CI alongside `sigantry_core/` and `tests/`.
   The CI guard scripts — the files whose whole job is policing the repo — were
   themselves unlinted. They were already clean; this stops that drifting.
-- The artifact build now depends on the type-check job as well as lint and
-  test, so a wheel is never built from a tree that skipped a gate.
+- The artifact build continues to depend on lint and test. It deliberately does
+  **not** depend on the new type-check job while `Type Check (mypy)` is not a
+  required status check on `main`: a job skipped because a dependency failed
+  still reports a check run, and GitHub counts a skipped run as satisfying its
+  required context, so the dependency would hand branch protection a green
+  `Build & Verify Artifacts` on a tree that failed type-checking.
+
+### Known remaining
+- `mypy` covers `sigantry_core/` only. Measured on this branch, `mypy scripts/`
+  reports **8 errors in 5 files** (including the `attr-defined` bug above), so
+  widening the scope is a change with real work behind it, not a one-word edit.
+  `ruff` does now cover `scripts/`; `mypy` does not.
+- The type-check job gates nothing until `Type Check (mypy)` is added to the
+  required status checks on `main`. It cannot be required before it exists on
+  `main`, so this is the immediate follow-up to merging this change.
+- The CI `build` job gates only the CI `dist` artifact. `publish-pypi.yml`
+  triggers on `release: published` and runs build → `twine check` → publish
+  with no dependency on lint, test or types, so the wheel users actually
+  install is not gated by any of them. Closing that is a separate change.
 
 ## [1.0.0] - 2026-09-19
 
