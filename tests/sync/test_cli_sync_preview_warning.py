@@ -204,3 +204,31 @@ def test_preview_warning_emits_only_once_per_process(
         f"got {len(preview_records)}: "
         f"{[r.message for r in preview_records]}"
     )
+
+
+def test_non_utf8_config_is_logged_not_raised(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A config file with a non-UTF-8 byte must not crash the sync command.
+
+    ``tomllib.load`` decodes the file itself, so a stray byte raises
+    ``UnicodeDecodeError`` -- a ``ValueError`` sibling of
+    ``TOMLDecodeError``, and caught by neither it nor ``OSError``. The
+    narrowed handler therefore let it escape, turning "your config is
+    unreadable" into a traceback out of a governance command whose docstring
+    two lines above promises a logged fallback to defaults.
+    """
+    (tmp_path / ".sigantry.toml").write_bytes(b'tenant_id = "\xff\xfe not utf-8"\n')
+    monkeypatch.chdir(tmp_path)
+    sync_cli_mod._PREVIEW_WARNING_EMITTED.clear()
+
+    with caplog.at_level(logging.WARNING, logger="sigantry_core.sync.cli"):
+        sync_cli_mod._emit_preview_warning_once()
+
+    load_failures = [
+        r.message for r in caplog.records if "Could not load Sigantry settings" in r.message
+    ]
+    assert load_failures, (
+        f"the unreadable config was not reported at all: {[r.message for r in caplog.records]}"
+    )
+    assert "UnicodeDecodeError" in load_failures[0]

@@ -36,13 +36,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 - Settings env overrides are now restricted to `<PREFIX><SECTION>__<KEY>` forms
-  whose section names a real settings field, and the root model no longer
+  whose section names a real settings field, and **no** model in the tree
   enables pydantic-settings' own env source. `SIGANTRY_` is shared with ~70
   operational variables, several of them credentials
   (`SIGANTRY_SMTP_PASSWORD`, `SIGANTRY_GITHUB_TEST_PAT`,
   `SIGANTRY_FABRIC_TOKEN`). Because `ToolkitSettings` allows extra fields, an
   unfiltered sweep under the new prefix would have bound those onto the
   settings object and exposed them through `model_dump()`.
+- **Unprefixed environment variables no longer bind to settings.** Dropping the
+  env source on the root model closed only one of fourteen: each seam section is
+  a `Field(default_factory=...)`, and while those sub-models were `BaseSettings`
+  with no `env_prefix`, every factory call ran an env source that matched BARE
+  names. Measured before the fix: `TENANT_ID` bound to `core.tenant_id`,
+  `PROVIDER` to `auth.provider`, `REGISTRY` to `runbooks.registry` — so a CI
+  runner exporting `REGISTRY` for a container registry silently populated
+  settings the operator never wrote. The sub-models are now plain `BaseModel`.
+- A scalar env override aimed at a dict-typed field
+  (`SIGANTRY_RELEASE__GITHUB`, `SIGANTRY_RELEASE__ADO`,
+  `SIGANTRY_RUNBOOKS__STATIC_MAP`) raised `ValidationError` out of *every*
+  settings load for as long as the variable stayed exported. It is now skipped
+  with a warning. `SIGANTRY_CORE__` (empty trailing segment) likewise cleared
+  the length guard and wrote an empty-string key onto the section.
+- `sigantry sync` crashed rather than warned on a config file containing a
+  non-UTF-8 byte: `tomllib.load` decodes the file itself, so it raises
+  `UnicodeDecodeError`, which is caught by neither `OSError` nor
+  `TOMLDecodeError`.
 
 ## [1.0.0] - 2026-09-19
 

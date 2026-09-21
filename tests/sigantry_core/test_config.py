@@ -470,3 +470,96 @@ def test_bare_section_env_var_does_not_clobber_the_section(
     monkeypatch.setenv("SIGANTRY_CORE", "not-a-table")
     settings = load_settings(path)
     assert settings.core.tenant_id == "tenant-abc-123"
+
+
+def test_unprefixed_env_vars_do_not_bind_to_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A BARE env var must never reach a settings field.
+
+    Dropping pydantic-settings' env source on ``ToolkitSettings`` closed only
+    the root model. Every section is ``Field(default_factory=<SubModel>)``, and
+    while those sub-models were ``BaseSettings`` with no ``env_prefix``, each
+    factory call ran its own ``EnvSettingsSource`` that matched UNPREFIXED
+    names: ``TENANT_ID`` -> ``core.tenant_id``, ``PROVIDER`` ->
+    ``auth.provider``, ``REGISTRY`` -> ``runbooks.registry``. A CI runner
+    exporting ``REGISTRY`` for a container registry silently populated settings
+    the operator never wrote.
+
+    The existing sweep test cannot catch this: it only sets ``SIGANTRY_``-
+    prefixed names, so it passes identically whether or not the hole is open.
+
+    The config body here must leave the seam fields UNSET. ``SAMPLE_TOML``
+    populates ``auth.provider``, ``telemetry.sink``, ``deploy.profile``,
+    ``dq.gate`` and ``runbooks.registry``, and an init value outranks an env
+    source -- so using it would mask the leak and make this test vacuous. That
+    was measured: with ``SAMPLE_TOML``, reverting the sub-models to
+    ``BaseSettings`` left this test green.
+    """
+    path = _write_sample(tmp_path, "[core]\ntenant_id = 'from-toml'\n")
+    for bare in ("TENANT_ID", "PROVIDER", "REGISTRY", "SINK", "PROFILE", "GATE"):
+        monkeypatch.setenv(bare, f"LEAKED-from-bare-{bare}")
+    monkeypatch.setenv("SIGANTRY_CORE__TENANT_ID", "legitimate-tenant")
+
+    settings = load_settings(path)
+
+    leaked = [
+        f"{section}.{field}"
+        for section, field in (
+            ("auth", "provider"),
+            ("runbooks", "registry"),
+            ("telemetry", "sink"),
+            ("deploy", "profile"),
+            ("dq", "gate"),
+        )
+        if "LEAKED" in str(getattr(getattr(settings, section), field))
+    ]
+    assert not leaked, f"bare env vars bound to settings field(s): {leaked}"
+    # Positive control: the SUPPORTED prefixed form still binds, so this test
+    # is not passing merely because no env override works at all.
+    assert settings.core.tenant_id == "legitimate-tenant"
+
+
+@pytest.mark.parametrize(
+    "var",
+    ["SIGANTRY_RELEASE__GITHUB", "SIGANTRY_RELEASE__ADO", "SIGANTRY_RUNBOOKS__STATIC_MAP"],
+)
+def test_scalar_env_var_aimed_at_a_table_is_skipped_not_fatal(
+    var: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A scalar aimed at a dict-typed field must not brick every settings load.
+
+    ``SIGANTRY_RELEASE__GITHUB=x`` used to reach ``cursor[path[-1]] = raw_val``
+    and hand pydantic a string where a mapping was declared, raising
+    ``ValidationError`` out of ``load_settings`` for as long as the variable
+    stayed exported -- the same "scalar replaces a table" hazard the bare-
+    section guard removed, surviving one level deeper.
+    """
+    path = _write_sample(tmp_path)
+    monkeypatch.setenv(var, "definitely-not-a-table")
+
+    with pytest.warns(UserWarning, match="replace a table"):
+        settings = load_settings(path)
+
+    # The declared table is intact, and the rest of the config still loaded.
+    assert isinstance(settings.release.github, dict)
+    assert isinstance(settings.release.ado, dict)
+    assert isinstance(settings.runbooks.static_map, dict)
+    assert settings.core.tenant_id == "tenant-abc-123"
+
+
+def test_env_key_with_an_empty_trailing_segment_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``SIGANTRY_CORE__`` splits to ``["core", ""]`` and cleared the length guard.
+
+    It then wrote an empty-string key onto the section, which ``extra="allow"``
+    happily keeps and ``model_dump()`` renders as junk.
+    """
+    path = _write_sample(tmp_path)
+    monkeypatch.setenv("SIGANTRY_CORE__", "junk")
+
+    dumped = load_settings(path).core.model_dump()
+
+    assert "" not in dumped, f"empty-string key written onto [core]: {sorted(dumped)}"
+    assert dumped["tenant_id"] == "tenant-abc-123"

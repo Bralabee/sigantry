@@ -33,9 +33,9 @@ import os
 import tomllib
 import warnings
 from pathlib import Path
-from typing import Any
+from typing import Any, get_origin
 
-from pydantic import Field
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -55,12 +55,26 @@ _ENV_DELIM = "__"
 # ---------------------------------------------------------------------------
 
 
-class _SeamSubSettings(BaseSettings):
-    """Base for every seam sub-model -- allows unknown keys through."""
+class _SeamSubSettings(BaseModel):
+    """Base for every seam sub-model -- allows unknown keys through.
 
-    # BaseSettings subclasses take SettingsConfigDict (a ConfigDict superset);
-    # using plain ConfigDict here was a mypy/pydantic-settings type mismatch.
-    model_config = SettingsConfigDict(extra="allow")
+    Plain ``BaseModel``, NOT ``BaseSettings``, and that distinction is
+    load-bearing. Every section is declared as ``Field(default_factory=...)``,
+    so each factory call constructs the sub-model -- and a ``BaseSettings``
+    sub-model runs its own ``EnvSettingsSource`` on construction. These have no
+    ``env_prefix``, so that source matched BARE environment variables:
+    ``TENANT_ID`` bound to ``core.tenant_id``, ``PROVIDER`` to
+    ``auth.provider``, ``REGISTRY`` to ``runbooks.registry``. A CI runner
+    exporting ``REGISTRY`` for a container registry silently populated settings
+    the operator never wrote.
+
+    Dropping the env source on ``ToolkitSettings`` alone did not close that:
+    the root model is only one of fourteen. As plain models these carry no env
+    source at all, which is what makes ``_apply_env_overrides`` the single env
+    path the security note claims it is.
+    """
+
+    model_config = ConfigDict(extra="allow")
 
 
 class CoreSettings(_SeamSubSettings):
@@ -334,6 +348,26 @@ def _resolve_config_path(path: str | Path | None) -> Path:
     return current
 
 
+def _is_mapping_field(section: str, key: str) -> bool:
+    """True if ``<section>.<key>`` is a declared dict-typed settings field.
+
+    Used to refuse a scalar env override that would replace a whole table --
+    ``SIGANTRY_RELEASE__GITHUB=x`` against ``ReleaseSettings.github``, say.
+    Unknown keys return False: they land in ``extras``, where a scalar is fine.
+    """
+    section_field = ToolkitSettings.model_fields.get(section)
+    if section_field is None:
+        return False
+    section_model = section_field.annotation
+    if not (isinstance(section_model, type) and issubclass(section_model, BaseModel)):
+        return False
+    field = section_model.model_fields.get(key)
+    if field is None:
+        return False
+    annotation = field.annotation
+    return annotation is dict or get_origin(annotation) is dict
+
+
 def _apply_env_overrides(data: dict[str, Any]) -> None:
     """Merge ``SIGANTRY_<section>__<key>=value`` env vars onto ``data`` (in-place).
 
@@ -362,6 +396,7 @@ def _apply_env_overrides(data: dict[str, Any]) -> None:
     """
     known_sections = frozenset(ToolkitSettings.model_fields)
     legacy_keys: list[str] = []
+    clobbered_tables: list[str] = []
     # Legacy first: a SIGANTRY_ value for the same setting then overwrites it.
     for prefix in (_LEGACY_ENV_PREFIX, _ENV_PREFIX):
         for raw_key, raw_val in sorted(os.environ.items()):
@@ -370,7 +405,19 @@ def _apply_env_overrides(data: dict[str, Any]) -> None:
             path = raw_key[len(prefix) :].lower().split(_ENV_DELIM)
             # A bare ``<PREFIX><SECTION>`` would replace a whole section table
             # with a scalar; anything whose head is not a section is not ours.
-            if len(path) < 2 or path[0] not in known_sections:
+            # ``not all(path)`` rejects a degenerate key too: ``CORE__`` splits
+            # to ``["core", ""]``, which clears the length guard and would
+            # write an empty-string key onto the section, where ``extra=allow``
+            # keeps it and ``model_dump()`` renders it as junk.
+            if len(path) < 2 or not all(path) or path[0] not in known_sections:
+                continue
+            # A scalar aimed at a dict-typed field is the same "scalar replaces
+            # a table" hazard one level down, and it does not merely get
+            # ignored -- it fails validation, so EVERY settings load raises for
+            # as long as the variable is exported. Skipping with a warning
+            # keeps one stray env var from bricking the whole config surface.
+            if len(path) == 2 and _is_mapping_field(path[0], path[1]):
+                clobbered_tables.append(raw_key)
                 continue
             if prefix == _LEGACY_ENV_PREFIX:
                 legacy_keys.append(raw_key)
@@ -382,6 +429,15 @@ def _apply_env_overrides(data: dict[str, Any]) -> None:
                     cursor[segment] = nxt
                 cursor = nxt
             cursor[path[-1]] = raw_val
+    if clobbered_tables:
+        warnings.warn(
+            "Ignoring settings env override(s) that would replace a table with "
+            f"a scalar: {', '.join(clobbered_tables)}. These name dict-valued "
+            "settings fields, which cannot be set from a single env var; use "
+            "the config file for them.",
+            UserWarning,
+            stacklevel=3,
+        )
     if legacy_keys:
         warnings.warn(
             f"The {_LEGACY_ENV_PREFIX} settings env prefix is deprecated: use "

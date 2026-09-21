@@ -42,6 +42,7 @@ from pathlib import Path
 
 import typer
 from pydantic import ValidationError
+from pydantic_settings import SettingsError
 from rich.console import Console
 
 from sigantry_core.config import ToolkitSettings, load_settings
@@ -86,9 +87,12 @@ def _emit_preview_warning_once(settings: ToolkitSettings | None = None) -> None:
     default), but it *logs* that it did so: a governance tool that silently
     swallows an unreadable config runs the operator's whole session on
     defaults with no signal that their settings were never applied. The
-    handler names the three ways loading can legitimately fail rather than
-    catching ``Exception``, so a genuine defect inside the loader still
-    surfaces instead of being absorbed as "bad config".
+    handler names the ways loading can legitimately fail rather than catching
+    ``Exception``, so a genuine defect inside the loader still surfaces instead
+    of being absorbed as "bad config". ``UnicodeDecodeError`` is one of them:
+    ``tomllib.load`` decodes the file itself, so a config with a non-UTF-8 byte
+    raises it rather than ``TOMLDecodeError``, and it is a ``ValueError``
+    sibling that neither of the other two covers.
 
     ``snapshot_cmd`` does NOT call this helper: snapshot is read-only and
     operator-explicit; we do not want to interrupt the operator's
@@ -97,7 +101,13 @@ def _emit_preview_warning_once(settings: ToolkitSettings | None = None) -> None:
     if settings is None:
         try:
             settings = load_settings()
-        except (OSError, tomllib.TOMLDecodeError, ValidationError) as exc:
+        except (
+            OSError,
+            UnicodeDecodeError,
+            tomllib.TOMLDecodeError,
+            ValidationError,
+            SettingsError,
+        ) as exc:
             logger.warning(
                 "Could not load Sigantry settings (%s: %s); continuing with "
                 "defaults, so no operator configuration is in effect for this "
