@@ -1,12 +1,13 @@
-<!-- VERSION: 3.4.0 -->
+<!-- VERSION: 1.0.0 -->
 <!-- This source is rendered to docs/Sigantry-User-Guide.pdf via
      scripts/userguide/render.py. Edits should be made here, then
      re-render. Do not hand-edit the PDF.
 
-     PENDING RE-RENDER (2026-08-13): the version references in this
-     source were corrected 3.2.1 -> 3.4.0 without re-running the
-     renderer, so the committed PDF still says 3.2.1. Re-render from
-     the project conda env before distributing the PDF to anyone. -->
+     PENDING RE-RENDER (2026-09-20): this source was corrected from the
+     pre-open-source 3.4.0 text to the shipped v1.0.0 reality without
+     re-running the renderer, so the committed PDF is older still - its
+     cover says 3.2.1. Treat the PDF as stale until it is re-rendered
+     from the project conda env; this markdown is the current source. -->
 
 [TOC]
 
@@ -69,12 +70,14 @@ Throughout the guide:
 
 ## Versioning
 
-This guide tracks Sigantry **3.4.0** (stable 3.x line,
-tagged June 2026; workflows live-verified against a production tenant
-June 2026). The CLI contracts, manifest schemas, and audit-record
-shapes in this document are stable for the entire 3.x line and will
-not break-change before 4.0. The plugin packages `sigantry-hs2` and
-`sigantry-jtoye` are versioned independently and are at **3.2.1**.
+This guide tracks Sigantry **1.0.0** -- the open-source release
+published on PyPI on 2026-09-19. The version line restarted at 1.0.0
+for the public release; the internal 3.x line this guide was first
+written against is its ancestor, not a later version. The CLI
+contracts, manifest schemas, and audit-record shapes in this document
+are stable for the 1.x line and will not break-change before 2.0. The
+plugin packages `sigantry-hs2` and `sigantry-jtoye` are versioned
+independently.
 
 ---
 
@@ -255,8 +258,9 @@ before installing.
 
 ### 4.1 Python runtime
 
-You need **Python 3.11 or 3.12**. Python 3.10 will refuse the install
-(`requires-python` mismatch); 3.13 is not yet validated.
+You need **Python 3.11 or newer**: `requires-python` is `>=3.11` with no
+upper bound, and 3.11, 3.12 and 3.13 are all declared supported. Python
+3.10 will refuse the install (`requires-python` mismatch).
 
 The recommended path is a dedicated Conda environment, mirroring how
 the development team works:
@@ -314,44 +318,45 @@ Some workflows are smoother with these installed; none are mandatory:
 
 There are three install paths, in order of polish.
 
-### 5.1 From PyPI (when available)
+### 5.1 From PyPI (the normal path)
 
-Once `sigantry-core` is on PyPI, the install is the canonical Python
-one-liner:
+The distribution is published as `sigantry`. The install is the
+canonical Python one-liner:
 
 ```bash
-pip install "sigantry-core>=3.0"
-pip install "sigantry-hs2>=3.0"     # optional, only for HS2 sites
+pip install sigantry
+pip install sigantry-hs2            # optional, only for HS2 sites
 ```
 
-> The package is at **3.4.0** and the public PyPI publish gate is held
-> pending credential provisioning (OPERATOR-PUNCHLIST gate A2). Use one
-> of the two paths below until that ships.
+> The distribution name is `sigantry`, not `sigantry-core`: the
+> pre-v1.0 plan reserved the bare name, and the open-source release
+> took it instead. `sigantry-core` does not resolve on PyPI. See
+> [ADR-0017](decisions/ADR-0017-distribution-name-sigantry.md).
 
-### 5.2 From a wheel (the supported path while PyPI publish is held)
+### 5.2 From a wheel
 
 If you received a wheel by email, signed link, or direct download:
 
 ```bash
 # Verify the file integrity first
-sha256sum sigantry_core-3.4.0-py3-none-any.whl
+sha256sum sigantry-1.0.0-py3-none-any.whl
 # Compare against the SHA256 your distributor provided
 
 # Install
-pip install /path/to/sigantry_core-3.4.0-py3-none-any.whl
+pip install /path/to/sigantry-1.0.0-py3-none-any.whl
 ```
 
 If you also received the HS2 plugin wheel and need its capabilities:
 
 ```bash
-pip install /path/to/sigantry_core-3.4.0-py3-none-any.whl \
-            /path/to/sigantry_hs2-3.2.1-py3-none-any.whl
+pip install /path/to/sigantry-1.0.0-py3-none-any.whl \
+            /path/to/sigantry_hs2-<version>-py3-none-any.whl
 ```
 
-Install both wheels in the same `pip install` invocation: the plugin
-declares a dependency on `sigantry-core`, and until the packages are
-on PyPI, pip can only satisfy that dependency when both wheel files
-are supplied together.
+Install both wheels in the same `pip install` invocation when you are
+installing from files rather than an index: pip can only satisfy the
+plugin's dependency on the base package when both wheel files are
+supplied together.
 
 ### 5.3 Editable install from a clone
 
@@ -1171,9 +1176,12 @@ Allowed substitution-spec forms (everything else fails validation):
 ## Appendix C. CLI reference
 
 ```text
-sigantry [--version] <verb> [args] [flags]
+sigantry <verb> [args] [flags]
 
-Verbs (17 subcommands; run `sigantry <verb> --help` for the full flag set):
+(There is no `--version` flag. Read the version with
+ `python -c "import sigantry_core; print(sigantry_core.__version__)"`.)
+
+Verbs (18 subcommands; run `sigantry <verb> --help` for the full flag set):
   doctor                                 -- list discovered plugins per seam
     --strict                             exit 1 if any plugin failed to import
     --strict-trust                       exit 1 if any plugin is untrusted
@@ -1243,12 +1251,31 @@ Verbs (17 subcommands; run `sigantry <verb> --help` for the full flag set):
   pr-bot run                             -- post TMDL + Lakehouse diffs on a PR
     --provider github|ado --pr-id N
     --base-dir DIR --head-dir DIR        (--dry-run still fetches PR metadata)
-  fabric-item                            -- item folder ops (copy with logicalId regen)
+  fabric-item
+    copy                                 -- duplicate an item folder with a fresh
+                                            logicalId + displayName
+    set-binding                          -- attach an Environment and/or a default
+                                            Lakehouse to a notebook
+      --workspace-id GUID                (required) workspace holding the notebook
+      --item-id GUID                     (required) notebook item
+      --environment-id GUID              Environment to attach
+      --environment-workspace-id GUID    workspace owning the Environment
+      --lakehouse-id GUID                default lakehouse
+      --lakehouse-name TEXT              default lakehouse by name
+      --lakehouse-workspace-id GUID      workspace owning the lakehouse
+      --tenant-id GUID                   override tenant for auth
   git                                    -- workspace <-> ADO Git integration surface
   variable-library                       -- Fabric Variable Library CRUD
   env                                    -- Fabric Environment wheel upload
   dq                                     -- run a registered DQ gate plugin
   config validate <path>                 -- pre-flight check parameters.yml
+  preflight                              -- pre-deployment simulation + safety
+                                            probes (ADR-0015)
+    --manifest PATH / -m                 sync.yml or workspace.yml [default sync.yml]
+    --params PATH / -p                   deployment parameters.yml
+    --environment LABEL / -e             target environment [default dev]
+    --strict                             treat warnings as failures
+    --json                               emit the report as JSON
 
 Standalone console script (not a sigantry subcommand):
   diagnose-auth                          -- credential/tenant-toggle doctor
@@ -1325,7 +1352,7 @@ graph TB
 
 | Symptom | Likely cause | Remedy |
 |---------|--------------|--------|
-| `requires-python` mismatch on install | Python 3.10 (or 3.13) active | Switch to 3.11 or 3.12; redo Section 4.1 |
+| `requires-python` mismatch on install | Python 3.10 or older active | Switch to 3.11+; redo Section 4.1 |
 | `sigantry doctor` works but `sigantry workspace list` fails with `AuthError` | Token resolved without Fabric scope | Re-run `az login`; check `AZURE_*` env vars |
 | `dry-run would create N folders and move 0 items` for `N` larger than expected | Manifest's `folders[]` preservation set is too small | Add the missing paths to `folders[]` |
 | Idempotent re-run still reports `folders_created > 0` | Same as above | Same as above |

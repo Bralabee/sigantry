@@ -8,12 +8,12 @@ under five minutes in a clean Python 3.11 venv.
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-pip install sigantry-core
+pip install sigantry
 ```
 
-(`pip install sigantry-core` assumes the PyPI release, which is currently
-held pending operator UAT closure — substitute the distributed wheel path
-per [install.md](install.md) until then.)
+(The distribution is `sigantry` on PyPI — 1.0.0 is published and public. The
+`sigantry-core` name in older documents was the pre-v1.0 plan and does not
+resolve; see [ADR-0017](../decisions/ADR-0017-distribution-name-sigantry.md).)
 
 ## 2. Wire a toy deploy profile
 

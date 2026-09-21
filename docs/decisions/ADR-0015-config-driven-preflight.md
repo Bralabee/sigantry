@@ -1,7 +1,8 @@
 # ADR-0015 -- config-driven deploy pre-flight (`sigantry preflight`)
 
-- **Status:** Proposed
-- **Date:** 2026-06-15
+- **Status:** Proposed -- **partially implemented; the shipped CLI surface differs.**
+  See *What actually shipped* below before quoting any command from this ADR.
+- **Date:** 2026-06-15 (implementation note added 2026-09-20)
 - **Milestone:** v3.x (post-`set-binding`/`--republish-existing`)
 - **Deciders:** platform team (TBD — review gate before implementation)
 - **Provenance:** distilled from a real consumer's Fabric notebook prod deploy +
@@ -139,6 +140,40 @@ sigantry preflight --scenario prod [--stage pre_deploy] [--strict] [--json]
 **Optional integration (phase 2):** `sync apply --preflight <scenario>` runs the
 `pre_deploy` checks first and aborts on a blocker, so the happy path is a single
 command. Kept **opt-in** to preserve the ADR-0012 deploy/run boundary.
+
+## What actually shipped (2026-09-20)
+
+`sigantry preflight` exists and is v1.0.0's first advertised capability, but it is
+**manifest-driven, not scenario-driven**. Measured against the live CLI:
+
+| This ADR proposes | What ships |
+|---|---|
+| `--scenario <name>` | **absent** -- `preflight --scenario prod` exits 2, `No such option` |
+| `--stage <pre_deploy\|post_deploy>` | **absent** |
+| `--strict` | shipped as specified |
+| `--json` | shipped as specified |
+| *(not proposed)* | `--manifest` / `-m` (default `sync.yml`) |
+| *(not proposed)* | `--params` / `-p` |
+| *(not proposed)* | `--environment` / `-e` (default `dev`) |
+| `sync apply --preflight <scenario>` (phase 2) | **absent** -- `sync apply` declares no `--preflight` |
+
+So the working invocation is:
+
+```
+sigantry preflight --manifest sync.yml --environment prod [--strict] [--json]
+```
+
+Nothing *Accepted* was contradicted -- this ADR is `Proposed` and was never
+ratified -- but it was also never reconciled with the implementation, and the
+documentation that quoted it shipped dead commands. The declarative
+`[preflight]` config block and the named-scenario model below are **unimplemented
+design**, not a description of the product. A future decision either ratifies the
+shipped manifest-driven surface or supersedes this ADR outright; until then, treat
+the CLI's own `--help` as the source of truth.
+
+The `.fabric-dataops.toml` references in this ADR are **left as written**: that is
+still the filename the loader defaults to (`sigantry_core/config.py`). Changing them
+would make this ADR describe a config surface that does not exist either.
 
 ## Alternatives considered
 
