@@ -18,8 +18,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   editing the guard, not just `pyproject.toml`. Its one carve-out (the ADO
   artifact identifier `sigantry-core-wheel`) is itself guarded by a test
   asserting the carve-out is still in use.
+- **CI now runs `mypy`.** The project has configured mypy under `[tool.mypy]`
+  since before v1.0.0 and no workflow ever invoked it, so it reported nothing
+  for as long as that was true — including a real `attr-defined` bug in
+  `scripts/ci/check-no-sys-path.py` that crashed the guard on any malformed
+  `.py` file. Scoped to `sigantry_core/`, which is clean today, so the job
+  starts green and any regression belongs to the PR that caused it.
+
+  Note the scope honestly: `sigantry_core/` does **not** include `scripts/`,
+  so this job would *not* have caught that bug. It is cited as evidence that
+  an unrun type checker reports nothing, not as something this job now
+  prevents. Extending the scope is recorded under *Known remaining*.
+- `tests/ci/test_quality_gates_run.py` asserts that a quality tool the project
+  configures is actually invoked by CI, and that the artifact build depends on
+  every quality job. A configured-but-unrun tool is worse than an absent one:
+  the config advertises a gate that does not exist.
 
 ### Changed
+- `ruff` now covers `scripts/` in CI alongside `sigantry_core/` and `tests/`.
+  The CI guard scripts — the files whose whole job is policing the repo — were
+  themselves unlinted. They were already clean; this stops that drifting.
+- The artifact build continues to depend on lint and test. It deliberately does
+  **not** depend on the new type-check job while `Type Check (mypy)` is not a
+  required status check on `main`: a job skipped because a dependency failed
+  still reports a check run, and GitHub counts a skipped run as satisfying its
+  required context, so the dependency would hand branch protection a green
+  `Build & Verify Artifacts` on a tree that failed type-checking.
+
 - **Config surface renamed to match the product (ADR-0011, V3.X-ROADMAP
   LEGACY-SURFACE-DROP item 2).** `load_settings()` and
   `FabricDataOps.from_config()` now resolve `.sigantry.toml` by default, and
@@ -127,7 +152,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `fabricDataopsVersion` are public interface names. Renaming them breaks
   consumer pipelines that reference them, so both need a deprecation window
   rather than a find-and-replace.
-
+- `mypy` covers `sigantry_core/` only. Measured on this branch, `mypy scripts/`
+  reports **8 errors in 5 files** (including the `attr-defined` bug above), so
+  widening the scope is a change with real work behind it, not a one-word edit.
+  `ruff` does now cover `scripts/`; `mypy` does not.
+- The type-check job gates nothing until `Type Check (mypy)` is added to the
+  required status checks on `main`. It cannot be required before it exists on
+  `main`, so this is the immediate follow-up to merging this change.
+- The CI `build` job gates only the CI `dist` artifact. `publish-pypi.yml`
+  triggers on `release: published` and runs build → `twine check` → publish
+  with no dependency on lint, test or types, so the wheel users actually
+  install is not gated by any of them. Closing that is a separate change.
 
 ## [1.0.0] - 2026-09-19
 
