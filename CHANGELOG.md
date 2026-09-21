@@ -24,23 +24,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A broken link in the demo quickstart pointed at
   `github.com/sigantry/sigantry-core`, which does not exist.
 - `tests/demo/test_demo_quickstart.py` *required* the string `sigantry-core`
-  to appear in the demo quickstart, pinning the dead name in place. The test
-  now requires the real distribution name.
+  to appear in the demo quickstart, pinning the dead name in place. Replacing
+  that token with `"sigantry"` would have been vacuous — three CLI commands
+  already in the same list (`sigantry config validate`, `sigantry sync apply`,
+  `sigantry diff`) each contain that substring, so the assertion would be true
+  on every possible input, `pip install sigantry-core` included. The check is
+  now the absence of the dead name plus a real `pip install` line.
+- The test.pypi.org upload step in `release-alpha.yml` was relabelled
+  `sigantry` while its twine glob still read `dist/sigantry_core-*`. Measured
+  against a real `python -m build`: the artifacts are
+  `sigantry-1.0.0-py3-none-any.whl` / `sigantry-1.0.0.tar.gz`, and the old
+  glob expands to nothing, so bash passes the literal to twine and the release
+  step fails.
+- Shipped quickstart templates told adopters to run
+  `pip install "sigantry>=3.0.0"`, which cannot resolve against the shipped
+  1.0.x line, and claimed `requires-python = ">=3.11,<3.13"` refuses 3.13 when
+  `pyproject.toml` declares `>=3.11` with no upper bound.
+- Dead `github.com/sigantry/...` links (the org returns 404) remained in the
+  demo quickstart and the shipped demo template after a sibling link in the
+  same file was corrected.
 
 ### Added
 - `tests/ci/test_distribution_name.py` keeps the shipped surface — templates,
   workflows, scripts and the package — free of the dead distribution name, so
-  it cannot creep back. It reads the expected name from `pyproject.toml`
-  rather than hardcoding it, and its one carve-out (the ADO artifact
-  identifier `sigantry-core-wheel`) is itself guarded by a test asserting the
-  carve-out is still in use.
+  it cannot creep back. It reads `pyproject.toml` as a *precondition* — the
+  scan is meaningless if the declared name ever stops being `sigantry` — but
+  the name it polices (`_DEAD_DIST`) is a literal, so a future rename means
+  editing the guard, not just `pyproject.toml`. Its one carve-out (the ADO
+  artifact identifier `sigantry-core-wheel`) is itself guarded by a test
+  asserting the carve-out is still in use.
 
 ### Known remaining
-- 16 `pip install` / dependency lines under `docs/` still name the dead
-  distribution. They are prose rather than shipped artefacts and are tangled
-  with a separate version-scheme inconsistency (docs say `>=3.0`, the shipped
-  line is 1.0.x), so they are deliberately left for their own change rather
-  than half-corrected here.
+- 15 `pip install` / dependency lines across 9 files under `docs/` still name
+  the dead distribution. They are prose rather than shipped artefacts and are
+  tangled with a separate version-scheme inconsistency (docs say `>=3.0`, the
+  shipped line is 1.0.x), so they are deliberately left for their own change
+  rather than half-corrected here. Two of them must survive any such change:
+  ADR-0017 quotes the dead name to explain the defect, and ADR-0011 records it
+  as history.
+- `requirements-lock.txt` carries 21 `# via sigantry-core (pyproject.toml)`
+  annotations. pip-compile writes the project's own name into those comments,
+  so they are evidence the lock has not been regenerated since `pyproject.toml`
+  became `name = "sigantry"`. They are comments and do not affect resolution,
+  but regenerating the lock belongs with the dependency work, not here.
+- The guard scans `templates/`, `.github/workflows/`, `scripts/` and the
+  package. It does **not** scan `requirements-lock.txt`, `pyproject.toml`,
+  `environment.yml`, `README.md` or `CONTRIBUTING.md`, so the dead name could
+  reappear in those without failing CI.
 - The ADO artifact identifier `sigantry-core-wheel` and the template parameter
   `fabricDataopsVersion` are public interface names. Renaming them breaks
   consumer pipelines that reference them, so both need a deprecation window

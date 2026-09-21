@@ -45,7 +45,6 @@ def test_quickstart_references_sigantry_deploy_command() -> None:
         "sigantry sync apply",
         "sigantry diff",
         "pip install",  # the install instruction
-        "sigantry",  # the distribution name (NOT sigantry-core: that 404s on PyPI)
         "SIGANTRY_DEMO_TENANT_ID",
         "SIGANTRY_DEMO_WORKSPACE_ID",
         "SIGANTRY_DEMO_CAPACITY_ID",
@@ -53,3 +52,27 @@ def test_quickstart_references_sigantry_deploy_command() -> None:
     ]
     for token in required:
         assert token in text, f"QUICKSTART missing reference {token!r}"
+
+
+def test_quickstart_install_names_the_real_distribution() -> None:
+    """The install instruction must name a distribution that resolves.
+
+    Asserting that ``"sigantry"`` appears would be VACUOUS: every CLI command
+    in the file ("sigantry config validate", "sigantry diff", ...) already
+    contains that substring, so the assertion is true on every possible input
+    -- including a file that still says ``pip install sigantry-core``, which
+    404s on PyPI. The check that can actually fail is the absence of the dead
+    name, plus the presence of a real install line.
+    """
+    text = _QUICKSTART.read_text(encoding="utf-8")
+
+    assert "sigantry-core" not in text, (
+        "QUICKSTART names the dead distribution 'sigantry-core', which has "
+        "never existed on PyPI. The shipped name is 'sigantry' (ADR-0017)."
+    )
+
+    install_lines = [ln.strip() for ln in text.splitlines() if "pip install" in ln]
+    assert install_lines, "QUICKSTART has no `pip install` line at all"
+    assert any("sigantry" in ln for ln in install_lines), (
+        f"no `pip install` line names the sigantry distribution: {install_lines}"
+    )

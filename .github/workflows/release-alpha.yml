@@ -58,5 +58,5 @@ jobs:
             exit 0
           fi
           twine upload --repository-url https://test.pypi.org/legacy/ \
-            dist/sigantry_core-*.whl dist/sigantry_core-*.tar.gz \
+            dist/sigantry-*.whl dist/sigantry-*.tar.gz \
             sigantry-hs2/dist/sigantry_hs2-*.whl sigantry-hs2/dist/sigantry_hs2-*.tar.gz

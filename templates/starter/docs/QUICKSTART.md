@@ -5,7 +5,7 @@ Get from a fresh clone of `sigantry-starter` to a green
 under 15 minutes.
 
 This walkthrough assumes you have Python 3.11 or 3.12 (`sigantry`
-declares `requires-python = ">=3.11,<3.13"`, so 3.13 is refused at install)
+declares `requires-python = ">=3.11"`)
 and a recent `git`.
 You will need a Fabric workspace ID + capacity ID for each of `DEV`,
 `PREPROD`, and `PROD` -- the dry-run flow below does NOT contact
