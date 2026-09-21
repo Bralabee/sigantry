@@ -11,8 +11,8 @@ regression where the warning silently never fires (or fires more than once
 per process) is caught at CI time.
 
 Council D #1: the Folders REST endpoint family is Preview as of Feb 2026;
-operators acknowledge by setting the flag in `.fabric-dataops.toml` (or via
-the ``FDT_WORKFLOW__PREVIEW_APIS_ACKNOWLEDGED`` env var).
+operators acknowledge by setting the flag in `.sigantry.toml` (or via
+the ``SIGANTRY_WORKFLOW__PREVIEW_APIS_ACKNOWLEDGED`` env var).
 """
 
 from __future__ import annotations
@@ -112,7 +112,7 @@ def test_preview_warning_emits_when_flag_false(
     )
     msg = preview_records[0].message
     assert "preview_apis_acknowledged" in msg
-    assert "FDT_WORKFLOW__PREVIEW_APIS_ACKNOWLEDGED" in msg
+    assert "SIGANTRY_WORKFLOW__PREVIEW_APIS_ACKNOWLEDGED" in msg
 
 
 def test_preview_warning_suppressed_when_flag_true(
@@ -125,6 +125,10 @@ def test_preview_warning_suppressed_when_flag_true(
 
     Sets the env var (which beats the TOML default) and asserts the
     warning emission path short-circuits before the logger call.
+
+    Deliberately still uses the legacy ``FDT_`` prefix: this is the
+    end-to-end proof that the one-minor legacy env surface keeps working
+    through the CLI, not just in the loader's own unit tests.
     """
     monkeypatch.setenv("FDT_WORKFLOW__PREVIEW_APIS_ACKNOWLEDGED", "true")
     _stub_apply_to_raise_validation_error(monkeypatch)
@@ -200,3 +204,31 @@ def test_preview_warning_emits_only_once_per_process(
         f"got {len(preview_records)}: "
         f"{[r.message for r in preview_records]}"
     )
+
+
+def test_non_utf8_config_is_logged_not_raised(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A config file with a non-UTF-8 byte must not crash the sync command.
+
+    ``tomllib.load`` decodes the file itself, so a stray byte raises
+    ``UnicodeDecodeError`` -- a ``ValueError`` sibling of
+    ``TOMLDecodeError``, and caught by neither it nor ``OSError``. The
+    narrowed handler therefore let it escape, turning "your config is
+    unreadable" into a traceback out of a governance command whose docstring
+    two lines above promises a logged fallback to defaults.
+    """
+    (tmp_path / ".sigantry.toml").write_bytes(b'tenant_id = "\xff\xfe not utf-8"\n')
+    monkeypatch.chdir(tmp_path)
+    sync_cli_mod._PREVIEW_WARNING_EMITTED.clear()
+
+    with caplog.at_level(logging.WARNING, logger="sigantry_core.sync.cli"):
+        sync_cli_mod._emit_preview_warning_once()
+
+    load_failures = [
+        r.message for r in caplog.records if "Could not load Sigantry settings" in r.message
+    ]
+    assert load_failures, (
+        f"the unreadable config was not reported at all: {[r.message for r in caplog.records]}"
+    )
+    assert "UnicodeDecodeError" in load_failures[0]

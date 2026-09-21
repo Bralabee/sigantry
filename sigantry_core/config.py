@@ -1,16 +1,28 @@
 """Typed configuration loader (PROD-03).
 
-Loads ``.fabric-dataops.toml`` via ``pydantic-settings`` v2 with fail-fast
-validation. The root ``ToolkitSettings`` model composes one sub-model per
-seam (``core``, ``auth``, ``telemetry``, ``deploy``, ``dq``, ``runbooks``,
-``capacity``) and passes through per-plugin namespaced tables (e.g.
+Loads ``.sigantry.toml`` via ``pydantic-settings`` v2. The root
+``ToolkitSettings`` model composes one sub-model per settings section
+(``core``, ``auth``, ``telemetry``, ``deploy``, ``dq``, ``runbooks``,
+``capacity``, ...) and passes through per-plugin namespaced tables (e.g.
 ``[telemetry.log_analytics]``) untouched -- the plugin's own pydantic model
 is responsible for validating those.
 
-Env-var overrides use the conventional ``FDT_`` prefix with nested-delimiter
-``__``:
+Env-var overrides use the ``SIGANTRY_`` prefix with nested-delimiter ``__``:
 
-    FDT_CORE__TENANT_ID=abc-123  -> settings.core.tenant_id == "abc-123"
+    SIGANTRY_CORE__TENANT_ID=abc-123  -> settings.core.tenant_id == "abc-123"
+
+Only ``<PREFIX><SECTION>__<KEY>`` forms are honoured, and ``<SECTION>`` must
+name a real settings section -- see :func:`_apply_env_overrides` for why that
+restriction is load-bearing rather than tidiness.
+
+Legacy surface, honoured for one more minor release with a
+``DeprecationWarning`` and then removed (ADR-0011; V3.X-ROADMAP
+LEGACY-SURFACE-DROP item 2):
+
+- the config filename ``.fabric-dataops.toml``, read only when no
+  ``.sigantry.toml`` is present;
+- the env prefix ``FDT_``, read but outranked by ``SIGANTRY_`` wherever a
+  setting is supplied under both.
 
 ``load_settings(path)`` is the canonical public entry point.
 """
@@ -19,13 +31,22 @@ from __future__ import annotations
 
 import os
 import tomllib
+import warnings
 from pathlib import Path
-from typing import Any
+from typing import Any, get_origin
 
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
 
-_ENV_PREFIX = "FDT_"
+_CONFIG_FILENAME = ".sigantry.toml"
+_LEGACY_CONFIG_FILENAME = ".fabric-dataops.toml"
+
+_ENV_PREFIX = "SIGANTRY_"
+_LEGACY_ENV_PREFIX = "FDT_"
 _ENV_DELIM = "__"
 
 # ---------------------------------------------------------------------------
@@ -34,12 +55,26 @@ _ENV_DELIM = "__"
 # ---------------------------------------------------------------------------
 
 
-class _SeamSubSettings(BaseSettings):
-    """Base for every seam sub-model -- allows unknown keys through."""
+class _SeamSubSettings(BaseModel):
+    """Base for every seam sub-model -- allows unknown keys through.
 
-    # BaseSettings subclasses take SettingsConfigDict (a ConfigDict superset);
-    # using plain ConfigDict here was a mypy/pydantic-settings type mismatch.
-    model_config = SettingsConfigDict(extra="allow")
+    Plain ``BaseModel``, NOT ``BaseSettings``, and that distinction is
+    load-bearing. Every section is declared as ``Field(default_factory=...)``,
+    so each factory call constructs the sub-model -- and a ``BaseSettings``
+    sub-model runs its own ``EnvSettingsSource`` on construction. These have no
+    ``env_prefix``, so that source matched BARE environment variables:
+    ``TENANT_ID`` bound to ``core.tenant_id``, ``PROVIDER`` to
+    ``auth.provider``, ``REGISTRY`` to ``runbooks.registry``. A CI runner
+    exporting ``REGISTRY`` for a container registry silently populated settings
+    the operator never wrote.
+
+    Dropping the env source on ``ToolkitSettings`` alone did not close that:
+    the root model is only one of fourteen. As plain models these carry no env
+    source at all, which is what makes ``_apply_env_overrides`` the single env
+    path the security note claims it is.
+    """
+
+    model_config = ConfigDict(extra="allow")
 
 
 class CoreSettings(_SeamSubSettings):
@@ -170,8 +205,8 @@ class WorkflowSettings(_SeamSubSettings):
         Folders REST surface. When True, the warning is suppressed.
 
         Set via ``[workflow]\\npreview_apis_acknowledged = true`` in
-        ``.fabric-dataops.toml`` (or the
-        ``FDT_WORKFLOW__PREVIEW_APIS_ACKNOWLEDGED`` env var).
+        ``.sigantry.toml`` (or the
+        ``SIGANTRY_WORKFLOW__PREVIEW_APIS_ACKNOWLEDGED`` env var).
 
         See ``docs/reference/api-stability.md`` for the full risk
         acceptance discussion and the revisit triggers.
@@ -186,18 +221,48 @@ class WorkflowSettings(_SeamSubSettings):
 
 
 class ToolkitSettings(BaseSettings):
-    """Root settings composed from the eight seam sub-models.
+    """Root settings composed of one sub-model per settings section.
 
     Consumers construct via ``load_settings(path)`` rather than calling this
     constructor directly, so TOML loading stays in one place.
+
+    The field names on this model are also the set of env-var sections
+    :func:`_apply_env_overrides` will merge -- adding a section here extends
+    that automatically.
     """
 
+    # No ``env_prefix``/``env_nested_delimiter`` here on purpose: the env
+    # layer is dropped in ``settings_customise_sources`` below, so declaring
+    # one would advertise a mechanism that does not run.
     model_config = SettingsConfigDict(
-        env_prefix="FDT_",
-        env_nested_delimiter="__",
         extra="allow",
         case_sensitive=False,
     )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """Use only the init source; :func:`_apply_env_overrides` owns env.
+
+        pydantic-settings' own ``EnvSettingsSource`` would be a *second*
+        env-reading mechanism alongside ``_apply_env_overrides``, and under
+        the ``SIGANTRY_`` prefix the two disagree in a way that breaks
+        loading: the source maps a bare ``SIGANTRY_<SECTION>`` var onto the
+        whole section field and raises ``SettingsError`` when the value is
+        not a parseable table. That turns 13 ordinary-looking variable names
+        (``SIGANTRY_RELEASE``, ``SIGANTRY_SECRETS``, ``SIGANTRY_DEPLOY``, ...)
+        into hard failures of every command that loads settings.
+
+        Keeping a single, filtered env path removes that surface and makes
+        the precedence rule (env over TOML) readable in one function.
+        """
+        return (init_settings,)
 
     core: CoreSettings = Field(default_factory=CoreSettings)
     auth: AuthSettings = Field(default_factory=AuthSettings)
@@ -220,52 +285,168 @@ class ToolkitSettings(BaseSettings):
 
 
 def load_settings(
-    path: str | Path = ".fabric-dataops.toml",
+    path: str | Path | None = None,
 ) -> ToolkitSettings:
     """Load ``ToolkitSettings`` from a TOML file, layered with env-var overrides.
 
+    ``path`` defaults to ``None``, which resolves the config file from the
+    working directory -- ``.sigantry.toml``, or the legacy
+    ``.fabric-dataops.toml`` with a ``DeprecationWarning``. An explicit
+    ``path`` is used verbatim, whatever it is named.
+
     The TOML file is parsed with stdlib ``tomllib`` (Python 3.11+). The parsed
     mapping is passed as the initial field values to ``ToolkitSettings``;
-    pydantic-settings layers ``FDT_`` env vars on top via its normal chain.
+    :func:`_apply_env_overrides` layers env vars on top.
 
-    Fail-fast behaviours:
+    Behaviours:
 
-    - Missing TOML file with no env-var override for ``core.tenant_id`` raises
-      ``pydantic.ValidationError``.
     - Malformed TOML raises ``tomllib.TOMLDecodeError``.
     - Any field type violation raises ``pydantic.ValidationError``.
+    - **A missing config file is not an error.** Every settings field is
+      optional, so the result is an all-defaults ``ToolkitSettings`` and no
+      seam plugin is configured. A caller that requires a particular value
+      (``core.tenant_id``, a named seam impl) has to check for it: the loader
+      cannot know which of them a given consumer needs, and guessing would
+      break the direct-DI wiring path that supplies them in code. This
+      docstring previously claimed a missing file raised ``ValidationError``;
+      it never did, because no field is required.
     """
-    p = Path(path)
+    resolved = _resolve_config_path(path)
     data: dict[str, Any] = {}
-    if p.is_file():
-        with p.open("rb") as fh:
+    if resolved.is_file():
+        with resolved.open("rb") as fh:
             data = tomllib.load(fh)
     _apply_env_overrides(data)
     return ToolkitSettings(**data)
 
 
+def _resolve_config_path(path: str | Path | None) -> Path:
+    """Return the config file :func:`load_settings` should read.
+
+    An explicit ``path`` is returned verbatim -- any filename works, which is
+    what the migration guide tells operators who rename early. With no path,
+    ``.sigantry.toml`` wins, the legacy ``.fabric-dataops.toml`` is the
+    one-minor fallback, and when neither exists the new-style name is returned
+    so the (non-fatal) miss is reported against the name operators should
+    create.
+    """
+    if path is not None:
+        return Path(path)
+    current = Path(_CONFIG_FILENAME)
+    if current.is_file():
+        return current
+    legacy = Path(_LEGACY_CONFIG_FILENAME)
+    if legacy.is_file():
+        warnings.warn(
+            f"{_LEGACY_CONFIG_FILENAME} is deprecated: rename it to "
+            f"{_CONFIG_FILENAME}. The legacy filename is read for one more "
+            "minor release and then removed (ADR-0011).",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        return legacy
+    return current
+
+
+def _is_mapping_field(section: str, key: str) -> bool:
+    """True if ``<section>.<key>`` is a declared dict-typed settings field.
+
+    Used to refuse a scalar env override that would replace a whole table --
+    ``SIGANTRY_RELEASE__GITHUB=x`` against ``ReleaseSettings.github``, say.
+    Unknown keys return False: they land in ``extras``, where a scalar is fine.
+    """
+    section_field = ToolkitSettings.model_fields.get(section)
+    if section_field is None:
+        return False
+    section_model = section_field.annotation
+    if not (isinstance(section_model, type) and issubclass(section_model, BaseModel)):
+        return False
+    field = section_model.model_fields.get(key)
+    if field is None:
+        return False
+    annotation = field.annotation
+    return annotation is dict or get_origin(annotation) is dict
+
+
 def _apply_env_overrides(data: dict[str, Any]) -> None:
-    """Merge ``FDT_<section>__<key>=value`` env vars onto ``data`` (in-place).
+    """Merge ``SIGANTRY_<section>__<key>=value`` env vars onto ``data`` (in-place).
 
     pydantic-settings v2.1 does not have ``TomlConfigSettingsSource`` (added in
     2.2). We emulate env-layer precedence by walking ``os.environ`` ourselves
-    with the ``FDT_`` prefix + ``__`` nested delimiter. Env wins over TOML
+    with the ``SIGANTRY_`` prefix + ``__`` nested delimiter. Env wins over TOML
     because we write into ``data`` AFTER the TOML parse.
+
+    The legacy ``FDT_`` prefix is still read for one more minor release with a
+    ``DeprecationWarning``. The legacy pass runs first, so where the same
+    setting is supplied under both prefixes the ``SIGANTRY_`` value wins.
+
+    Only ``<PREFIX><SECTION>__<KEY>`` forms are merged, and ``<SECTION>`` must
+    name a field of ``ToolkitSettings``. **That restriction is load-bearing.**
+    ``SIGANTRY_`` is also the prefix of the product's operational env vars --
+    ``SIGANTRY_SMTP_PASSWORD``, ``SIGANTRY_GITHUB_TEST_PAT``,
+    ``SIGANTRY_FABRIC_TOKEN`` and ~68 others. ``ToolkitSettings`` sets
+    ``extra="allow"``, so an unfiltered sweep would bind every one of those --
+    credentials included -- onto the settings object as an extra field, where
+    ``model_dump()`` renders them in clear. The old ``FDT_`` prefix was
+    namespace-exclusive and so never exposed this; adopting the shared
+    ``SIGANTRY_`` prefix is what makes the filter necessary.
+
+    The section names are read from the model rather than listed here, so a
+    newly added seam cannot fall out of sync with this function.
     """
-    for raw_key, raw_val in os.environ.items():
-        if not raw_key.startswith(_ENV_PREFIX):
-            continue
-        path = raw_key[len(_ENV_PREFIX) :].lower().split(_ENV_DELIM)
-        if not path or path == [""]:
-            continue
-        cursor: dict[str, Any] = data
-        for segment in path[:-1]:
-            nxt = cursor.get(segment)
-            if not isinstance(nxt, dict):
-                nxt = {}
-                cursor[segment] = nxt
-            cursor = nxt
-        cursor[path[-1]] = raw_val
+    known_sections = frozenset(ToolkitSettings.model_fields)
+    legacy_keys: list[str] = []
+    clobbered_tables: list[str] = []
+    # Legacy first: a SIGANTRY_ value for the same setting then overwrites it.
+    for prefix in (_LEGACY_ENV_PREFIX, _ENV_PREFIX):
+        for raw_key, raw_val in sorted(os.environ.items()):
+            if not raw_key.startswith(prefix):
+                continue
+            path = raw_key[len(prefix) :].lower().split(_ENV_DELIM)
+            # A bare ``<PREFIX><SECTION>`` would replace a whole section table
+            # with a scalar; anything whose head is not a section is not ours.
+            # ``not all(path)`` rejects a degenerate key too: ``CORE__`` splits
+            # to ``["core", ""]``, which clears the length guard and would
+            # write an empty-string key onto the section, where ``extra=allow``
+            # keeps it and ``model_dump()`` renders it as junk.
+            if len(path) < 2 or not all(path) or path[0] not in known_sections:
+                continue
+            # A scalar aimed at a dict-typed field is the same "scalar replaces
+            # a table" hazard one level down, and it does not merely get
+            # ignored -- it fails validation, so EVERY settings load raises for
+            # as long as the variable is exported. Skipping with a warning
+            # keeps one stray env var from bricking the whole config surface.
+            if len(path) == 2 and _is_mapping_field(path[0], path[1]):
+                clobbered_tables.append(raw_key)
+                continue
+            if prefix == _LEGACY_ENV_PREFIX:
+                legacy_keys.append(raw_key)
+            cursor: dict[str, Any] = data
+            for segment in path[:-1]:
+                nxt = cursor.get(segment)
+                if not isinstance(nxt, dict):
+                    nxt = {}
+                    cursor[segment] = nxt
+                cursor = nxt
+            cursor[path[-1]] = raw_val
+    if clobbered_tables:
+        warnings.warn(
+            "Ignoring settings env override(s) that would replace a table with "
+            f"a scalar: {', '.join(clobbered_tables)}. These name dict-valued "
+            "settings fields, which cannot be set from a single env var; use "
+            "the config file for them.",
+            UserWarning,
+            stacklevel=3,
+        )
+    if legacy_keys:
+        warnings.warn(
+            f"The {_LEGACY_ENV_PREFIX} settings env prefix is deprecated: use "
+            f"{_ENV_PREFIX} instead (e.g. {_ENV_PREFIX}CORE__TENANT_ID). "
+            f"Seen: {', '.join(legacy_keys)}. The legacy prefix is read for "
+            "one more minor release and then removed (ADR-0011).",
+            DeprecationWarning,
+            stacklevel=3,
+        )
 
 
 __all__ = [

@@ -35,7 +35,7 @@ Sigantry locks against the Preview Folders + item-move endpoints in v3.0 because
 ```text
 Sigantry depends on the Preview Microsoft Fabric Folders REST endpoint
 (Council D #1). Set `workflow.preview_apis_acknowledged = true` in
-.fabric-dataops.toml (or FDT_WORKFLOW__PREVIEW_APIS_ACKNOWLEDGED=true)
+.sigantry.toml (or SIGANTRY_WORKFLOW__PREVIEW_APIS_ACKNOWLEDGED=true)
 to acknowledge and suppress this warning.
 ```
 
@@ -45,7 +45,7 @@ The warning fires through the stdlib `logging` module (`sigantry_core.sync.cli` 
 
 ### Acknowledging the gate
 
-Add to `.fabric-dataops.toml`:
+Add to `.sigantry.toml`:
 
 ```toml
 [workflow]
@@ -55,7 +55,7 @@ preview_apis_acknowledged = true
 Or set the env var (CI runners, ephemeral shells):
 
 ```bash
-export FDT_WORKFLOW__PREVIEW_APIS_ACKNOWLEDGED=true
+export SIGANTRY_WORKFLOW__PREVIEW_APIS_ACKNOWLEDGED=true
 ```
 
 After acknowledgement, no warning fires for the rest of the process.

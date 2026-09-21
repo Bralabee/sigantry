@@ -41,7 +41,7 @@ For concurrent work, build a `FabricDataOps` per worker:
 
 ```python
 def worker(job):
-    with FabricDataOps.from_config(".fabric-dataops.toml") as fdo:
+    with FabricDataOps.from_config(".sigantry.toml") as fdo:
         fdo.deploy(job.ctx)
 ```
 

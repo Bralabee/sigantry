@@ -71,7 +71,7 @@ examples).
 
 ## Configuration
 
-Create `.fabric-dataops.toml` in the repo root (or consumer repo):
+Create `.sigantry.toml` in the repo root (or consumer repo):
 
 ```toml
 [core]

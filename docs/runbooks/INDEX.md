@@ -3,7 +3,7 @@
 The base `sigantry-core` package ships no concrete runbooks.
 Plugin packages register a `RunbookRegistry` implementation under the
 `sigantry.runbook_registries` entry-point group and
-expose URL mappings via `.fabric-dataops.toml`:
+expose URL mappings via `.sigantry.toml`:
 
 ```toml
 [runbooks]
@@ -37,7 +37,7 @@ resolves the incident.
 3. Register the class under
    `sigantry.runbook_registries` in your plugin's
    `pyproject.toml`.
-4. Wire via `.fabric-dataops.toml` (see above).
+4. Wire via `.sigantry.toml` (see above).
 
 ## Built-in runbooks
 

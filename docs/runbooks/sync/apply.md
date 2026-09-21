@@ -178,7 +178,7 @@ Exit codes (D-26):
 
 ## 4. Configuration
 
-The runtime gate `workflow.preview_apis_acknowledged` controls the one-time Preview-API warning emitted on first invocation per process (see [`api-stability.md`](../../reference/api-stability.md)). Acknowledge in `.fabric-dataops.toml`:
+The runtime gate `workflow.preview_apis_acknowledged` controls the one-time Preview-API warning emitted on first invocation per process (see [`api-stability.md`](../../reference/api-stability.md)). Acknowledge in `.sigantry.toml`:
 
 ```toml
 [workflow]
@@ -309,7 +309,7 @@ Zero create / move operations on the second run. This is the locked Round-4 idem
 | Exit 1 -- `Manifest validation failed` with `unknown_item_type` | The `type` value isn't a member of `fabric_cicd.constants.ItemType`. | Check spelling and PascalCase: `Notebook`, `DataPipeline`, `SemanticModel`, `Report`, `SparkJobDefinition`. |
 | Exit 1 -- `sync apply failed: <ReconcilerWrapError>: ...` | Underlying reconciler error (folder name collision, REST 4xx). | The tempdir is preserved; its path is printed to stderr. Inspect the staging tree at `/tmp/sigantry-sync-*` and re-run after fixing. |
 | Warning -- `Dataflow 'X' cannot be assigned a folder; will be placed at workspace root.` | Folder-less type (Council D #4 -- D-07 / SYNC-06). | Either move the item to `target_folder: /` in the manifest, or accept the override and the warning. |
-| One-time WARNING about Preview Folders REST endpoint | `workflow.preview_apis_acknowledged` is `False` (default). | Add `[workflow]\npreview_apis_acknowledged = true` to `.fabric-dataops.toml` (see [`api-stability.md`](../../reference/api-stability.md)). |
+| One-time WARNING about Preview Folders REST endpoint | `workflow.preview_apis_acknowledged` is `False` (default). | Add `[workflow]\npreview_apis_acknowledged = true` to `.sigantry.toml` (see [`api-stability.md`](../../reference/api-stability.md)). |
 
 ## 7. Known limitations
 
