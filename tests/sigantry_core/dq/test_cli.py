@@ -1,4 +1,4 @@
-"""Unit tests for ``sigantry-core dq gate`` CLI (Plan 08-02 PROD-06)."""
+"""Unit tests for ``sigantry dq gate`` CLI (Plan 08-02 PROD-06)."""
 
 from __future__ import annotations
 

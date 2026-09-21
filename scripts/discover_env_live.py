@@ -12,7 +12,7 @@ No secret is ever printed. No state is mutated.
 
 Usage
 -----
-    conda activate sigantry-core
+    conda activate sigantry-dev
     python scripts/discover_env_live.py                 # matches workspace name containing 'nimbus'
     python scripts/discover_env_live.py --workspace-name NIMBUS-DEV
     python scripts/discover_env_live.py --list-only     # list only; do not pick a workspace

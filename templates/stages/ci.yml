@@ -32,8 +32,10 @@ parameters:
     type: string
     default: '3.11'
   - name: pythonVersionMatrix
-    # 08.1 P1-2: exercise the full supported range. pyproject.toml declares
-    # >=3.11,<3.13, so CI must run both or reality drifts from the pin.
+    # 08.1 P1-2: exercise the supported range. pyproject.toml declares
+    # requires-python = ">=3.11" with an upper bound on neither side, and
+    # classifiers through 3.13, so this matrix is a floor CI actually runs --
+    # not the full set of versions the package claims to install on.
     type: object
     default:
       py311:
@@ -155,7 +157,7 @@ stages:
     condition: and(succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/tags/v'))
     jobs:
       - job: publish_wheel
-        displayName: 'twine upload to sigantry-core feed'
+        displayName: 'twine upload to sigantry feed'
         steps:
           - task: UsePythonVersion@0
             inputs:

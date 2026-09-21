@@ -5,7 +5,7 @@ Each ``<Type>.platform.j2`` template renders the schema-2.0
 :class:`GenericPackager
 <sigantry_core.sync.packagers.generic.GenericPackager>` resolves
 templates by item-type filename via ``importlib.resources``; this
-package being importable is what lets a wheel-installed sigantry-core
+package being importable is what lets a wheel-installed sigantry
 locate the templates without ``importlib.resources.as_file`` falling
 back to a brittle filesystem walk.
 

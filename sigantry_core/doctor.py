@@ -1,4 +1,4 @@
-"""``sigantry-core doctor`` CLI subcommand (PROD-18).
+"""``sigantry doctor`` CLI subcommand (PROD-18).
 
 Minimum-viable doctor per PRODUCTIZATION.md Section 10.2 row 1. Lists
 every plugin discovered under the v3.0 ``sigantry_core.*`` entry-point
@@ -204,7 +204,7 @@ def _build_table(
     boolean flags drive ``--strict`` and ``--strict-trust`` exit codes
     respectively.
     """
-    table = Table(title="sigantry-core plugins", title_style="bold")
+    table = Table(title="sigantry plugins", title_style="bold")
     table.add_column("Group", style="cyan", no_wrap=True)
     table.add_column("Name", style="magenta", no_wrap=True)
     table.add_column("Module", style="white")

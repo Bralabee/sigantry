@@ -34,8 +34,8 @@ steps:
     inputs:
       versionSpec: '3.11'
     displayName: 'Set up Python'
-  - script: pip install sigantry-core
-    displayName: 'Install sigantry-core'
+  - script: pip install sigantry
+    displayName: 'Install sigantry'
   - script: |
       sigantry deploy run \
         --params parameters.yml \

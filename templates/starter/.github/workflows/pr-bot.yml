@@ -56,8 +56,8 @@ jobs:
         with:
           python-version: '3.11'
           cache: 'pip'
-      - name: Install sigantry-core
-        run: pip install sigantry-core
+      - name: Install sigantry
+        run: pip install sigantry
       - name: Run sigantry pr-bot
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

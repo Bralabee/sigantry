@@ -61,7 +61,7 @@ from sigantry_core.sync.cli import sync_app
 from sigantry_core.workspace.cli import workspace_app
 
 app = typer.Typer(
-    help="Fabric DataOps Toolkit. Control-plane CRUD + governance.",
+    help="Sigantry. Control-plane CRUD + governance for Microsoft Fabric.",
     no_args_is_help=True,
 )
 app.add_typer(workspace_app, name="workspace")

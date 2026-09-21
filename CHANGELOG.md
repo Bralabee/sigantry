@@ -10,6 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `tests/ci/test_distribution_name.py` keeps the shipped surface — templates,
+  workflows, scripts and the package — free of the dead distribution name, so
+  it cannot creep back. It reads `pyproject.toml` as a *precondition* — the
+  scan is meaningless if the declared name ever stops being `sigantry` — but
+  the name it polices (`_DEAD_DIST`) is a literal, so a future rename means
+  editing the guard, not just `pyproject.toml`. Its one carve-out (the ADO
+  artifact identifier `sigantry-core-wheel`) is itself guarded by a test
+  asserting the carve-out is still in use.
 - **CI now runs `mypy`.** The project has configured mypy under `[tool.mypy]`
   since before v1.0.0 and no workflow ever invoked it, so it reported nothing
   for as long as that was true — including a real `attr-defined` bug in
@@ -52,6 +60,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   wins.
 
 ### Fixed
+- **Shipped templates and workflows told consumers to `pip install
+  sigantry-core`, which 404s.** The distribution is `sigantry`
+  (`pyproject.toml` declares it; `sigantry-core` has never existed on PyPI —
+  ADR-0017 records the amendment to ADR-0011). Every consumer following a
+  shipped ADO step template, starter workflow or demo quickstart hit a package
+  that is not there. 49 references corrected across `templates/`,
+  `.github/workflows/`, `scripts/` and `.pre-commit-config.yaml`. Because the
+  old name resolves for nobody, this fix cannot break an existing install.
+- `sigantry --help` announced the tool as "Fabric DataOps Toolkit", a name the
+  project left behind in v3.0, and `sigantry doctor` titled its plugin table
+  "sigantry-core plugins".
+- A broken link in the demo quickstart pointed at
+  `github.com/sigantry/sigantry-core`, which does not exist.
+- `tests/demo/test_demo_quickstart.py` *required* the string `sigantry-core`
+  to appear in the demo quickstart, pinning the dead name in place. Replacing
+  that token with `"sigantry"` would have been vacuous — three CLI commands
+  already in the same list (`sigantry config validate`, `sigantry sync apply`,
+  `sigantry diff`) each contain that substring, so the assertion would be true
+  on every possible input, `pip install sigantry-core` included. The check is
+  now the absence of the dead name plus a real `pip install` line.
+- The test.pypi.org upload step in `release-alpha.yml` was relabelled
+  `sigantry` while its twine glob still read `dist/sigantry_core-*`. Measured
+  against a real `python -m build`: the artifacts are
+  `sigantry-1.0.0-py3-none-any.whl` / `sigantry-1.0.0.tar.gz`, and the old
+  glob expands to nothing, so bash passes the literal to twine and the release
+  step fails.
+- Shipped quickstart templates told adopters to run
+  `pip install "sigantry>=3.0.0"`, which cannot resolve against the shipped
+  1.0.x line, and claimed `requires-python = ">=3.11,<3.13"` refuses 3.13 when
+  `pyproject.toml` declares `>=3.11` with no upper bound.
+- Dead `github.com/sigantry/...` links (the org returns 404) remained in the
+  demo quickstart and the shipped demo template after a sibling link in the
+  same file was corrected.
+
 - `sigantry sync` no longer swallows a config-load failure in silence. An
   unreadable or malformed config is logged as a warning saying the command is
   continuing on defaults, instead of a bare `except Exception` that left the
@@ -90,6 +132,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `TOMLDecodeError`.
 
 ### Known remaining
+- 15 `pip install` / dependency lines across 9 files under `docs/` still name
+  the dead distribution. They are prose rather than shipped artefacts and are
+  tangled with a separate version-scheme inconsistency (docs say `>=3.0`, the
+  shipped line is 1.0.x), so they are deliberately left for their own change
+  rather than half-corrected here. Two of them must survive any such change:
+  ADR-0017 quotes the dead name to explain the defect, and ADR-0011 records it
+  as history.
+- `requirements-lock.txt` carries 21 `# via sigantry-core (pyproject.toml)`
+  annotations. pip-compile writes the project's own name into those comments,
+  so they are evidence the lock has not been regenerated since `pyproject.toml`
+  became `name = "sigantry"`. They are comments and do not affect resolution,
+  but regenerating the lock belongs with the dependency work, not here.
+- The guard scans `templates/`, `.github/workflows/`, `scripts/` and the
+  package. It does **not** scan `requirements-lock.txt`, `pyproject.toml`,
+  `environment.yml`, `README.md` or `CONTRIBUTING.md`, so the dead name could
+  reappear in those without failing CI.
+- The ADO artifact identifier `sigantry-core-wheel` and the template parameter
+  `fabricDataopsVersion` are public interface names. Renaming them breaks
+  consumer pipelines that reference them, so both need a deprecation window
+  rather than a find-and-replace.
 - `mypy` covers `sigantry_core/` only. Measured on this branch, `mypy scripts/`
   reports **8 errors in 5 files** (including the `attr-defined` bug above), so
   widening the scope is a change with real work behind it, not a one-word edit.
@@ -101,7 +163,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   triggers on `release: published` and runs build → `twine check` → publish
   with no dependency on lint, test or types, so the wheel users actually
   install is not gated by any of them. Closing that is a separate change.
-
 
 ## [1.0.0] - 2026-09-19
 

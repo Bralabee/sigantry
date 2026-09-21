@@ -85,7 +85,7 @@ cd "$REPO_ROOT"
 # Order matters only for log readability; each `python -m build` invocation
 # is independent.
 #
-# 1. sigantry-core       -- repo root pyproject.toml (was fabric-dataops-toolkits)
+# 1. sigantry            -- repo root pyproject.toml (was fabric-dataops-toolkits)
 # 2. sigantry-acme        -- ./sigantry-acme (was fabric-dataops-toolkits-acme)
 # 3. fabric-dataops-toolkits     -- ./shim/fabric-dataops-toolkits (deprecation shim)
 # 4. fabric-dataops-toolkits-acme -- ./shim/fabric-dataops-toolkits-acme (deprecation shim)
@@ -104,7 +104,7 @@ PACKAGE_DIRS=(
 
 # Friendly label for logs / summary printout (parallel array to PACKAGE_DIRS).
 PACKAGE_LABELS=(
-    "sigantry-core"
+    "sigantry"
     "sigantry-acme"
     "fabric-dataops-toolkits (shim)"
     "fabric-dataops-toolkits-acme (shim)"

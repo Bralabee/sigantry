@@ -1,4 +1,4 @@
-"""Tests for the ``sigantry-core doctor`` CLI (PROD-18).
+"""Tests for the ``sigantry doctor`` CLI (PROD-18).
 
 Covers the minimum-viable doctor contract per PRODUCTIZATION.md Section 10.2
 row 1:

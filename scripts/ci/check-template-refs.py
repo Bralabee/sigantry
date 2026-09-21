@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""sigantry-core: tag-pin lint over every templates/**/*.yml + azure-pipelines.yml (Pitfall A).
+"""sigantry: tag-pin lint over every templates/**/*.yml + azure-pipelines.yml (Pitfall A).
 
 Every `resources.repositories` entry whose `repository` alias is NOT `self`
 MUST pin `ref: refs/tags/<tag>`. Branch refs (`refs/heads/...`) and missing

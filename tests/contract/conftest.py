@@ -8,5 +8,5 @@ installed in the current environment.
 All fixtures used by these tests ship in the base package via the
 ``pytest11`` entry point registered in ``pyproject.toml``. Downstream
 plugin packages inherit the same fixtures automatically on
-``pip install sigantry-core``.
+``pip install sigantry``.
 """
