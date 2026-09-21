@@ -7,9 +7,12 @@ match installed metadata.
 
 from __future__ import annotations
 
+import re
 import tomllib
 from importlib import metadata
 from pathlib import Path
+
+_VERSION_RE = re.compile(r'^__version__\s*=\s*"(\d+\.\d+\.\d+[^"]*)"$', re.MULTILINE)
 
 
 def test_fabric_dataops_version_matches_installed_metadata() -> None:
@@ -34,5 +37,22 @@ def test_pyproject_uses_dynamic_version(repo_root: Path) -> None:
 
 
 def test_version_file_is_the_single_source(repo_root: Path) -> None:
+    """_version.py declares the version, and the package reports that value.
+
+    Derived, never restated. A guard that hardcodes the version it claims is
+    single-sourced becomes a SECOND copy of it: it then fails on a legitimate
+    release bump, which is a guard firing on a correct state rather than on a
+    defect.
+    """
+    import sigantry_core
+
     version_file = (repo_root / "sigantry_core" / "_version.py").read_text()
-    assert '__version__ = "1.0.0"' in version_file
+    match = _VERSION_RE.search(version_file)
+    assert match is not None, (
+        "_version.py must declare __version__ as a quoted SemVer string at module scope"
+    )
+    declared = match.group(1)
+    assert sigantry_core.__version__ == declared, (
+        f"sigantry_core.__version__ ({sigantry_core.__version__!r}) does not match "
+        f"_version.py ({declared!r}) - the single source is not the source"
+    )

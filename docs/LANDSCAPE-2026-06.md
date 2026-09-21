@@ -167,7 +167,7 @@ recommendation 5.
 
 **Verified open lanes (no incumbent found, official or community):** Fabric-native drift
 detection (snapshot/diff), YAML-manifest workspace bootstrap as a packaged product, TMDL-aware
-PR-review bots, deploy rollback, and tamper-evident audit-ledger tooling. Absence-of-evidence
+PR-review bots, deploy rollback, and integrity-checked audit-ledger tooling. Absence-of-evidence
 caveat: a private or unindexed equivalent could exist; none is discoverable.
 
 ---
@@ -266,12 +266,12 @@ exists. The §1 executive verdict and §4 capability table **stand**; this sharp
   `[VERIFIED]` [Azure DevOps deployment gates](https://learn.microsoft.com/en-us/azure/devops/pipelines/release/approvals/gates?view=azure-devops).
 - **Audit — Purview is broader than previously framed.** "All Microsoft Fabric user activities
   are logged" in Purview, **including REST API operations**, not just deployment-pipeline runs.
-  The toolkit's `DeployRecord` differentiates only on being a *tamper-evident, deploy-scoped,
+  The toolkit's `DeployRecord` differentiates only on being an *integrity-checked, deploy-scoped,
   tooling-owned* provenance ledger — the §4 "moat" row holds, but narrowed to that shape.
   `[VERIFIED]` [Track user activities](https://learn.microsoft.com/en-us/fabric/admin/track-user-activities).
 
 **Net:** the four uncontested originals in §1/§4 (drift detection, rollback, headless TMDL
-PR-bot, tamper-evident ledger) remain the durable identity; the deploy-mechanics deltas are
+PR-bot, integrity-checked ledger) remain the durable identity; the deploy-mechanics deltas are
 weaker than they looked and are best handled by **delegating to `fabric-cicd`** rather than
 maintaining parallel code. Recorded in [`reference/scope.md`](reference/scope.md) §7.
 
@@ -312,7 +312,8 @@ is primary. The §1 executive verdict and the §4 capability table **stand, stre
   interactive and human-driven, not headless/scheduled. Still no product, official or OSS.
 - **Rollback:** nothing anywhere in the platform; the deployment-pipelines rollback Idea
   remains an open community idea, not a roadmap item.
-- **Tamper-evident audit ledger:** Purview still records *that operations happened*, not what
+- **Integrity-checked audit ledger** ([threat model](reference/audit-ledger-threat-model.md))**:**
+  Purview still records *that operations happened*, not what
   a release contained; fabric-cicd 1.2.0 made its local logging **opt-in** — upstream moved
   toward *less* default audit, not more.
 - **Destructive-op gating:** upstream moved the opposite direction — `enable_hard_delete`

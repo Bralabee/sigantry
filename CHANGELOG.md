@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Non-destructive simulation engine evaluating Schema Syntax, Dependency DAG order, Entra ID scope permissions, and Fabric capacity active state prior to execution (ADR-0015).
   - Human-friendly colored terminal tables, machine-readable JSON (`--json`), and `--fail-on-warning` flags.
 - **Bulk Publishing Concurrency Acceleration**:
-  - `--bulk` parallel execution flag on `sigantry deploy run` and `sigantry sync apply` utilizing multi-worker thread pools (`max_workers=4`) for up to 3.8x faster item publishing across large repositories.
+  - `--bulk` parallel execution flag on `sigantry deploy run` and `sigantry sync apply`, publishing items through a multi-worker thread pool (`max_workers=4`, not currently configurable) instead of serially.
 - **Standalone Interactive HTML Reports (`sigantry_core.reports`)**:
   - Zero-dependency, self-contained HTML reports featuring responsive dark/light themes, summary metrics cards, and instant client-side search/filtering.
   - Interactive drift reports via `sigantry diff --output html --html-out <path>`.
@@ -38,7 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Forward deployments with topological dependency ordering and `$ENV:` parameter substitution.
   - One-command release rollback (`--rollback --to-release <release-id> --rollback-force`) restoring historical item states.
 - **Audit & Provenance Ledger (`sigantry release` & `governance.audit`)**:
-  - Tamper-evident, append-only JSONL ledgers with cryptographic SHA-256 hash chains.
+  - Integrity-checked, append-only JSONL ledgers with SHA-256 hash chains (unkeyed and
+    unanchored - see docs/reference/audit-ledger-threat-model.md for what that resists).
   - Independent chain verification CLI command (`sigantry release verify`).
   - Work-item linkage linking releases to GitHub Issues or Azure DevOps work items.
 - **Headless PR-Review Bot (`sigantry pr-bot`)**:

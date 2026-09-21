@@ -63,3 +63,6 @@ site/
 # Remotion video-tutorial scratch project — unrelated side-project for
 # authoring internal walkthrough videos; not part of the toolkit.
 remotion-tutorial/
+
+# QA council run artifacts (findings, probes, evidence) - local only
+.qa-council/

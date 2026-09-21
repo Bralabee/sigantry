@@ -17,7 +17,7 @@
 
 ## Prerequisites
 
-- **Python 3.11 or 3.12** (`requires-python` is `>=3.11,<3.13`; 3.13 is refused at install)
+- **Python 3.11, 3.12 or 3.13** (`requires-python` is `>=3.11`; there is no upper bound)
 - **gh CLI** for the clone (`gh --version`)
 - **A demo Fabric tenant** -- operator-provisioned per
   [docs/runbooks/demo-tenant-operator.md](../runbooks/demo-tenant-operator.md).
@@ -30,7 +30,7 @@ Install Sigantry once into a fresh virtualenv or conda env:
 ```bash
 python -m venv .venv
 source .venv/bin/activate     # Windows: .venv\Scripts\activate
-pip install "sigantry-core>=3.0.0"
+pip install sigantry
 ```
 
 Verify the install:

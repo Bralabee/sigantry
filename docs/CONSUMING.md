@@ -6,7 +6,7 @@
 
 Sigantry ships through two distinct surfaces. You almost certainly want both:
 
-1. **Python distribution** -- `pip install sigantry-core` (+ optional plugins).
+1. **Python distribution** -- `pip install sigantry` (+ optional plugins).
 2. **Public scaffolding repos** -- fork `sigantry/sigantry-starter` for a greenfield Sigantry project, or `sigantry/demo-sigantry` for the 15-minute end-to-end walkthrough.
 
 You **do not** clone this monorepo (`Bralabee/fabric_dataops`) to run Sigantry. This repo is the development surface; it holds the product source, dual-CI parity gates, banned-API contract tests, and the source-of-truth for the public scaffolding.
@@ -26,10 +26,10 @@ You **do not** clone this monorepo (`Bralabee/fabric_dataops`) to run Sigantry. 
 
 ## Channel 1 -- Python distribution (forthcoming)
 
-Once `sigantry-core` is on PyPI:
+The distribution is published on PyPI as `sigantry`:
 
 ```bash
-pip install "sigantry-core>=3.0"
+pip install sigantry
 ```
 
 The legacy `fabric-dataops-toolkits` name no longer resolves: the v3.0 shim
@@ -65,7 +65,7 @@ Once `sigantry/demo-sigantry` is provisioned:
 ```bash
 gh repo clone sigantry/demo-sigantry
 cd demo-sigantry
-pip install "sigantry-core>=3.0"
+pip install sigantry
 # set 4 env vars: SIGANTRY_DEMO_{TENANT_ID,WORKSPACE_ID,CAPACITY_ID,FABRIC_TOKEN}
 sigantry config validate parameters.yml
 sigantry sync apply --manifest sync.yml --workspace-id "$SIGANTRY_DEMO_WORKSPACE_ID"
@@ -98,7 +98,7 @@ Evaluators routinely ask when to use Microsoft's [Terraform provider](https://re
 |---|---|
 | You run fleet-scale, state-managed IaC and already operate Terraform (state backends, plan/apply pipelines, modules). | You want an operator-driven, single-verb, stateless flow -- `workspace bootstrap workspace.yml` probes live state and converges, no state file to manage or drift against. |
 | Provisioning-level resources are the concern: workspaces, RBAC, domains, gateways, tenant settings as code. | Item-level lifecycle is the concern: manifest-driven sync, first-time publish, folder preservation, deploy rollback to a prior release. |
-| `terraform plan` drift coverage of provisioned resources is sufficient. | You need scheduled drift detection against a manifest plus a tamper-evident audit ledger of every deploy, bootstrap, secret change, and approval. |
+| `terraform plan` drift coverage of provisioned resources is sufficient. | You need scheduled drift detection against a manifest plus an integrity-checked audit ledger of every deploy, bootstrap, secret change, and approval. |
 | Your change-control process is PR-reviewed HCL. | Your change-control process needs work-item traceability (release records written back to ADO / GitHub items) and destructive-op gating with `force=True` + runbook ids. |
 
 Notable gap on the Terraform side (as of 2026-06-11): no Variable Library resource ([provider issue #515](https://github.com/microsoft/terraform-provider-fabric/issues/515)) -- `sigantry variable-library` is one of the few non-portal paths. Full ecosystem comparison: [docs/LANDSCAPE-2026-06.md](LANDSCAPE-2026-06.md).

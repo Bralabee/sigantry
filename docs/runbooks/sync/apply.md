@@ -126,7 +126,7 @@ When `--with-publish` is set, the D-26-bis boundary trailer described in [§1.2]
 
    ```bash
    conda activate fabric-dataops-toolkits
-   pip install sigantry-core
+   pip install sigantry
    ```
 
 2. Configure auth via `DefaultAzureCredential`:
@@ -145,7 +145,7 @@ When `--with-publish` is set, the D-26-bis boundary trailer described in [§1.2]
 
    ```bash
    sigantry doctor
-   sigantry workspace list --workspace-id <coe-guid>
+   sigantry workspace get <coe-guid>
    ```
 
    `doctor` resolves the toolkit settings + verifies the auth chain. If it exits non-zero, fix the underlying error before invoking `sync apply`.

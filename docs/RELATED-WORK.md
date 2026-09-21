@@ -32,7 +32,7 @@ codebase.**
 | HTTP `[VERIFIED]` | `requests` + custom `fabric_api_base.py` (4.9KB) | `httpx` + tenacity + single front-door |
 | Wraps `[VERIFIED]` | `fab` CLI subprocess in `fabric_wrapper.py` (1975 LOC monolith) | `ms-fabric-cli`, `fabric-cicd`, `msfabricpysdkcore` (thin wrappers) |
 | Plugin model `[VERIFIED]` | None — multi-customer via `.env.<customer>` files | Protocol-seam plugins (17 plugins, 11 seam groups) |
-| State `[DOC-CLAIM]` | `DeploymentState` for rollback | `DeployRecord` ledger + `sigantry deploy --rollback` |
+| State `[DOC-CLAIM]` | `DeploymentState` for rollback | `DeployRecord` ledger + `sigantry deploy run --rollback` |
 | Audit `[VERIFIED — audit_logs/ + audit_report_..._2026-03-02.xlsx exist]` | JSONL + monthly Excel rollup | `governance.audit` decorator |
 | Web UI `[VERIFIED — webapp/ exists with FastAPI + Vite/React]` | FastAPI + React/TanStack/Radix | None |
 | License `[VERIFIED]` | Proprietary (Ricoh) | Apache-2.0 |

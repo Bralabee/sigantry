@@ -133,7 +133,7 @@ Re-render procedure:
    ```bash
    gh release create v0.X.0 --repo sigantry/demo-sigantry \
      --title "Demo walkthrough vX.0" \
-     --notes "Refreshed walkthrough; sigantry-core $(sigantry --version)" \
+     --notes "Refreshed walkthrough; sigantry $(python -c 'import sigantry_core; print(sigantry_core.__version__)')" \
      scripts/remotion/out/walkthrough.mp4
    ```
 7. Update the PRODUCT-BRIEF `## Demo` section's `<DEMO-URL>`
@@ -142,8 +142,8 @@ Re-render procedure:
 
 ## 5. Public-repo mirror procedure (Test 1)
 
-See [`15-HUMAN-UAT.md` Test 1](../../.planning/milestones/v3.0-phases/15-public-demo-environment/15-HUMAN-UAT.md)
-for the full procedure. Summary:
+The full procedure lives in the maintainer's phase-15 operator checklist
+(Test 1), which is not part of the open-source tree. Summary:
 
 ```bash
 python scripts/export-demo.py --dry-run                     # parity gate
@@ -207,10 +207,9 @@ and quarterly during the mp4-cadence review (Section 4).
 
 ## 8. Trademark / clearance -- V3-RISK-1
 
-Per [Phase 15 CONTEXT.md Reviewed Todos](../../.planning/milestones/v3.0-phases/15-public-demo-environment/15-CONTEXT.md):
-trademark + domain + PyPI clearance for `Sigantry` / `demo-sigantry`
-was DEFERRED in v3.0. Operator runs the clearance check at
-[`15-HUMAN-UAT.md` Test 0](../../.planning/milestones/v3.0-phases/15-public-demo-environment/15-HUMAN-UAT.md);
+Per the phase-15 reviewed-todos record (maintainer-side, not in the
+open-source tree): trademark + domain + PyPI clearance for `Sigantry` / `demo-sigantry`
+was DEFERRED in v3.0. Operator runs the clearance check at Test 0 of that same checklist;
 if conflicts surface, defer Test 1 mirror until a v3.1 rename
 completes.
 
@@ -224,6 +223,6 @@ URL. Treat the placeholder as a feature, not a bug, until then.
   15-min walkthrough.
 - [docs/demo/walkthrough-script.md](../demo/walkthrough-script.md) --
   mp4 narrative source.
-- [.planning/phases/15-public-demo-environment/15-HUMAN-UAT.md](../../.planning/milestones/v3.0-phases/15-public-demo-environment/15-HUMAN-UAT.md)
-  -- the 5 operator gates (trademark + mirror + tenant + mp4 +
-  fresh-laptop reviewer).
+- The maintainer's phase-15 operator checklist -- the 5 operator gates
+  (trademark + mirror + tenant + mp4 + fresh-laptop reviewer). Held
+  outside this repository; ask the maintainer.
