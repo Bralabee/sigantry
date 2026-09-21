@@ -52,8 +52,8 @@ jobs:
         inputs:
           versionSpec: ${{ parameters.pythonVersion }}
         displayName: 'Set up Python'
-      - script: pip install sigantry-core
-        displayName: 'Install sigantry-core'
+      - script: pip install sigantry
+        displayName: 'Install sigantry'
       - script: |
           sigantry pr-bot run \
             --provider auto \

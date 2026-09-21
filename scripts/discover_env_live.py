@@ -12,7 +12,7 @@ No secret is ever printed. No state is mutated.
 
 Usage
 -----
-    conda activate sigantry-core
+    conda activate sigantry-dev
     python scripts/discover_env_live.py                 # matches workspace name containing 'aims'
     python scripts/discover_env_live.py --workspace-name AIMS-DEV
     python scripts/discover_env_live.py --list-only     # list only; do not pick a workspace

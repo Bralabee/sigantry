@@ -47,11 +47,11 @@ steps:
       set -e
       python -m pip install --upgrade pip
       if [ -n '${{ parameters.fabricDataopsVersion }}' ]; then
-        python -m pip install 'sigantry-core==${{ parameters.fabricDataopsVersion }}'
+        python -m pip install 'sigantry==${{ parameters.fabricDataopsVersion }}'
       else
-        python -m pip install sigantry-core
+        python -m pip install sigantry
       fi
-    displayName: 'pip install sigantry-core'
+    displayName: 'pip install sigantry'
 
   - task: AzureCLI@2
     displayName: 'sigantry git commit'

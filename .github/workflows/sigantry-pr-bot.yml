@@ -2,7 +2,7 @@
 # ------------------------------------------------------------------
 # Monorepo product-side PR-review bot workflow (Plan 14-06 Task 2).
 #
-# Runs the Sigantry PR-review bot on PRs into THIS sigantry-core repo.
+# Runs the Sigantry PR-review bot on PRs into THIS sigantry repo.
 # Paired with templates/pr-review/sigantry-pr-bot.yml; parity enforced
 # by scripts/ci/check-dual-ci-parity.py (basename + stage-graph +
 # parameter parity).
@@ -63,7 +63,7 @@ jobs:
         with:
           python-version: ${{ inputs.pythonVersion || '3.11' }}
           cache: 'pip'
-      - name: Install sigantry-core (editable from source)
+      - name: Install sigantry (editable from source)
         run: pip install -e ./head-tree
       - name: Run sigantry pr-bot
         env:
