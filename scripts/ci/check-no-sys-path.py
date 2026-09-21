@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
 """Block ``sys.path.append`` / ``sys.path.insert`` in Python files and Jupyter notebooks.
 
-Detects attempts to hack import paths at runtime. Scans every ``.py``
-and ``.ipynb`` under the root argument (default ``.``) and fails the
-build on any ``sys.path.append(...)`` or ``sys.path.insert(...)`` call
-that appears in actual Python CODE (not comments, not docstrings, not
-string literals, not markdown cells).
+Detects attempts to hack import paths at runtime. Scans the ``.py`` and
+``.ipynb`` files that make up REPOSITORY CONTENT under the root argument
+(default ``.``) and fails the build on any ``sys.path.append(...)`` or
+``sys.path.insert(...)`` call that appears in actual Python CODE (not
+comments, not docstrings, not string literals, not markdown cells).
+
+File inventory:
+    Inside a git work tree the inventory comes from ``git ls-files``
+    (tracked plus untracked-but-not-ignored), so a gitignored local
+    artifact -- a ``mkdocs build``, a scratch directory, an audit run --
+    is not repository content and cannot fail the build. Outside a work
+    tree the scan falls back to walking the filesystem. An inventory that
+    ends up empty is REFUSED rather than reported clean.
 
 Rationale:
     Ad-hoc ``sys.path`` manipulation produces fragile deployments that
@@ -33,6 +41,10 @@ Output on any hit:
 Exit codes:
     0 -- clean (no hits found).
     1 -- at least one hit; CI should fail.
+    2 -- the guard could not evaluate (empty file inventory). NEVER read
+         this as clean; it is not the same answer as 0, and keeping it
+         distinct from 1 is what lets a consumer tell "the guard is
+         broken" from "the guard found something".
 
 Usage:
     python scripts/ci/check-no-sys-path.py [path]
@@ -124,13 +136,18 @@ def _git_tracked_paths(root: Path) -> list[Path] | None:
         return None
 
     rels = [rel for rel in listed.stdout.split("\0") if rel]
-    if not rels:
+    # --cached lists index entries whose working-tree file may be deleted, so the
+    # inventory that matters is what survives the filter, not what git named. A
+    # staged-then-deleted file (or a sparse checkout) makes `rels` non-empty while
+    # the scan still reads nothing -- checking before the filter would let exactly
+    # the vacuous pass this refusal exists to prevent through.
+    paths = [root / rel for rel in rels if (root / rel).is_file()]
+    if not paths:
         raise RuntimeError(
-            f"check-no-sys-path: `git ls-files` returned no files in {root}. "
+            f"check-no-sys-path: `git ls-files` returned no readable files in {root}. "
             "Refusing to report a clean scan that read nothing."
         )
-    # --cached lists index entries whose working-tree file may be deleted.
-    return [root / rel for rel in rels if (root / rel).is_file()]
+    return paths
 
 
 def _is_excluded(path: Path, root: Path) -> bool:
@@ -287,10 +304,24 @@ def _check_ipynb(path: Path) -> list[tuple[int, str]]:
 
 
 def main(root_arg: str = ".") -> int:
-    """Return 0 on clean, 1 on any hit."""
+    """Return 0 on clean, 1 on any hit, 2 when the guard could not evaluate.
+
+    2 is distinct on purpose. Collapsing "the guard is broken" onto 1 makes a
+    guard that read nothing indistinguishable from a guard that found a real
+    violation, and a consumer pipeline cannot tell which it is looking at.
+    Both are non-zero, so either still fails the build.
+    """
     root = Path(root_arg).resolve()
     all_hits: list[tuple[Path, int, str]] = []
-    for path in _iter_candidate_files(root):
+    try:
+        candidates = list(_iter_candidate_files(root))
+    except RuntimeError as exc:
+        # _iter_candidate_files is a generator, so a refusal raised while the
+        # inventory is being built escapes the for-loop below unless it is
+        # caught here -- exiting 1 with a traceback rather than saying why.
+        print(f"{exc}", file=sys.stderr)
+        return 2
+    for path in candidates:
         hits = _check_py(path) if path.suffix == ".py" else _check_ipynb(path)
         for lineno, line in hits:
             all_hits.append((path, lineno, line))

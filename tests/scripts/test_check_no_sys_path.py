@@ -264,6 +264,51 @@ def test_empty_git_inventory_refuses_to_report_clean(tmp_path: Path) -> None:
         chk._git_tracked_paths(tmp_path)
 
 
+def test_inventory_that_filters_down_to_nothing_also_refuses(tmp_path: Path) -> None:
+    """A NON-empty listing whose files are all unreadable is still a vacuous scan.
+
+    ``git ls-files --cached`` names index entries whose working-tree file may
+    be gone. Checking the refusal against the raw listing rather than against
+    what survives ``is_file()`` lets that case through: the listing is
+    non-empty, so the refusal does not fire, and the filtered result is ``[]``
+    -- which is not ``None``, so no filesystem fallback runs either. The guard
+    then reports clean having read zero files.
+    """
+    chk = _load_checker()
+    _git_init(tmp_path)
+    staged = tmp_path / "gone.py"
+    staged.write_text("x = 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "gone.py"], cwd=tmp_path, check=True, capture_output=True)
+    staged.unlink()
+
+    # Precondition: git still names it, so the pre-filter check would pass.
+    listed = subprocess.run(
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert [rel for rel in listed.stdout.split("\0") if rel] == ["gone.py"]
+
+    with pytest.raises(RuntimeError, match="read nothing"):
+        chk._git_tracked_paths(tmp_path)
+
+
+def test_refusal_reaches_main_as_exit_2_not_a_traceback(tmp_path: Path) -> None:
+    """``main()`` must honour its exit-code contract when the guard refuses.
+
+    ``_iter_candidate_files`` is a generator, so a refusal raised while the
+    inventory is built escapes ``main``'s for-loop. Unhandled, the process
+    exits 1 with a traceback -- the same code as a real violation, which is
+    precisely the distinction a consumer pipeline needs. Asserting on the
+    private helper alone would leave that regression green.
+    """
+    chk = _load_checker()
+    _git_init(tmp_path)
+    assert chk.main(str(tmp_path)) == 2
+
+
 def test_exclusion_matches_relative_path_not_checkout_ancestry(tmp_path: Path) -> None:
     """Excluded names are matched under the scan root, not in its ancestry.
 
