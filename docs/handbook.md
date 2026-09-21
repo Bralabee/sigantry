@@ -202,9 +202,9 @@ result = fdo.deploy(DeployContext(workspace_id="ws-demo", environment="dev"))
 print(result.items_published, result.items_failed)
 ```
 
-### Declarative Config (`.fabric-dataops.toml`)
+### Declarative Config (`.sigantry.toml`)
 
-Create `.fabric-dataops.toml` at repo root:
+Create `.sigantry.toml` at repo root:
 
 ```toml
 [core]
@@ -226,7 +226,7 @@ Load and execute:
 from sigantry_core import FabricDataOps
 from sigantry_core.protocols import DeployContext
 
-fdo = FabricDataOps.from_config(".fabric-dataops.toml")
+fdo = FabricDataOps.from_config(".sigantry.toml")
 result = fdo.deploy(DeployContext(
     workspace_id="<workspace-guid>",
     environment="PROD",

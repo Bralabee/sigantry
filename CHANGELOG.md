@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `tests/ci/test_distribution_name.py` keeps the shipped surface — templates,
+  workflows, scripts and the package — free of the dead distribution name, so
+  it cannot creep back. It reads `pyproject.toml` as a *precondition* — the
+  scan is meaningless if the declared name ever stops being `sigantry` — but
+  the name it polices (`_DEAD_DIST`) is a literal, so a future rename means
+  editing the guard, not just `pyproject.toml`. Its one carve-out (the ADO
+  artifact identifier `sigantry-core-wheel`) is itself guarded by a test
+  asserting the carve-out is still in use.
+
+### Changed
+- **Config surface renamed to match the product (ADR-0011, V3.X-ROADMAP
+  LEGACY-SURFACE-DROP item 2).** `load_settings()` and
+  `FabricDataOps.from_config()` now resolve `.sigantry.toml` by default, and
+  settings env overrides use the `SIGANTRY_<SECTION>__<KEY>` prefix. Before
+  this, the documented `.sigantry.toml` filename was read by nothing: an
+  operator who followed the migration guide got a config file that was
+  silently ignored and a run on all defaults.
+
+### Deprecated
+- `.fabric-dataops.toml` and the `FDT_` settings env prefix. Both are still
+  read for one more minor release and each emits a `DeprecationWarning` naming
+  its replacement. Where a setting is supplied under both prefixes, `SIGANTRY_`
+  wins.
+
 ### Fixed
 - **Shipped templates and workflows told consumers to `pip install
   sigantry-core`, which 404s.** The distribution is `sigantry`
@@ -44,15 +69,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   demo quickstart and the shipped demo template after a sibling link in the
   same file was corrected.
 
-### Added
-- `tests/ci/test_distribution_name.py` keeps the shipped surface — templates,
-  workflows, scripts and the package — free of the dead distribution name, so
-  it cannot creep back. It reads `pyproject.toml` as a *precondition* — the
-  scan is meaningless if the declared name ever stops being `sigantry` — but
-  the name it polices (`_DEAD_DIST`) is a literal, so a future rename means
-  editing the guard, not just `pyproject.toml`. Its one carve-out (the ADO
-  artifact identifier `sigantry-core-wheel`) is itself guarded by a test
-  asserting the carve-out is still in use.
+- `sigantry sync` no longer swallows a config-load failure in silence. An
+  unreadable or malformed config is logged as a warning saying the command is
+  continuing on defaults, instead of a bare `except Exception` that left the
+  operator with no signal their settings were never applied.
+- `load_settings`' docstring claimed a missing config file raised
+  `ValidationError`. It never did — no settings field is required — so the
+  documented fail-fast did not exist. The docstring now states the real
+  behaviour and says who is responsible for checking.
+
+### Security
+- Settings env overrides are now restricted to `<PREFIX><SECTION>__<KEY>` forms
+  whose section names a real settings field, and **no** model in the tree
+  enables pydantic-settings' own env source. `SIGANTRY_` is shared with ~70
+  operational variables, several of them credentials
+  (`SIGANTRY_SMTP_PASSWORD`, `SIGANTRY_GITHUB_TEST_PAT`,
+  `SIGANTRY_FABRIC_TOKEN`). Because `ToolkitSettings` allows extra fields, an
+  unfiltered sweep under the new prefix would have bound those onto the
+  settings object and exposed them through `model_dump()`.
+- **Unprefixed environment variables no longer bind to settings.** Dropping the
+  env source on the root model closed only one of fourteen: each seam section is
+  a `Field(default_factory=...)`, and while those sub-models were `BaseSettings`
+  with no `env_prefix`, every factory call ran an env source that matched BARE
+  names. Measured before the fix: `TENANT_ID` bound to `core.tenant_id`,
+  `PROVIDER` to `auth.provider`, `REGISTRY` to `runbooks.registry` — so a CI
+  runner exporting `REGISTRY` for a container registry silently populated
+  settings the operator never wrote. The sub-models are now plain `BaseModel`.
+- A scalar env override aimed at a dict-typed field
+  (`SIGANTRY_RELEASE__GITHUB`, `SIGANTRY_RELEASE__ADO`,
+  `SIGANTRY_RUNBOOKS__STATIC_MAP`) raised `ValidationError` out of *every*
+  settings load for as long as the variable stayed exported. It is now skipped
+  with a warning. `SIGANTRY_CORE__` (empty trailing segment) likewise cleared
+  the length guard and wrote an empty-string key onto the section.
+- `sigantry sync` crashed rather than warned on a config file containing a
+  non-UTF-8 byte: `tomllib.load` decodes the file itself, so it raises
+  `UnicodeDecodeError`, which is caught by neither `OSError` nor
+  `TOMLDecodeError`.
 
 ### Known remaining
 - 15 `pip install` / dependency lines across 9 files under `docs/` still name
@@ -75,6 +127,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `fabricDataopsVersion` are public interface names. Renaming them breaks
   consumer pipelines that reference them, so both need a deprecation window
   rather than a find-and-replace.
+
 
 ## [1.0.0] - 2026-09-19
 
