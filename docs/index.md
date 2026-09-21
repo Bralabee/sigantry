@@ -14,7 +14,7 @@ that register themselves via Python entry points under the 11 canonical
 
 - **[Getting started](getting-started/install.md)** - Install the base
   plus one or more plugin packages, wire them via
-  `.fabric-dataops.toml`, and see a first deploy with the in-memory
+  `.sigantry.toml`, and see a first deploy with the in-memory
   doubles.
 - **[Tutorials](tutorials/index.md)** - Ten hand-holding worked examples
   with expected output and visual walkthroughs: from first contact through

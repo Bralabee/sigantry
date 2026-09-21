@@ -145,7 +145,7 @@ python3 -c "import json; s=json.load(open('/tmp/snap.json')); print('folders:', 
 
 You will see a one-time **Preview-API warning** about the Fabric Folders REST endpoint.
 That is expected — folders are still a Preview API upstream. Acknowledge it permanently
-by setting `workflow.preview_apis_acknowledged = true` in `.fabric-dataops.toml`.
+by setting `workflow.preview_apis_acknowledged = true` in `.sigantry.toml`.
 
 Open the Fabric portal, count the folders and items in that workspace, and compare.
 They should match 1:1 — that is your proof the toolkit sees exactly what you see.

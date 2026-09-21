@@ -59,7 +59,7 @@ flowchart TB
     subgraph CORE["sigantry-core front door"]
         API["api.py · FabricDataOps"]
         REGISTRY["registry.py · plugin registry"]
-        CONFIG[".fabric-dataops.toml loader"]
+        CONFIG[".sigantry.toml loader"]
         CLIENT["client/ · single HTTP client<br/>(httpx + tenacity, governed)"]
     end
 
@@ -476,7 +476,7 @@ Live `sigantry doctor` output (verified 2026-05-12) reports **17 plugins discove
 ```python
 from sigantry_core import FabricDataOps
 
-# 1. Construct from .fabric-dataops.toml + plugin registry
+# 1. Construct from .sigantry.toml + plugin registry
 fdo = FabricDataOps.from_config()
 
 # 2. Programmatic deploy via a registered DeployProfile (e.g. HS2 'aims')
@@ -501,7 +501,7 @@ fdo.close()
 
 | Method | Line | Purpose |
 |---|---|---|
-| `from_config(...)` | `api.py:83` | Constructor; loads `.fabric-dataops.toml`, resolves seams via registry. |
+| `from_config(...)` | `api.py:83` | Constructor; loads `.sigantry.toml`, resolves seams via registry. |
 | `deploy(...)` | `api.py:133` | Programmatic deploy. |
 | `run_dq_gate(...)` | `api.py:155` | Inline DQ gate execution. |
 | `emit(...)` | `api.py:179` | Telemetry emission. |
