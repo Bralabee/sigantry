@@ -42,7 +42,8 @@ jobs:
         run: pip install -e '.[dev]'
       # Scoped to the shipped library, which is clean today so this job starts
       # green and any regression is the PR that caused it. scripts/ currently
-      # has 7 pre-existing errors (2 need the types-Markdown stub); widening to
+      # has 8 pre-existing errors in 5 files (measured; 2 need the types-Markdown
+      # stub); widening to
       # it is a follow-up, not a silent omission.
       - name: Mypy
         run: mypy sigantry_core/

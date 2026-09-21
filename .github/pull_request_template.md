@@ -25,13 +25,16 @@
 - [ ] No emojis in code, commits, or docs.
 - [ ] No `Co-Authored-By:` trailers.
 - [ ] `pytest -q` passes locally with zero failures. There is no longer a carve-out for `test_wiki_links.py` - it runs in CI now. See CLAUDE.md for the current measured baseline rather than repeating a count here.
-- [ ] `ruff check sigantry_core/ tests/ scripts/` clean. GitHub Actions enforces
-      this scope; the Azure DevOps pipeline lints only `sigantry_core/ tests/`
-      by default (`templates/jobs/lint-python.yml`, parameter `sourcePaths`), so
-      on ADO the `scripts/` half is on you.
+- [ ] `ruff check sigantry_core/ tests/ scripts/` clean. This repo's CI (GitHub
+      Actions) enforces all three roots. A consumer ADO pipeline using
+      `templates/jobs/lint-python.yml` defaults `sourcePaths` to
+      `sigantry_core/ tests/`, so `scripts/` is not covered there unless the
+      consumer overrides it.
 - [ ] `mypy sigantry_core/` clean. Enforced by the GitHub Actions
-      `Type Check (mypy)` job only — no Azure DevOps pipeline runs mypy at all,
-      so a green ADO build is not evidence this passed.
+      `Type Check (mypy)` job, and also by the `pre-commit run --all-files`
+      backstop in `templates/extends/secure-pipeline.yml` via the mirrors-mypy
+      hook (scoped `^sigantry_core/`). Those pin different mypy versions in
+      different environments, so a pass in one is not a pass in the other.
 - [ ] `pwsh -c "Invoke-Pester -Configuration (& ./tests/Pester.config.ps1)"` passes (if PowerShell surface touched).
 - [ ] `make docs-doctest` passes (if any docstring examples were added or edited).
 - [ ] CHANGELOG.md updated under `## [Unreleased]` with a user-facing entry (if user-facing change).

@@ -98,8 +98,19 @@ def test_artifact_build_depends_on_every_quality_job(ci_workflow: dict) -> None:
     """Artifacts are not built from a tree that skipped a BLOCKING quality gate."""
     jobs = ci_workflow["jobs"]
     needs = set(_as_list(jobs["build"].get("needs")))
-    # A job that depends on build cannot also gate build.
-    downstream = {n for n, j in jobs.items() if "build" in _as_list(j.get("needs"))}
+    # A job downstream of build cannot also gate build -- that is a cycle.
+    # Transitively: `publish: needs [build]` then `notify: needs [publish]`
+    # leaves `notify` downstream too, and demanding it gate `build` is
+    # unsatisfiable. Walk the closure rather than only direct dependents.
+    downstream: set[str] = set()
+    frontier = {"build"}
+    while frontier:
+        frontier = {
+            n
+            for n, j in jobs.items()
+            if n not in downstream and frontier & set(_as_list(j.get("needs")))
+        }
+        downstream |= frontier
     quality_jobs = set(jobs) - {"build"} - downstream
     missing = quality_jobs - needs - set(_BUILD_DEPS_EXEMPT)
     assert not missing, (
