@@ -51,7 +51,7 @@ except ModuleNotFoundError:
 try:
     import yaml
 except ImportError:  # keep the gate runnable without a yaml dep
-    yaml = None
+    yaml = None  # type: ignore[assignment]
 
 CONFIG_NAME = ".docs-freshness.yml"
 
@@ -148,7 +148,7 @@ def declared_version(repo: str) -> str | None:
         data = tomllib.load(fh)
     proj = data.get("project", {})
     if proj.get("version"):
-        return proj["version"]
+        return str(proj["version"])
     # dynamic: find __version__ in the package __init__
     pkgs = (
         data.get("tool", {})
@@ -183,8 +183,28 @@ def load_metrics(repo: str, cfg: dict) -> dict:
     path = os.path.join(repo, mf)
     if not os.path.exists(path):
         return {}
-    with open(path, encoding="utf-8") as fh:
-        return json.load(fh)
+    # A broken metrics file is a config error (rc 2), not documentation drift
+    # (rc 1). Returning {} would make a truncated or replaced file
+    # indistinguishable from a valid empty one: the gate passes clean on a
+    # broken input, or later reports a claimed metric as "absent" while naming
+    # neither the file nor the real cause. A truncated file raises
+    # JSONDecodeError -- the same failure wearing a traceback.
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        # UnicodeDecodeError, not just JSONDecodeError: a UTF-16 or
+        # stray-byte metrics file is the same broken input and escaped as an
+        # uncaught traceback, which is what this branch exists to remove.
+        print(f"docs_freshness: {path} could not be read as JSON: {exc}", file=sys.stderr)
+        raise SystemExit(2) from exc
+    if not isinstance(data, dict):
+        print(
+            f"docs_freshness: {path} must contain a JSON object, found {type(data).__name__}",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    return data
 
 
 # ---------------------------------------------------------------------------

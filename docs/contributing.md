@@ -43,8 +43,10 @@ Verify:
 
 ```bash
 python -c "import sigantry_core; print(sigantry_core.__version__)"
-ruff check sigantry_core/ tests/
-pytest -q
+ruff check sigantry_core/ tests/ scripts/
+ruff format --check sigantry_core/ tests/ scripts/
+mypy sigantry_core/ scripts/
+python -m pytest    # no extra -q: addopts already has one, and -qq hides the counts
 pwsh -c "Invoke-Pester -Configuration ./tests/Pester.config.ps1"
 ```
 

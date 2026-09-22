@@ -7,10 +7,24 @@ on:
     tags: ['v*']
   pull_request:
     branches: [master, main]
+  # Callable so the PyPI release path gates on these SAME quality jobs
+  # instead of shipping a wheel that nothing checked. See publish-pypi.yml.
+  workflow_call:
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # `github.workflow` is the CALLER's workflow name in a reusable workflow,
+  # so a release's quality gate (publish-pypi -> this file) lands in a
+  # different group from the `push: tags` run of the same tag. Keyed on
+  # `github.ref` alone they collide and cancel-in-progress kills one --
+  # and if that is the release's gate, the publish job is skipped and
+  # nothing ships, as a cancellation rather than a red X.
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # Cancel superseded PR runs; never cancel a tag or release-path run. Two
+  # runs of the release path on the SAME ref (a `release: published` and a
+  # re-run or workflow_dispatch) share both keys, so `true` would let the
+  # newer cancel the older's quality gate and skip the publish -- reported
+  # as a cancellation rather than a red X.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint:
@@ -40,13 +54,13 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: pip install -e '.[dev]'
-      # Scoped to the shipped library, which is clean today so this job starts
-      # green and any regression is the PR that caused it. scripts/ currently
-      # has 8 pre-existing errors in 5 files (measured; 2 need the types-Markdown
-      # stub); widening to
-      # it is a follow-up, not a silent omission.
+      # Covers every root the project owns that mypy can parse; both are
+      # clean, so this job starts green and any regression is the PR that
+      # caused it. `tests/` is deliberately absent: it fails module
+      # resolution before type checking even begins (duplicate basenames,
+      # no `__init__.py`), which is a separate piece of work.
       - name: Mypy
-        run: mypy sigantry_core/
+        run: mypy sigantry_core/ scripts/
 
   test:
     name: Test (${{ matrix.os }} / Python ${{ matrix.python-version }})
@@ -72,14 +86,15 @@ jobs:
   build:
     name: Build & Verify Artifacts
     runs-on: ubuntu-latest
-    # `types` is deliberately NOT in this list while it is not a required
-    # status check. A job skipped because a dependency failed still reports a
-    # check run, and GitHub counts a skipped run as satisfying its required
-    # context -- so `needs: types` would let a type error skip `build` and hand
-    # branch protection a green "Build & Verify Artifacts" on a broken tree.
-    # That is strictly worse than not gating on types at all. Add `types` here
-    # only once `Type Check (mypy)` is itself a required context on `main`.
-    needs: [lint, test]
+    # Every quality job gates the artifact, `types` included. A job skipped
+    # because a dependency failed still reports a check run, and GitHub
+    # counts a skipped run as SATISFYING its required context -- so gating
+    # `build` on a job that is not ITSELF required would let a failure skip
+    # `build` and hand branch protection a green "Build & Verify Artifacts"
+    # on a broken tree. `Type Check (mypy)` became a required context on
+    # `main` on 2026-09-21, so that laundering route is closed and `types`
+    # belongs here. Anything added to this list must be required too.
+    needs: [lint, test, types]
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -89,8 +104,11 @@ jobs:
         run: pip install build twine
       - name: Build sdist & wheel
         run: python -m build
+      # --strict, to match publish-pypi.yml. A metadata defect that is a
+      # warning here but an error there would otherwise pass every quality
+      # job and only surface mid-release.
       - name: Twine check
-        run: twine check dist/*
+        run: twine check --strict dist/*
       - name: Upload wheel artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

@@ -80,7 +80,7 @@ def _is_already_chained(records: list[Any]) -> bool:
         return False
     if len(records) < 2:
         return True  # single-record file: head OK, nothing more to verify.
-    return records[1].prev_hash == records[0].audit_hash
+    return bool(records[1].prev_hash == records[0].audit_hash)
 
 
 def migrate_one_file(

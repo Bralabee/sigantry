@@ -74,7 +74,15 @@ repos:
   # Static typing (sigantry_core only -- plugins / shims excluded)
   # ------------------------------------------------------------------
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.13.0
+    # Kept on the version `mypy>=1.19,<2.0` in pyproject actually resolves, so
+    # hook and CI agree on the mypy VERSION. They do NOT agree on results, and
+    # this hook is currently RED: `pre-commit run mypy --all-files` reports 11
+    # errors in 10 files while `mypy sigantry_core/ scripts/` is clean. The
+    # cause is the isolated env, not the version -- the same 11 reproduce at
+    # v1.13.0. types-PyYAML below clears 6 of them; the remaining 5
+    # `no-any-return` need the rest of the runtime types this env lacks.
+    # Tracked as an issue rather than papered over here.
+    rev: v1.20.2
     hooks:
       - id: mypy
         # Match pyproject.toml [tool.mypy] python_version = "3.11".
@@ -83,6 +91,7 @@ repos:
         # Pre-commit's mypy hook isolates from the project venv; pass
         # runtime-typed dependencies so imports resolve.
         additional_dependencies:
+          - types-PyYAML>=6.0,<7.0
           - pydantic>=2,<3
           - pydantic-settings>=2,<3
           - typer>=0.20,<1.0

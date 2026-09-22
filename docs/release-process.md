@@ -45,13 +45,18 @@ the bump):
 
 Run before opening the release PR:
 
-1. `ruff check sigantry_core/ tests/` - clean.
-2. `pytest -q` - all green.
-3. `pytest tests/prereqs/ -q` - banned-API invariants green.
-4. `pwsh -c "Invoke-Pester -Configuration ./tests/Pester.config.ps1"`.
-5. Update `CHANGELOG.md`: move `[Unreleased]` to a dated heading.
-6. Bump `sigantry_core/_version.py`.
-7. Grep for the old version across docs + README; fix stragglers.
+1. `ruff check sigantry_core/ tests/ scripts/` and
+   `ruff format --check sigantry_core/ tests/ scripts/` - clean.
+2. `mypy sigantry_core/ scripts/` - clean. (`Type Check (mypy)` is a
+   required status check on `main`.)
+3. `python -m pytest` - all green. Do not add `-q`: `addopts` already
+   carries one and `-qq` prints no counts at all, so a run that collected
+   nothing looks identical to a passing one.
+4. `python -m pytest tests/prereqs/` - banned-API invariants green.
+5. `pwsh -c "Invoke-Pester -Configuration ./tests/Pester.config.ps1"`.
+6. Update `CHANGELOG.md`: move `[Unreleased]` to a dated heading.
+7. Bump `sigantry_core/_version.py`.
+8. Grep for the old version across docs + README; fix stragglers.
 
 ## Release PR
 

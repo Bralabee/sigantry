@@ -262,7 +262,9 @@ def md_to_html(md_text: str) -> tuple[str, list[dict]]:
         },
     )
     html = md.convert(md_text)
-    return html, md.toc_tokens
+    # `toc_tokens` is attached to the Markdown instance at runtime by the
+    # "toc" extension enabled above; the stubs cannot express that.
+    return html, md.toc_tokens  # type: ignore[attr-defined]
 
 
 def build_toc(toc_tokens: list[dict]) -> str:
