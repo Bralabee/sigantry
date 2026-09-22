@@ -12,7 +12,13 @@ on:
   workflow_call:
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # `github.workflow` is the CALLER's workflow name in a reusable workflow,
+  # so a release's quality gate (publish-pypi -> this file) lands in a
+  # different group from the `push: tags` run of the same tag. Keyed on
+  # `github.ref` alone they collide and cancel-in-progress kills one --
+  # and if that is the release's gate, the publish job is skipped and
+  # nothing ships, as a cancellation rather than a red X.
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -93,8 +99,11 @@ jobs:
         run: pip install build twine
       - name: Build sdist & wheel
         run: python -m build
+      # --strict, to match publish-pypi.yml. A metadata defect that is a
+      # warning here but an error there would otherwise pass every quality
+      # job and only surface mid-release.
       - name: Twine check
-        run: twine check dist/*
+        run: twine check --strict dist/*
       - name: Upload wheel artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

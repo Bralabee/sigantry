@@ -75,7 +75,11 @@ repos:
   # ------------------------------------------------------------------
   - repo: https://github.com/pre-commit/mirrors-mypy
     # Kept on the version `mypy>=1.19,<2.0` in pyproject actually resolves,
-    # so the hook and the CI gate cannot disagree about what is an error.
+    # so hook and CI agree on the mypy VERSION. They do not yet agree on
+    # scope: `files:` below is `^sigantry_core/` while CI also checks
+    # `scripts/`, and this hook's isolated env carries neither
+    # types-PyYAML nor types-Markdown. Recorded under Known remaining in
+    # CHANGELOG.md rather than asserted away.
     rev: v1.20.2
     hooks:
       - id: mypy

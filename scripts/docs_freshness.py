@@ -185,10 +185,15 @@ def load_metrics(repo: str, cfg: dict) -> dict:
         return {}
     with open(path, encoding="utf-8") as fh:
         data = json.load(fh)
-    # A metrics file holding a JSON list or scalar is malformed for this
-    # gate; treat it as "no metrics" rather than returning a non-dict from
-    # a function every caller subscripts by key.
-    return data if isinstance(data, dict) else {}
+    if not isinstance(data, dict):
+        # Returning {} here would make a truncated or replaced metrics file
+        # indistinguishable from a valid empty one: the gate would pass clean
+        # on a broken input, or fail later claiming a claimed metric is
+        # "absent" rather than naming the real cause.
+        raise SystemExit(
+            f"docs_freshness: {path} must contain a JSON object, found {type(data).__name__}"
+        )
+    return data
 
 
 # ---------------------------------------------------------------------------

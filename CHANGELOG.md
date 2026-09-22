@@ -82,7 +82,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **The assertions guarding "a configured tool must actually RUN" could not
-  fail for the reasons that mattered.** Measured clean → arms → clean against a
+  fail for the reasons that mattered — twice.** Review of the first rewrite
+  found it still passed with `if: false` on the mypy step (or a never-matching
+  `if:` on the `types` job, which makes it *skipped*, and a skipped run
+  satisfies its required context), with `mypy ... | tee mypy.log` (steps run
+  under `bash -e {0}` with pipefail OFF, so the step exits with tee's 0), with
+  `|| echo`, with `set +e` plus a trailing `exit 0`, and with
+  `continue-on-error` on the publish workflow's gating job. "Enforcing" is no
+  longer a denylist of neutering suffixes: an invocation counts only when it is
+  the whole command, in an unconditional step and job, in a `run:` block that
+  neither disables `errexit` nor forces `exit 0`.
+- **The publish scan looked at one filename and one action.**
+  `release-alpha.yml` publishes via `twine upload` in a job with no `needs:` —
+  precisely the defect the test exists to catch, and invisible to it. Every
+  workflow is now scanned for both mechanisms. `release-alpha.yml` carries an
+  explicit, dated carve-out pointing at #13 (it cannot currently succeed at
+  all, so gating it would assert nothing) rather than being silently missed.
+- **`ci.yml` became reusable while keeping `group: ci-${{ github.ref }}` with
+  `cancel-in-progress`.** Publishing a release fires both `push: tags` on
+  `ci.yml` and `release: published` on `publish-pypi.yml`, which calls
+  `ci.yml`; in a called workflow `github.ref` is the caller's, so both landed
+  in one group and one cancelled the other. If that was the release's gate, the
+  publish job is *skipped* and nothing ships — a cancellation, not a red X.
+  The group now includes `github.workflow`.
+- `twine check` in CI is now `--strict`, matching the publish path. A metadata
+  defect that is a warning under one and an error under the other would
+  otherwise pass every quality job and surface mid-release.
+- A malformed `metrics.json` (a JSON list or scalar) no longer reads as "no
+  metrics". `docs_freshness` raises and names the real cause instead of passing
+  clean on a broken input or later reporting a claimed metric as "absent".
+- **The original finding, for the record.** Measured clean → arms → clean against a
   parsed copy of the real `ci.yml`, the substring checks passed when the whole
   `types` job body was replaced with `pip install mypy ruff` (the string is
   present, nothing executes it), when the mypy step became a comment plus an
