@@ -57,7 +57,7 @@ jobs:
       # in scope, a PR must never grade itself with its own edited copy of the
       # gate. Trade-off, deliberate: a PR that edits the gate is judged by the
       # CURRENT gate; its changes take effect once merged.
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
       - name: resolve head, run the brain, post the status
