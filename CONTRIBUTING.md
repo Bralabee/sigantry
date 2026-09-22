@@ -41,10 +41,20 @@ Verify your setup:
 
 ```bash
 python -c "import sigantry_core; print(sigantry_core.__version__)"
-ruff check sigantry_core/ tests/
-ruff format --check sigantry_core/ tests/
-pytest -q      # expect a non-zero test count, not just exit 0
+ruff check sigantry_core/ tests/ scripts/
+ruff format --check sigantry_core/ tests/ scripts/
+mypy sigantry_core/ scripts/
+python -m pytest      # expect a non-zero test count, not just exit 0
 ```
+
+These are the same four commands CI runs; `scripts/` and `mypy` are not
+optional extras, they are required status checks on `main`.
+
+Do **not** add `-q`: `pyproject.toml` already sets it in `addopts`, so a
+second one makes `-qq`, which suppresses the pass/fail summary entirely.
+You get `rc=0` and no counts -- indistinguishable from a run that
+collected nothing, which is exactly what the comment above asks you to
+rule out.
 
 ### Confirm which tree you are running
 

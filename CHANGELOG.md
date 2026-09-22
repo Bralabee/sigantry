@@ -22,13 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   since before v1.0.0 and no workflow ever invoked it, so it reported nothing
   for as long as that was true — including a real `attr-defined` bug in
   `scripts/ci/check-no-sys-path.py` that crashed the guard on any malformed
-  `.py` file. Scoped to `sigantry_core/`, which is clean today, so the job
+  `.py` file. It covers `sigantry_core/` **and** `scripts/` — so it does
+  now cover the file that carried that bug — and both are clean, so the job
   starts green and any regression belongs to the PR that caused it.
 
-  Note the scope honestly: `sigantry_core/` does **not** include `scripts/`,
-  so this job would *not* have caught that bug. It is cited as evidence that
-  an unrun type checker reports nothing, not as something this job now
-  prevents. Extending the scope is recorded under *Known remaining*.
+  `tests/` is deliberately out of scope: it fails module resolution before
+  type checking begins (duplicate basenames with no `__init__.py`), so
+  claiming coverage there would assert something that cannot currently be
+  true.
 - `tests/ci/test_quality_gates_run.py` asserts that a quality tool the project
   configures is actually invoked by CI, and that the artifact build depends on
   every quality job. A configured-but-unrun tool is worse than an absent one:
@@ -38,12 +39,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ruff` now covers `scripts/` in CI alongside `sigantry_core/` and `tests/`.
   The CI guard scripts — the files whose whole job is policing the repo — were
   themselves unlinted. They were already clean; this stops that drifting.
-- The artifact build continues to depend on lint and test. It deliberately does
-  **not** depend on the new type-check job while `Type Check (mypy)` is not a
-  required status check on `main`: a job skipped because a dependency failed
-  still reports a check run, and GitHub counts a skipped run as satisfying its
-  required context, so the dependency would hand branch protection a green
-  `Build & Verify Artifacts` on a tree that failed type-checking.
+- **The artifact build now depends on every quality job, `types` included.**
+  It deliberately did not while `Type Check (mypy)` was unrequired — a job
+  skipped because a dependency failed still reports a check run, and GitHub
+  counts a skipped run as *satisfying* its required context, so the
+  dependency would have handed branch protection a green `Build & Verify
+  Artifacts` on a tree that failed type-checking. `Type Check (mypy)` became
+  a required context on `main` on 2026-09-21, closing that route, so the
+  carve-out is gone. Exemptions now carry a review-by date and fail the
+  suite once it passes, because this one outlived its reason in silence.
+- **The wheel published to PyPI is now gated by the same lint, type and test
+  jobs that gate a pull request.** `publish-pypi.yml` ran checkout → build →
+  `twine check` → publish with no quality job in front of it; CI's own
+  `build` job gates only the throwaway `dist` artifact that nobody installs.
+  `ci.yml` is now callable (`workflow_call`) and the publish job depends on
+  it.
+- `mypy` in `.pre-commit-config.yaml` moved from `v1.13.0` to `v1.20.2`, the
+  version `mypy>=1.19,<2.0` actually resolves to, so the hook and the CI gate
+  cannot disagree about what counts as an error.
 
 - **Config surface renamed to match the product (ADR-0011, V3.X-ROADMAP
   LEGACY-SURFACE-DROP item 2).** `load_settings()` and
@@ -59,7 +72,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its replacement. Where a setting is supplied under both prefixes, `SIGANTRY_`
   wins.
 
+### Removed
+- `scripts/ci/mypy_gate.py` and its tests are removed. It was a baseline-ratchet
+  gate invoked by nothing, its docstring claimed 63 pre-existing errors in a
+  tree that is clean, and the `mypy-baseline.txt` it read never existed. With
+  both type-checked roots clean there is nothing to ratchet, and an unrun tool
+  that describes a world that no longer exists is exactly what this release is
+  removing elsewhere.
+
 ### Fixed
+- **The assertions guarding "a configured tool must actually RUN" could not
+  fail for the reasons that mattered.** Measured clean → arms → clean against a
+  parsed copy of the real `ci.yml`, the substring checks passed when the whole
+  `types` job body was replaced with `pip install mypy ruff` (the string is
+  present, nothing executes it), when the mypy step became a comment plus an
+  `echo`, when `continue-on-error: true` was added to it, and when both ruff
+  steps were rewritten to `--exclude scripts/` — the root is named in the
+  command precisely because it is being excluded from it. Only deleting the job
+  outright failed them. The assertions now tokenise each `run:` line and ask
+  what a shell would execute.
+- `mypy` did not cover `scripts/`. The 5 errors it found there are fixed rather
+  than baselined, including one the untyped `markdown` import was masking:
+  `render.py` read `md.toc_tokens` off a `Markdown` instance with no such
+  attribute declared. `types-Markdown` is now a declared dev dependency, so
+  local and CI type-check the same tree instead of differing by whatever
+  happens to be installed.
+- **`CONTRIBUTING.md` documented a test command that hides its own result.**
+  `pyproject.toml` sets `-q` in `addopts`, so the documented `pytest -q` becomes
+  `-qq`, which suppresses the pass/fail summary entirely: measured `rc=0` with
+  no counts at all — indistinguishable from a run that collected nothing, which
+  is precisely what the adjacent comment ("expect a non-zero test count, not
+  just exit 0") asks the reader to rule out. All three contributor docs now say
+  `python -m pytest`, and name `scripts/` and `mypy` so they match the gates
+  that are actually required on `main`.
 - **Shipped templates and workflows told consumers to `pip install
   sigantry-core`, which 404s.** The distribution is `sigantry`
   (`pyproject.toml` declares it; `sigantry-core` has never existed on PyPI —
@@ -152,17 +197,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `fabricDataopsVersion` are public interface names. Renaming them breaks
   consumer pipelines that reference them, so both need a deprecation window
   rather than a find-and-replace.
-- `mypy` covers `sigantry_core/` only. Measured on this branch, `mypy scripts/`
-  reports **8 errors in 5 files** (including the `attr-defined` bug above), so
-  widening the scope is a change with real work behind it, not a one-word edit.
-  `ruff` does now cover `scripts/`; `mypy` does not.
-- The type-check job gates nothing until `Type Check (mypy)` is added to the
-  required status checks on `main`. It cannot be required before it exists on
-  `main`, so this is the immediate follow-up to merging this change.
-- The CI `build` job gates only the CI `dist` artifact. `publish-pypi.yml`
-  triggers on `release: published` and runs build → `twine check` → publish
-  with no dependency on lint, test or types, so the wheel users actually
-  install is not gated by any of them. Closing that is a separate change.
+- `mypy` covers `sigantry_core/` and `scripts/`; it does **not** cover
+  `tests/`. That is not a scope choice that can be made by editing the command:
+  `mypy tests/` currently aborts during module resolution (duplicate basenames
+  with no `__init__.py`) before type checking begins, so covering it means
+  restructuring the test tree first.
+- The quality-gate assertions read only inline `run:` strings in `ci.yml`.
+  Moving `mypy` or `ruff` into a composite action or a reusable workflow would
+  read there as "not invoked" and fail the suite. That is the safe direction —
+  a false alarm demanding the guard be updated, never a silent pass — but it is
+  a real limit, recorded rather than discovered later.
+- The pre-commit `mypy` hook still scopes to `^sigantry_core/` while CI also
+  type-checks `scripts/`, so a type error under `scripts/` is caught in CI
+  rather than at commit time. The hook runs in an isolated environment with its
+  own pinned dependency list, so widening it means maintaining that list too.
 
 ## [1.0.0] - 2026-09-19
 

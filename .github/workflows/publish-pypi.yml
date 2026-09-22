@@ -11,8 +11,17 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The wheel that reaches PyPI is gated by the SAME lint, type and test
+  # jobs that gate a pull request. Before this, the release path ran
+  # checkout -> build -> publish with no quality job in front of it: CI's
+  # `build` job gated only the throwaway CI `dist` artifact, never this.
+  quality:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+
   build-and-publish:
     name: Build & Publish to PyPI
+    needs: [quality]
     runs-on: ubuntu-latest
     environment:
       name: pypi

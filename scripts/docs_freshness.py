@@ -51,7 +51,7 @@ except ModuleNotFoundError:
 try:
     import yaml
 except ImportError:  # keep the gate runnable without a yaml dep
-    yaml = None
+    yaml = None  # type: ignore[assignment]
 
 CONFIG_NAME = ".docs-freshness.yml"
 
@@ -148,7 +148,7 @@ def declared_version(repo: str) -> str | None:
         data = tomllib.load(fh)
     proj = data.get("project", {})
     if proj.get("version"):
-        return proj["version"]
+        return str(proj["version"])
     # dynamic: find __version__ in the package __init__
     pkgs = (
         data.get("tool", {})
@@ -184,7 +184,11 @@ def load_metrics(repo: str, cfg: dict) -> dict:
     if not os.path.exists(path):
         return {}
     with open(path, encoding="utf-8") as fh:
-        return json.load(fh)
+        data = json.load(fh)
+    # A metrics file holding a JSON list or scalar is malformed for this
+    # gate; treat it as "no metrics" rather than returning a non-dict from
+    # a function every caller subscripts by key.
+    return data if isinstance(data, dict) else {}
 
 
 # ---------------------------------------------------------------------------

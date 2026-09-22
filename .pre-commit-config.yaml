@@ -74,7 +74,9 @@ repos:
   # Static typing (sigantry_core only -- plugins / shims excluded)
   # ------------------------------------------------------------------
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.13.0
+    # Kept on the version `mypy>=1.19,<2.0` in pyproject actually resolves,
+    # so the hook and the CI gate cannot disagree about what is an error.
+    rev: v1.20.2
     hooks:
       - id: mypy
         # Match pyproject.toml [tool.mypy] python_version = "3.11".

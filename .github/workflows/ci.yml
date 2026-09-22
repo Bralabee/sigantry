@@ -7,6 +7,9 @@ on:
     tags: ['v*']
   pull_request:
     branches: [master, main]
+  # Callable so the PyPI release path gates on these SAME quality jobs
+  # instead of shipping a wheel that nothing checked. See publish-pypi.yml.
+  workflow_call:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -40,13 +43,13 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: pip install -e '.[dev]'
-      # Scoped to the shipped library, which is clean today so this job starts
-      # green and any regression is the PR that caused it. scripts/ currently
-      # has 8 pre-existing errors in 5 files (measured; 2 need the types-Markdown
-      # stub); widening to
-      # it is a follow-up, not a silent omission.
+      # Covers every root the project owns that mypy can parse; both are
+      # clean, so this job starts green and any regression is the PR that
+      # caused it. `tests/` is deliberately absent: it fails module
+      # resolution before type checking even begins (duplicate basenames,
+      # no `__init__.py`), which is a separate piece of work.
       - name: Mypy
-        run: mypy sigantry_core/
+        run: mypy sigantry_core/ scripts/
 
   test:
     name: Test (${{ matrix.os }} / Python ${{ matrix.python-version }})
@@ -72,14 +75,15 @@ jobs:
   build:
     name: Build & Verify Artifacts
     runs-on: ubuntu-latest
-    # `types` is deliberately NOT in this list while it is not a required
-    # status check. A job skipped because a dependency failed still reports a
-    # check run, and GitHub counts a skipped run as satisfying its required
-    # context -- so `needs: types` would let a type error skip `build` and hand
-    # branch protection a green "Build & Verify Artifacts" on a broken tree.
-    # That is strictly worse than not gating on types at all. Add `types` here
-    # only once `Type Check (mypy)` is itself a required context on `main`.
-    needs: [lint, test]
+    # Every quality job gates the artifact, `types` included. A job skipped
+    # because a dependency failed still reports a check run, and GitHub
+    # counts a skipped run as SATISFYING its required context -- so gating
+    # `build` on a job that is not ITSELF required would let a failure skip
+    # `build` and hand branch protection a green "Build & Verify Artifacts"
+    # on a broken tree. `Type Check (mypy)` became a required context on
+    # `main` on 2026-09-21, so that laundering route is closed and `types`
+    # belongs here. Anything added to this list must be required too.
+    needs: [lint, test, types]
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
