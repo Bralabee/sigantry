@@ -55,7 +55,7 @@ dev = [
     "pytest-mock>=3.15,<4.0",
     "pytest-doctestplus>=1.3,<2.0",
     "respx>=0.21,<0.24",
-    "ruff>=0.15,<0.16",
+    "ruff>=0.15,<0.17",
     "mypy>=1.19,<2.0",
     "types-PyYAML>=6.0,<7.0",
     "types-Markdown>=3.7,<4.0",
@@ -76,7 +76,7 @@ test = [
 docs = [
     "mkdocs>=1.6,<2.0",
     "mkdocs-material>=9.7.6,<10.0",
-    "mkdocstrings[python]>=0.26,<1.0",
+    "mkdocstrings[python]>=0.26,<2.0",
 ]
 # Runtime deps of the PDF/HTML render scripts under scripts/{userguide,tutorials}/.
 # They are imported at module scope there and were declared in no group at all.
@@ -85,7 +85,7 @@ docs = [
 # NOT need it: `types-Markdown` (in `dev`) supplies the stubs.
 render = [
     "markdown>=3.7,<4.0",
-    "weasyprint>=62,<69",
+    "weasyprint>=62,<71",
 ]
 
 [project.scripts]
