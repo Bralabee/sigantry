@@ -192,8 +192,11 @@ def load_metrics(repo: str, cfg: dict) -> dict:
     try:
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
-    except json.JSONDecodeError as exc:
-        print(f"docs_freshness: {path} is not valid JSON: {exc}", file=sys.stderr)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        # UnicodeDecodeError, not just JSONDecodeError: a UTF-16 or
+        # stray-byte metrics file is the same broken input and escaped as an
+        # uncaught traceback, which is what this branch exists to remove.
+        print(f"docs_freshness: {path} could not be read as JSON: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
     if not isinstance(data, dict):
         print(

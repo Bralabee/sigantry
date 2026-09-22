@@ -53,6 +53,7 @@ import datetime as dt
 import pathlib
 import re
 import shlex
+import tomllib
 from dataclasses import dataclass
 
 import pytest
@@ -212,6 +213,41 @@ def _command_lines(run: str) -> list[str]:
     return lines
 
 
+def _strip_prefix(tokens: list[str]) -> list[str]:
+    """Drop a leading ``env`` and any ``VAR=value`` assignments."""
+    if tokens and tokens[0] == "env":
+        tokens = tokens[1:]
+    while tokens and _ASSIGNMENT_RE.match(tokens[0]):
+        tokens = tokens[1:]
+    return tokens
+
+
+def _split_segments(line: str) -> list[list[str]] | None:
+    """Tokenise, THEN split on operator tokens. None if unparseable.
+
+    Splitting the raw string first broke `mypy --exclude 'a|b' ...` mid-quote:
+    both halves failed to tokenise, no invocation was recorded, and the suite
+    reported "no CI step executes mypy" -- a false alarm that misdescribed its
+    own cause, which is the kind that gets a guard switched off. ``shlex``
+    strips the quotes, so a quoted metacharacter arrives as ordinary data and
+    only a real operator token splits.
+    """
+    try:
+        tokens = shlex.split(line)
+    except ValueError:
+        return None
+    segments: list[list[str]] = []
+    current: list[str] = []
+    for token in tokens:
+        if token in ("|", "||", "&&", ";", "&"):
+            segments.append(current)
+            current = []
+        else:
+            current.append(token)
+    segments.append(current)
+    return segments
+
+
 def _argv(segment: str) -> list[str]:
     """Tokenise one command segment, stripping env-assignment prefixes."""
     try:
@@ -223,6 +259,23 @@ def _argv(segment: str) -> list[str]:
     while tokens and _ASSIGNMENT_RE.match(tokens[0]):
         tokens = tokens[1:]
     return tokens
+
+
+def _shell_for(workflow: dict, job: dict, step: dict) -> str:
+    """The shell a step runs under, following GitHub's precedence.
+
+    Workflow-level ``defaults.run.shell`` was not read at all, so a top-level
+    ``bash {0}`` turned errexit off for every step of every job and the guard
+    passed clean. ``or {}`` at each hop because a bare ``defaults:`` key parses
+    to None, and ``.get`` on None raised an AttributeError out of the guard.
+    """
+    if step.get("shell"):
+        return str(step["shell"]).strip()
+    for source in (job, workflow):
+        run_defaults = (source.get("defaults") or {}).get("run") or {}
+        if run_defaults.get("shell"):
+            return str(run_defaults["shell"]).strip()
+    return ""
 
 
 def _normalise_tool_argv(argv: list[str], tool: str) -> tuple[str, ...] | None:
@@ -270,10 +323,14 @@ def _invocations(workflow: dict, tool: str) -> list[_Invocation]:
                 continue
             step_if = _condition(step)
             step_coe = _is_truthy(step.get("continue-on-error"))
+            shell = _shell_for(workflow, job, step)
             for line in _command_lines(run):
-                compound = bool(_OPERATOR_RE.search(line))
-                for segment in _OPERATOR_RE.split(line):
-                    argv = _normalise_tool_argv(_argv(segment), tool)
+                segments = _split_segments(line)
+                if segments is None:
+                    continue
+                compound = len(segments) > 1
+                for tokens in segments:
+                    argv = _normalise_tool_argv(_strip_prefix(tokens), tool)
                     if argv is None:
                         continue
                     found.append(
@@ -284,11 +341,7 @@ def _invocations(workflow: dict, tool: str) -> list[_Invocation]:
                             line=line,
                             argv=argv,
                             run_block=run,
-                            shell=str(
-                                step.get(
-                                    "shell", job.get("defaults", {}).get("run", {}).get("shell", "")
-                                )
-                            ).strip(),
+                            shell=shell,
                             compound=compound,
                             condition=job_if or step_if,
                             continue_on_error=job_coe or step_coe,
@@ -555,6 +608,72 @@ def test_ruff_format_check_does_not_rewrite_files(ci_workflow: dict) -> None:
         )
 
 
+def test_pytest_is_actually_invoked_and_can_fail(ci_workflow: dict) -> None:
+    """The `Test (...)` legs are required contexts and now gate the release.
+
+    Nothing policed pytest at all: measured, appending `|| true` to the test
+    step passed every assertion in this file while six required contexts went
+    green on a failing suite -- and, since publish-pypi depends on this
+    workflow, shipped a wheel behind them.
+    """
+    calls = _invocations(ci_workflow, "pytest")
+    assert calls, "no CI step executes pytest"
+    for call in calls:
+        _assert_enforcing(call)
+
+
+def test_config_files_do_not_exclude_a_covered_root(repo_root: pathlib.Path) -> None:
+    """A root can be dropped from config without touching the CI command.
+
+    `_excluded_roots` reads only `--exclude` on the command line. Putting
+    `scripts` in `[tool.ruff] extend-exclude` or `[tool.mypy] exclude` removes
+    it just as effectively while every assertion above stays true -- the
+    mirror image of the defect this file exists to close.
+    """
+    with open(repo_root / "pyproject.toml", "rb") as handle:
+        config = tomllib.load(handle)
+    tools = config.get("tool", {})
+    checks = (
+        ("ruff", tools.get("ruff", {}), _LINTED_ROOTS),
+        ("mypy", tools.get("mypy", {}), _TYPED_ROOTS),
+    )
+    for name, section, roots in checks:
+        patterns = []
+        for key in ("exclude", "extend-exclude"):
+            value = section.get(key) or []
+            patterns.extend(value if isinstance(value, list) else [value])
+        for root in roots:
+            bare = _norm_root(root)
+            hits = [p for p in patterns if _norm_root(str(p).strip("^$/")) == bare]
+            assert not hits, (
+                f"[tool.{name}] excludes {root} via {hits}, so CI lints or type "
+                "checks a tree that silently omits it while the command still "
+                "names the root."
+            )
+
+
+def test_build_job_invariants_are_pinned_not_just_commented(ci_workflow: dict) -> None:
+    """Two things this PR established in `build` were prose only.
+
+    Measured, both passed the whole suite: reverting `twine check --strict` to
+    `twine check` (the parity with publish-pypi that stops a metadata defect
+    surfacing mid-release), and replacing `python -m build` with `echo skip`,
+    after which `twine check dist/*` matches nothing and the required
+    `Build & Verify Artifacts` context goes green having built nothing.
+    """
+    builds = [c for c in _invocations(ci_workflow, "build") if c.job == "build"]
+    assert builds, "the build job does not run `python -m build`"
+    twine = [c for c in _invocations(ci_workflow, "twine") if c.job == "build"]
+    assert twine, "the build job does not run `twine check`"
+    for call in twine:
+        _assert_enforcing(call)
+        assert "--strict" in call.argv, (
+            f"{call.describe()} is not --strict, while publish-pypi.yml is. A "
+            "metadata defect that is a warning here and an error there passes "
+            "every quality job and surfaces mid-release."
+        )
+
+
 def _as_list(needs: object) -> list[str]:
     """``needs:`` is a list OR a bare scalar; ``set("lint")`` is a set of letters."""
     if needs is None:
@@ -590,8 +709,11 @@ def test_artifact_build_depends_on_every_quality_job(ci_workflow: dict) -> None:
         "so that would launder a failure into a green build. Record it in "
         "_BUILD_DEPS_EXEMPT with a review-by date instead."
     )
-    # A dependency that cannot fail is not a gate either.
-    for job_id in needs:
+    # A dependency that cannot fail is not a gate either -- and neither is
+    # `build` itself. `Build & Verify Artifacts` is a required context, so
+    # `if: always()` on it reports green on a tree that failed `types`: the
+    # laundering route this file is named after, left open on its own job.
+    for job_id in [*needs, "build"]:
         _assert_job_enforcing(jobs, job_id, "it cannot block the artifact build")
 
 
@@ -766,9 +888,17 @@ def test_ci_concurrency_group_does_not_cancel_the_release_gate(ci_workflow: dict
     # cancellation lets the newer kill the older's quality gate; the publish
     # job is then skipped for unsatisfied `needs` and nothing ships, reported
     # as a cancellation rather than a red X.
-    assert "pull_request" in str(cancel), (
+    expression = str(cancel)
+    # A substring test cannot tell `==` from `!=`: measured, `!= 'pull_request'`
+    # passed while cancelling exactly the runs this protects, and so did
+    # `== 'pull_request' || == 'push'`.
+    assert "!=" not in expression and "||" not in expression, (
+        f"ci.yml sets cancel-in-progress: {cancel!r}. Inverting or widening the "
+        "condition cancels the tag and release-path runs this exists to protect."
+    )
+    assert "github.event_name == 'pull_request'" in expression, (
         f"ci.yml sets cancel-in-progress: {cancel!r}, which cancels tag and "
-        "release-path runs too. Scope it to pull_request."
+        "release-path runs too. Scope it to pull_request exactly."
     )
     group = str(concurrency.get("group", ""))
     assert "github.workflow" in group, (

@@ -17,6 +17,11 @@ jobs:
   # `build` job gated only the throwaway CI `dist` artifact, never this.
   quality:
     name: CI
+    # Its sibling pins its own scopes; this job runs the whole suite on three
+    # OSes and needs nothing but the source, so it should not inherit whatever
+    # the repo/org default grants.
+    permissions:
+      contents: read
     uses: ./.github/workflows/ci.yml
 
   build-and-publish:

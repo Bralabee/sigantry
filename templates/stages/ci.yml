@@ -31,6 +31,19 @@ parameters:
   - name: pythonVersion
     type: string
     default: '3.11'
+  # Passed through to ../jobs/lint-python.yml. Without these a consumer
+  # reaching the lint job through this stage could neither retarget the roots
+  # nor switch the mypy step off, so a repo with no scripts/ dir got a
+  # hard-failing lint job (`ruff check <missing>/` -> E902) and no opt-out.
+  - name: lintSourcePaths
+    type: string
+    default: 'sigantry_core/ tests/ scripts/'
+  - name: enableTypeCheck
+    type: boolean
+    default: true
+  - name: typeCheckPaths
+    type: string
+    default: 'sigantry_core/ scripts/'
   - name: pythonVersionMatrix
     # 08.1 P1-2: exercise the supported range. pyproject.toml declares
     # requires-python = ">=3.11" with an upper bound on neither side, and
@@ -71,6 +84,9 @@ stages:
       - template: ../jobs/lint-python.yml
         parameters:
           pythonVersion: ${{ parameters.pythonVersion }}
+          sourcePaths: ${{ parameters.lintSourcePaths }}
+          enableTypeCheck: ${{ parameters.enableTypeCheck }}
+          typeCheckPaths: ${{ parameters.typeCheckPaths }}
       - template: ../jobs/lint-powershell.yml
         parameters:
           psscriptanalyzerVersion: ${{ parameters.psscriptanalyzerVersion }}
