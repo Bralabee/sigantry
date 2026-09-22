@@ -183,16 +183,24 @@ def load_metrics(repo: str, cfg: dict) -> dict:
     path = os.path.join(repo, mf)
     if not os.path.exists(path):
         return {}
-    with open(path, encoding="utf-8") as fh:
-        data = json.load(fh)
+    # A broken metrics file is a config error (rc 2), not documentation drift
+    # (rc 1). Returning {} would make a truncated or replaced file
+    # indistinguishable from a valid empty one: the gate passes clean on a
+    # broken input, or later reports a claimed metric as "absent" while naming
+    # neither the file nor the real cause. A truncated file raises
+    # JSONDecodeError -- the same failure wearing a traceback.
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except json.JSONDecodeError as exc:
+        print(f"docs_freshness: {path} is not valid JSON: {exc}", file=sys.stderr)
+        raise SystemExit(2) from exc
     if not isinstance(data, dict):
-        # Returning {} here would make a truncated or replaced metrics file
-        # indistinguishable from a valid empty one: the gate would pass clean
-        # on a broken input, or fail later claiming a claimed metric is
-        # "absent" rather than naming the real cause.
-        raise SystemExit(
-            f"docs_freshness: {path} must contain a JSON object, found {type(data).__name__}"
+        print(
+            f"docs_freshness: {path} must contain a JSON object, found {type(data).__name__}",
+            file=sys.stderr,
         )
+        raise SystemExit(2)
     return data
 
 

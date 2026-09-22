@@ -16,7 +16,12 @@ parameters:
     default: '3.11'
   - name: sourcePaths
     type: string
-    default: 'sigantry_core/ tests/'
+    default: 'sigantry_core/ tests/ scripts/'
+  - name: typeCheckPaths
+    type: string
+    # `tests/` is absent deliberately: mypy aborts there in module
+    # resolution (duplicate basenames, no __init__.py) before checking starts.
+    default: 'sigantry_core/ scripts/'
 
 jobs:
   - job: python_lint
@@ -35,6 +40,13 @@ jobs:
           ruff check ${{ parameters.sourcePaths }}
           ruff format --check ${{ parameters.sourcePaths }}
         displayName: 'ruff check + ruff format --check'
+      # Parity with .github/workflows/ci.yml's `Type Check (mypy)` job, which
+      # is a required status check on main. Without this the ADO lane and the
+      # GitHub lane disagree about what the gates are -- the thing
+      # docs/reference/dual-ci-strategy.md exists to prevent.
+      - script: |
+          mypy ${{ parameters.typeCheckPaths }}
+        displayName: 'mypy'
       # BRIEF-06 / Phase 10 Plan 06 -- dual-CI parity lint.
       # Enforces docs/reference/dual-ci-strategy.md: every PR that adds a
       # CI template / workflow ships both ADO + GHA variants. PyYAML is

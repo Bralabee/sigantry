@@ -92,6 +92,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   longer a denylist of neutering suffixes: an invocation counts only when it is
   the whole command, in an unconditional step and job, in a `run:` block that
   neither disables `errexit` nor forces `exit 0`.
+- **A third round found the rewrite still defeatable**, each confirmed by arm
+  against the file's own helpers: `if: always()` on the *publish* job (the
+  enforcement check ran only on the gate it depends on, never on the publisher
+  itself); `python -m twine upload` (the scan compared raw tokens to
+  `["twine", "upload"]`, missing the `python -m` form the repo already uses for
+  `python -m build`); and `mypy ... &`, which backgrounds the tool so the step
+  exits on the shell. `test_mypy_covers_every_typed_root` also unioned operands
+  across every job, so splitting the roots between two jobs left the *required*
+  context checking half the tree. All four are closed and armed.
+- Carve-outs are keyed `"<workflow>::<job>"`, not by filename. A filename key
+  excused every publish job in that file, including ones added later, on a
+  reason recorded about a different job.
 - **The publish scan looked at one filename and one action.**
   `release-alpha.yml` publishes via `twine upload` in a job with no `needs:` —
   precisely the defect the test exists to catch, and invisible to it. Every
@@ -131,9 +143,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `-qq`, which suppresses the pass/fail summary entirely: measured `rc=0` with
   no counts at all — indistinguishable from a run that collected nothing, which
   is precisely what the adjacent comment ("expect a non-zero test count, not
-  just exit 0") asks the reader to rule out. All three contributor docs now say
-  `python -m pytest`, and name `scripts/` and `mypy` so they match the gates
-  that are actually required on `main`.
+  just exit 0") asks the reader to rule out. `CONTRIBUTING.md`,
+  `docs/contributing.md`, `docs/release-process.md` and **both** pull-request
+  templates now say `python -m pytest`, and name `scripts/` and `mypy` so they
+  match the gates that are actually required on `main`. (An earlier draft of
+  this entry claimed "all three contributor docs"; review found the two PR
+  templates still carrying the `pytest -q` tick-box.)
+- **The ADO lane kept the gap the GitHub lane just closed.**
+  `templates/jobs/lint-python.yml` still defaulted `sourcePaths` to
+  `sigantry_core/ tests/` and had no mypy step at all, so a type error or a
+  ruff violation under `scripts/` failed on GitHub and passed on Azure. The
+  repo enforces dual-CI parity on purpose
+  (`docs/reference/dual-ci-strategy.md`, and a parity lint inside that very
+  template), so the two lanes disagreeing about what the gates are is the
+  defect, not a gap in coverage.
+- `markdown` and `weasyprint` are declared under the `docs` extra. Both are
+  imported at module scope by the render scripts and appeared in no dependency
+  group, so CI type-checked modules that a contributor installing `.[dev]`
+  cannot actually run.
 - **Shipped templates and workflows told consumers to `pip install
   sigantry-core`, which 404s.** The distribution is `sigantry`
   (`pyproject.toml` declares it; `sigantry-core` has never existed on PyPI —

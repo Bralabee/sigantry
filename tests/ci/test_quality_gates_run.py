@@ -73,8 +73,10 @@ _TYPED_ROOTS = ("sigantry_core/", "scripts/")
 _TYPE_CHECK_JOB_NAME = "Type Check (mypy)"
 
 # Any shell operator: an invocation sharing its line with one is not, on its
-# own, what decides the step's exit status.
-_OPERATOR_RE = re.compile(r"\|\||&&|;|\|")
+# own, what decides the step's exit status. A bare `&` is in the list because
+# `mypy ... &` backgrounds it and the step exits on the shell, not the tool.
+# Order matters: `||` before `|`, `&&` before `&`.
+_OPERATOR_RE = re.compile(r"\|\||&&|;|\||&")
 
 # `set +e` / `set +o errexit` turn off the shell's abort-on-failure.
 _ERREXIT_OFF_RE = re.compile(r"(?m)^\s*set\s+(?:\+e\b|\+o\s+errexit\b)")
@@ -118,8 +120,14 @@ def all_workflows(workflow_dir: pathlib.Path) -> dict[str, dict]:
     out: dict[str, dict] = {}
     for path in sorted(workflow_dir.glob("*.yml")) + sorted(workflow_dir.glob("*.yaml")):
         parsed = _load(path)
-        if isinstance(parsed, dict):
-            out[path.name] = parsed
+        # Not `if isinstance(...)`: silently dropping a workflow that did not
+        # parse as a mapping would hide any publish job inside it, and this is
+        # a guard built to be noisy.
+        assert isinstance(parsed, dict), (
+            f"{path.name} did not parse as a mapping ({type(parsed).__name__}); "
+            "a publish job inside it would be invisible to the scan below."
+        )
+        out[path.name] = parsed
     assert out, "no workflows parsed; the scan below would be vacuous"
     return out
 
@@ -344,7 +352,13 @@ def _assert_not_expired(key: str, entry: object, today: dt.date, where: str) -> 
     )
     reason, review_by = entry
     assert isinstance(reason, str) and reason.strip(), f"{where}[{key!r}] has no reason"
-    deadline = dt.date.fromisoformat(str(review_by))
+    try:
+        deadline = dt.date.fromisoformat(str(review_by))
+    except ValueError as exc:
+        raise AssertionError(
+            f"{where}[{key!r}] has an unparseable review-by date "
+            f"{review_by!r}: {exc}. Use YYYY-MM-DD."
+        ) from exc
     assert deadline >= today, (
         f"{where}[{key!r}] was due for review on {review_by} "
         f"({(today - deadline).days} day(s) ago). Reason given: {reason!r}. "
@@ -373,8 +387,11 @@ _BUILD_DEPS_EXEMPT: dict[str, tuple[str, str]] = {}
 # calendar date with no code change. That is intended (an expired excuse should
 # stop the thing it was excusing) and is a one-line fix, but it is a real
 # consequence and is recorded rather than discovered during a release.
+# Keyed "<workflow>::<job>", not by filename: a filename key would go on
+# excusing any publish job added to that file later, including a production
+# one, on a reason recorded about a different job.
 _PUBLISH_GATE_EXEMPT: dict[str, tuple[str, str]] = {
-    "release-alpha.yml": (
+    "release-alpha.yml::publish-testpypi": (
         "Tracked in #13: this workflow cannot currently succeed at all "
         "(PACKAGE_DIRS names directories absent from the repo under "
         "`set -euo pipefail`, and the twine operands match nothing), and "
@@ -423,16 +440,24 @@ def test_mypy_runs_in_the_job_branch_protection_requires(ci_workflow: dict) -> N
 
 
 def test_mypy_covers_every_typed_root(ci_workflow: dict) -> None:
-    """mypy checks every root it is supposed to, and excludes none of them."""
-    calls = _invocations(ci_workflow, "mypy")
-    assert calls, "no mypy invocation to inspect"
+    """The REQUIRED job checks every root, and excludes none of them.
+
+    Scoped to the job branch protection requires, not to the workflow:
+    splitting `mypy sigantry_core/` into `types` and `mypy scripts/` into some
+    other job unions to full coverage across the file while the required
+    context checks half the tree -- "reports green having checked nothing"
+    once more.
+    """
+    calls = [c for c in _invocations(ci_workflow, "mypy") if c.job_name == _TYPE_CHECK_JOB_NAME]
+    assert calls, f"no mypy invocation in the job named {_TYPE_CHECK_JOB_NAME!r}"
     covered: set[str] = set()
     for call in calls:
         operands = {_norm_root(t) for t in call.argv[1:] if not t.startswith("-")}
         covered |= operands - _excluded_roots(call.argv)
     missing = sorted(_norm_root(r) for r in _TYPED_ROOTS if _norm_root(r) not in covered)
     assert not missing, (
-        f"mypy does not type check {missing}. Commands were: {[c.line for c in calls]}"
+        f"the {_TYPE_CHECK_JOB_NAME!r} job does not type check {missing}. "
+        f"Commands were: {[c.line for c in calls]}"
     )
 
 
@@ -544,6 +569,8 @@ def test_expiry_check_rejects_a_lapsed_carve_out() -> None:
         _assert_not_expired("shape", "not a tuple", today, "_TEST")
     with pytest.raises(AssertionError, match="no reason"):
         _assert_not_expired("blank", ("   ", "2099-01-01"), today, "_TEST")
+    with pytest.raises(AssertionError, match="unparseable review-by date"):
+        _assert_not_expired("typo", ("real reason", "31-12-2026"), today, "_TEST")
 
 
 def test_carve_outs_have_not_expired() -> None:
@@ -555,6 +582,22 @@ def test_carve_outs_have_not_expired() -> None:
         _assert_not_expired(key, entry, today, "_PUBLISH_GATE_EXEMPT")
 
 
+def _uploads_via_twine(run: str) -> bool:
+    """``twine upload`` OR ``python -m twine upload``.
+
+    Comparing raw tokens to ``["twine", "upload"]`` missed the ``python -m``
+    form -- the very form this repo already uses for ``python -m build`` and
+    ``python -m pip`` -- so a publish job written that way disappeared from
+    the scan entirely.
+    """
+    for line in _command_lines(run):
+        for segment in _OPERATOR_RE.split(line):
+            argv = _normalise_tool_argv(_argv(segment), "twine")
+            if argv is not None and len(argv) > 1 and argv[1] == "upload":
+                return True
+    return False
+
+
 def _publish_jobs(workflow: dict) -> list[str]:
     """Jobs that push a distribution to an index, by either mechanism."""
     out = []
@@ -564,12 +607,7 @@ def _publish_jobs(workflow: dict) -> list[str]:
                 out.append(name)
                 break
             run = step.get("run")
-            if isinstance(run, str) and any(
-                _argv(seg)[:2] == ["twine", "upload"]
-                for line in _command_lines(run)
-                for seg in _OPERATOR_RE.split(line)
-                if _argv(seg)
-            ):
+            if isinstance(run, str) and _uploads_via_twine(run):
                 out.append(name)
                 break
     return out
@@ -593,8 +631,13 @@ def test_every_publish_path_is_gated_by_the_quality_jobs(
         jobs = workflow.get("jobs") or {}
         for job_id in _publish_jobs(workflow):
             found_any = True
-            if filename in _PUBLISH_GATE_EXEMPT:
+            if f"{filename}::{job_id}" in _PUBLISH_GATE_EXEMPT:
                 continue
+            # `needs:` alone is not a gate. `if: always()` on the publish job
+            # keeps the dependency and publishes anyway once the gate fails.
+            _assert_job_enforcing(
+                jobs, job_id, f"{filename}:{job_id} could publish after its gate failed"
+            )
             needs = set(_as_list(jobs[job_id].get("needs")))
             gates = [n for n in needs if str(jobs.get(n, {}).get("uses", "")).endswith("ci.yml")]
             assert gates, (
@@ -618,15 +661,22 @@ def test_every_publish_path_is_gated_by_the_quality_jobs(
     )
 
 
-def test_publish_gate_exemptions_name_real_workflows(all_workflows: dict[str, dict]) -> None:
-    """An exemption for a workflow that no longer exists is a stale excuse."""
-    stale = sorted(set(_PUBLISH_GATE_EXEMPT) - set(all_workflows))
-    assert not stale, f"_PUBLISH_GATE_EXEMPT names workflow(s) that do not exist: {stale}"
-    for filename in _PUBLISH_GATE_EXEMPT:
-        assert _publish_jobs(all_workflows[filename]), (
-            f"_PUBLISH_GATE_EXEMPT excuses {filename}, which no longer publishes "
-            "anything -- the carve-out is dead weight and would silently excuse "
-            "whatever publish job is added there next."
+def test_publish_gate_exemptions_name_real_publish_jobs(
+    all_workflows: dict[str, dict],
+) -> None:
+    """A carve-out must still name a job that really publishes."""
+    for key in _PUBLISH_GATE_EXEMPT:
+        filename, sep, job_id = key.partition("::")
+        assert sep and job_id, (
+            f"_PUBLISH_GATE_EXEMPT key {key!r} must be '<workflow>.yml::<job-id>'; a "
+            "filename alone excuses every publish job in that file, now and later."
+        )
+        assert filename in all_workflows, (
+            f"_PUBLISH_GATE_EXEMPT names a workflow that does not exist: {filename}"
+        )
+        assert job_id in _publish_jobs(all_workflows[filename]), (
+            f"_PUBLISH_GATE_EXEMPT excuses {key!r}, which no longer publishes "
+            "anything -- the carve-out is dead weight."
         )
 
 

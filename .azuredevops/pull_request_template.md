@@ -24,7 +24,7 @@
 - [ ] Commits follow conventional-commit format (`<type>(<scope>): <summary>`).
 - [ ] No emojis in code, commits, or docs.
 - [ ] No `Co-Authored-By:` trailers.
-- [ ] `pytest -q` passes locally with zero failures. There is no longer a carve-out for `test_wiki_links.py` - it runs in CI now. See CLAUDE.md for the current measured baseline rather than repeating a count here.
+- [ ] `python -m pytest` passes locally with zero failures. (Not `pytest -q`: `addopts` already carries `-q`, and `-qq` prints no counts at all, so a run that collected nothing looks identical to a passing one.) There is no longer a carve-out for `test_wiki_links.py` - it runs in CI now. See CLAUDE.md for the current measured baseline rather than repeating a count here.
 - [ ] `ruff check sigantry_core/ tests/ scripts/` clean. This repo's CI (GitHub
       Actions) enforces all three roots. A consumer ADO pipeline using
       `templates/jobs/lint-python.yml` defaults `sourcePaths` to
