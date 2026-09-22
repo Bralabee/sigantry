@@ -755,8 +755,21 @@ def test_ci_concurrency_group_does_not_cancel_the_release_gate(ci_workflow: dict
     publish job is skipped and nothing ships -- a cancellation, not a red X.
     """
     concurrency = ci_workflow.get("concurrency")
-    if not isinstance(concurrency, dict) or not _is_truthy(concurrency.get("cancel-in-progress")):
+    if not isinstance(concurrency, dict):
         return
+    cancel = concurrency.get("cancel-in-progress")
+    if not _is_truthy(cancel):
+        return
+    # Cancellation must be scoped to pull requests. Two runs of the release
+    # path on the SAME ref (a `release: published` plus a re-run or a
+    # workflow_dispatch) share both concurrency keys, so unconditional
+    # cancellation lets the newer kill the older's quality gate; the publish
+    # job is then skipped for unsatisfied `needs` and nothing ships, reported
+    # as a cancellation rather than a red X.
+    assert "pull_request" in str(cancel), (
+        f"ci.yml sets cancel-in-progress: {cancel!r}, which cancels tag and "
+        "release-path runs too. Scope it to pull_request."
+    )
     group = str(concurrency.get("group", ""))
     assert "github.workflow" in group, (
         f"ci.yml cancels in-progress runs grouped by {group!r}, which does not "
