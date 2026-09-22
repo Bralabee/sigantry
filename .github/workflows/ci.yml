@@ -19,7 +19,12 @@ concurrency:
   # and if that is the release's gate, the publish job is skipped and
   # nothing ships, as a cancellation rather than a red X.
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Cancel superseded PR runs; never cancel a tag or release-path run. Two
+  # runs of the release path on the SAME ref (a `release: published` and a
+  # re-run or workflow_dispatch) share both keys, so `true` would let the
+  # newer cancel the older's quality gate and skip the publish -- reported
+  # as a cancellation rather than a red X.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint:

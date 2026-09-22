@@ -74,14 +74,18 @@ test = [
     "twine>=7.0,<8.0",
 ]
 docs = [
-    # Imported at module scope by scripts/userguide/render.py and
-    # scripts/tutorials/render.py. CI type-checks `scripts/` now, so an
-    # undeclared import means mypy passes on a module nobody can run.
-    "markdown>=3.7,<4.0",
-    "weasyprint>=62,<69",
     "mkdocs>=1.6,<2.0",
     "mkdocs-material>=9.7.6,<10.0",
     "mkdocstrings[python]>=0.26,<1.0",
+]
+# Runtime deps of the PDF/HTML render scripts under scripts/{userguide,tutorials}/.
+# They are imported at module scope there and were declared in no group at all.
+# NOTE: no workflow installs this -- the render scripts are run by hand, and
+# weasyprint needs system pango/cairo, so it does not belong in `dev`. mypy does
+# NOT need it: `types-Markdown` (in `dev`) supplies the stubs.
+render = [
+    "markdown>=3.7,<4.0",
+    "weasyprint>=62,<69",
 ]
 
 [project.scripts]

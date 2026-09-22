@@ -17,6 +17,11 @@ parameters:
   - name: sourcePaths
     type: string
     default: 'sigantry_core/ tests/ scripts/'
+  - name: enableTypeCheck
+    type: boolean
+    # Consumers without mypy in their dev extra, or without a scripts/ dir,
+    # can turn the step off rather than having it appear under them.
+    default: true
   - name: typeCheckPaths
     type: string
     # `tests/` is absent deliberately: mypy aborts there in module
@@ -44,9 +49,10 @@ jobs:
       # is a required status check on main. Without this the ADO lane and the
       # GitHub lane disagree about what the gates are -- the thing
       # docs/reference/dual-ci-strategy.md exists to prevent.
-      - script: |
-          mypy ${{ parameters.typeCheckPaths }}
-        displayName: 'mypy'
+      - ${{ if eq(parameters.enableTypeCheck, true) }}:
+          - script: |
+              mypy ${{ parameters.typeCheckPaths }}
+            displayName: 'mypy'
       # BRIEF-06 / Phase 10 Plan 06 -- dual-CI parity lint.
       # Enforces docs/reference/dual-ci-strategy.md: every PR that adds a
       # CI template / workflow ships both ADO + GHA variants. PyYAML is

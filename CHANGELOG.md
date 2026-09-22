@@ -132,12 +132,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   command precisely because it is being excluded from it. Only deleting the job
   outright failed them. The assertions now tokenise each `run:` line and ask
   what a shell would execute.
-- `mypy` did not cover `scripts/`. The 5 errors it found there are fixed rather
-  than baselined, including one the untyped `markdown` import was masking:
-  `render.py` read `md.toc_tokens` off a `Markdown` instance with no such
-  attribute declared. `types-Markdown` is now a declared dev dependency, so
-  local and CI type-check the same tree instead of differing by whatever
-  happens to be installed.
+- `mypy` did not cover `scripts/`. All 5 errors it found there are resolved in
+  place rather than parked in a baseline file, but be precise about how: three
+  are real corrections (a `None`-into-`Module` assignment, and two functions
+  returning `Any` where a concrete type was declared), and **two are
+  suppressions** — a `# type: ignore[attr-defined]` in `tutorials/render.py`
+  and a `bool(...)` wrapper in `audit_chain_migrate.py`. Both suppressions are
+  correct code: the `toc` extension really does attach `toc_tokens` at runtime
+  and the stubs cannot express it. But a per-line ignore is the same
+  accept-a-known-error mechanism `mypy_gate.py` is being deleted for, applied
+  inline, and calling it "fixed" would overstate it.
+
+  One of the five was only visible once the stubs were declared: `render.py`
+  read `md.toc_tokens` off a `Markdown` instance with no such attribute, which
+  the untyped import had been hiding. `types-Markdown` is now a declared dev
+  dependency, so local and CI type-check the same tree instead of differing by
+  whatever happens to be installed.
 - **`CONTRIBUTING.md` documented a test command that hides its own result.**
   `pyproject.toml` sets `-q` in `addopts`, so the documented `pytest -q` becomes
   `-qq`, which suppresses the pass/fail summary entirely: measured `rc=0` with
@@ -157,10 +167,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`docs/reference/dual-ci-strategy.md`, and a parity lint inside that very
   template), so the two lanes disagreeing about what the gates are is the
   defect, not a gap in coverage.
-- `markdown` and `weasyprint` are declared under the `docs` extra. Both are
-  imported at module scope by the render scripts and appeared in no dependency
-  group, so CI type-checked modules that a contributor installing `.[dev]`
-  cannot actually run.
+- `markdown` and `weasyprint` are declared, under a new `render` extra. Both
+  are imported at module scope by the render scripts and appeared in no
+  dependency group at all. Stated accurately: this does **not** change what CI
+  does — `[tool.mypy] ignore_missing_imports = true` means an undeclared import
+  was never an error, and `mypy sigantry_core/ scripts/` is clean with
+  weasyprint absent from the environment. Nor does any workflow install
+  `.[render]`; the render scripts are run by hand, and weasyprint needs system
+  pango/cairo, so it does not belong in `dev`. The extra makes the requirement
+  nameable instead of undiscoverable. (An earlier draft put both in `docs` and
+  claimed it fixed a CI gap; review found nothing installs `.[docs]` either.)
 - **Shipped templates and workflows told consumers to `pip install
   sigantry-core`, which 404s.** The distribution is `sigantry`
   (`pyproject.toml` declares it; `sigantry-core` has never existed on PyPI —

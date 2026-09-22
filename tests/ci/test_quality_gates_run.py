@@ -71,6 +71,17 @@ _TYPED_ROOTS = ("sigantry_core/", "scripts/")
 # Tying the assertion to this string means renaming the job -- which would
 # silently stop the required context ever reporting -- fails here too.
 _TYPE_CHECK_JOB_NAME = "Type Check (mypy)"
+_LINT_JOB_NAME = "Lint & Formatting"
+
+# The gate a publish job must depend on, matched EXACTLY. `.endswith("ci.yml")`
+# accepted `noop-ci.yml`, `publish-ci.yml` and `other/repo/.../ci.yml@main` --
+# measured -- so a job could report as gated while depending on a workflow
+# that runs nothing.
+_CI_WORKFLOW_USES = "./.github/workflows/ci.yml"
+
+# A publish that goes through a repo script is still a publish. release-alpha
+# calls `bash scripts/release/publish-v3-alpha.sh`, which runs twine inside.
+_PUBLISH_SCRIPT_RE = re.compile(r"scripts/[\w/.-]*(?:publish|release)[\w/.-]*\.(?:sh|py)")
 
 # Any shell operator: an invocation sharing its line with one is not, on its
 # own, what decides the step's exit status. A bare `&` is in the list because
@@ -81,8 +92,16 @@ _OPERATOR_RE = re.compile(r"\|\||&&|;|\||&")
 # `set +e` / `set +o errexit` turn off the shell's abort-on-failure.
 _ERREXIT_OFF_RE = re.compile(r"(?m)^\s*set\s+(?:\+e\b|\+o\s+errexit\b)")
 
-# A bare `exit 0` forces success regardless of what ran before it.
+# A bare `exit 0` forces success regardless of what ran before it, and
+# `trap 'exit 0' ERR` does the same thing without ever sitting on its own line.
 _FORCED_SUCCESS_RE = re.compile(r"(?m)^\s*exit\s+0\s*$")
+_TRAP_RE = re.compile(r"(?m)^\s*trap\b.*\bexit\s+0")
+
+# GitHub's default for `run` is `bash -e {0}`: errexit ON. `shell: bash` maps
+# to `bash --noprofile --norc -eo pipefail {0}`, which is stricter. Any other
+# value -- above all a custom `{0}` command line such as `bash {0}` -- drops
+# errexit, and then the step exits on its LAST command rather than the tool.
+_ERREXIT_SHELLS = ("bash",)
 
 _ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
@@ -230,6 +249,7 @@ class _Invocation:
     line: str
     argv: tuple[str, ...]  # tuple, not list: `frozen=True` generates __hash__
     run_block: str
+    shell: str
     compound: bool
     condition: str
     continue_on_error: bool
@@ -264,6 +284,11 @@ def _invocations(workflow: dict, tool: str) -> list[_Invocation]:
                             line=line,
                             argv=argv,
                             run_block=run,
+                            shell=str(
+                                step.get(
+                                    "shell", job.get("defaults", {}).get("run", {}).get("shell", "")
+                                )
+                            ).strip(),
                             compound=compound,
                             condition=job_if or step_if,
                             continue_on_error=job_coe or step_coe,
@@ -302,10 +327,25 @@ def _assert_enforcing(call: _Invocation) -> None:
         f"{call.describe()} sits in a run block containing a bare `exit 0`, "
         "which forces success regardless of what ran before it."
     )
+    assert not _TRAP_RE.search(call.run_block), (
+        f"{call.describe()} sits in a run block that traps to `exit 0`, which "
+        "forces success without ever putting `exit 0` on a line of its own."
+    )
+    assert call.shell in ("", *_ERREXIT_SHELLS), (
+        f"{call.describe()} overrides the shell to {call.shell!r}. GitHub's "
+        "default is `bash -e {0}` (errexit ON); a custom command line such as "
+        "`bash {0}` drops it, so the step exits on its LAST command and the "
+        "tool's result is discarded."
+    )
 
 
 def _assert_job_enforcing(jobs: dict, job_id: str, why: str) -> None:
     """A gating JOB must be able to fail the thing that depends on it."""
+    assert job_id in jobs, (
+        f"job {job_id!r} is depended on but does not exist in this workflow "
+        "(jobs: {sorted(jobs)}). A renamed or deleted job would otherwise "
+        "surface as a bare KeyError from inside the guard meant to explain it."
+    )
     job = jobs[job_id]
     assert not _is_truthy(job.get("continue-on-error")), (
         f"job {job_id!r} runs under continue-on-error, so {why}"
@@ -373,11 +413,19 @@ def _today() -> dt.date:
     return dt.datetime.now(dt.UTC).date()
 
 
-# Quality jobs deliberately NOT gating the artifact build. EMPTY, and it should
-# stay that way. A job skipped because a dependency failed still reports a check
-# run, and GitHub counts a skipped run as SATISFYING its required context, so
-# making `build` depend on a job that is not itself required would convert
-# `build` from a gate into a laundering route.
+# Quality jobs deliberately NOT gating the artifact build.
+#
+# A job skipped because a dependency failed still reports a check run, and
+# GitHub counts a skipped run as SATISFYING its required context. So a job
+# belongs in `build`'s `needs` ONLY IF its own context is required on main;
+# adding an unrequired job there converts `build` from a gate into a way to
+# hand branch protection a green "Build & Verify Artifacts" on a tree that
+# failed that job.
+#
+# So this map is not "empty and should stay empty" -- a NEW quality job that
+# is not a required context belongs HERE, with a date, until it is made one.
+# What must never live here is an excuse whose reason has lapsed, which is
+# what `types` became once `Type Check (mypy)` was required.
 _BUILD_DEPS_EXEMPT: dict[str, tuple[str, str]] = {}
 
 # Publish paths not yet gated by a quality job.
@@ -467,7 +515,12 @@ def test_ruff_covers_every_source_root(ci_workflow: dict) -> None:
     ``scripts/`` was missing, so the CI guard scripts -- the files whose whole
     job is to police the repo -- were themselves unchecked.
     """
-    calls = _invocations(ci_workflow, "ruff")
+    # Scoped to the required job, exactly as the mypy assertion is: moving
+    # ruff into a non-required job (or renaming `lint`) would otherwise
+    # leave every assertion here true while the required
+    # `Lint & Formatting` context reported green having linted nothing.
+    calls = [c for c in _invocations(ci_workflow, "ruff") if c.job_name == _LINT_JOB_NAME]
+    assert calls, f"no ruff invocation in the job named {_LINT_JOB_NAME!r}"
     subcommands = {c.argv[1] for c in calls if len(c.argv) > 1}
     assert "check" in subcommands, f"no `ruff check` is executed; found {sorted(subcommands)}"
     assert "format" in subcommands, f"no `ruff format` is executed; found {sorted(subcommands)}"
@@ -487,7 +540,9 @@ def test_ruff_covers_every_source_root(ci_workflow: dict) -> None:
 def test_ruff_format_check_does_not_rewrite_files(ci_workflow: dict) -> None:
     """``ruff format`` without ``--check`` reformats and exits 0 -- not a gate."""
     formats = [
-        c for c in _invocations(ci_workflow, "ruff") if len(c.argv) > 1 and c.argv[1] == "format"
+        c
+        for c in _invocations(ci_workflow, "ruff")
+        if c.job_name == _LINT_JOB_NAME and len(c.argv) > 1 and c.argv[1] == "format"
     ]
     # Without this, deleting the format step entirely would leave the loop with
     # nothing to iterate and report PASS -- the condition being policed ("CI can
@@ -530,7 +585,10 @@ def test_artifact_build_depends_on_every_quality_job(ci_workflow: dict) -> None:
     missing = quality_jobs - needs - set(_BUILD_DEPS_EXEMPT)
     assert not missing, (
         f"build does not depend on quality job(s): {sorted(missing)}. "
-        "Either add them to build's `needs`, or record why not in _BUILD_DEPS_EXEMPT."
+        "If its context is required on main, add it to build's `needs`. If it "
+        "is NOT required, do NOT -- a skipped run satisfies a required context, "
+        "so that would launder a failure into a green build. Record it in "
+        "_BUILD_DEPS_EXEMPT with a review-by date instead."
     )
     # A dependency that cannot fail is not a gate either.
     for job_id in needs:
@@ -582,34 +640,40 @@ def test_carve_outs_have_not_expired() -> None:
         _assert_not_expired(key, entry, today, "_PUBLISH_GATE_EXEMPT")
 
 
-def _uploads_via_twine(run: str) -> bool:
-    """``twine upload`` OR ``python -m twine upload``.
-
-    Comparing raw tokens to ``["twine", "upload"]`` missed the ``python -m``
-    form -- the very form this repo already uses for ``python -m build`` and
-    ``python -m pip`` -- so a publish job written that way disappeared from
-    the scan entirely.
-    """
-    for line in _command_lines(run):
-        for segment in _OPERATOR_RE.split(line):
-            argv = _normalise_tool_argv(_argv(segment), "twine")
-            if argv is not None and len(argv) > 1 and argv[1] == "upload":
-                return True
-    return False
-
-
 def _publish_jobs(workflow: dict) -> list[str]:
-    """Jobs that push a distribution to an index, by either mechanism."""
-    out = []
+    """Jobs that push a distribution to an index, by any mechanism.
+
+    Uses ``_invocations`` rather than a second hand-rolled tokeniser: the
+    duplicate copy had already drifted once (it compared raw tokens to
+    ``["twine", "upload"]`` and so missed ``python -m twine upload``), and
+    every future tokeniser fix would have had to be made twice.
+    """
+    uploads = {
+        call.job
+        for call in _invocations(workflow, "twine")
+        if len(call.argv) > 1 and call.argv[1] == "upload"
+    }
+    out: list[str] = []
     for name, job in (workflow.get("jobs") or {}).items():
-        for step in job.get("steps") or []:
-            if "pypa/gh-action-pypi-publish" in str(step.get("uses", "")):
-                out.append(name)
-                break
-            run = step.get("run")
-            if isinstance(run, str) and _uploads_via_twine(run):
-                out.append(name)
-                break
+        if name in uploads:
+            out.append(name)
+            continue
+        steps = job.get("steps") or []
+        if any("pypa/gh-action-pypi-publish" in str(s.get("uses", "")) for s in steps):
+            out.append(name)
+            continue
+        # A publish routed through a repo script is still a publish:
+        # release-alpha calls `bash scripts/release/publish-v3-alpha.sh`, which
+        # runs twine inside. Without this, deleting that job's inline upload
+        # step would make it vanish from the scan -- the one direction this
+        # file must never fail in.
+        if any(
+            _PUBLISH_SCRIPT_RE.search(line)
+            for s in steps
+            if isinstance(s.get("run"), str)
+            for line in _command_lines(s["run"])
+        ):
+            out.append(name)
     return out
 
 
@@ -639,7 +703,7 @@ def test_every_publish_path_is_gated_by_the_quality_jobs(
                 jobs, job_id, f"{filename}:{job_id} could publish after its gate failed"
             )
             needs = set(_as_list(jobs[job_id].get("needs")))
-            gates = [n for n in needs if str(jobs.get(n, {}).get("uses", "")).endswith("ci.yml")]
+            gates = [n for n in needs if str(jobs.get(n, {}).get("uses", "")) == _CI_WORKFLOW_USES]
             assert gates, (
                 f"{filename}: publish job {job_id!r} does not depend on a job "
                 f"that runs ci.yml; its needs are {sorted(needs)}. The "
