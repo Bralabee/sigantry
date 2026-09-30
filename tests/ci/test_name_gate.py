@@ -538,6 +538,8 @@ def test_workflow_is_read_only_and_hands_the_secret_only_to_the_scan() -> None:
     steps = [s for job in wf["jobs"].values() for s in job["steps"]]
     with_secret = [s for s in steps if "NAME_GATE_TOKENS" in str(s.get("env", {}))]
     assert len(with_secret) == 1
+    # Nowhere else: not at workflow or job level, where every step would see it.
+    assert WORKFLOW.read_text(encoding="utf-8").count("secrets.NAME_GATE_TOKENS") == 1
     scan = with_secret[0]
     assert scan["env"]["NAME_GATE_TOKENS"] == "${{ secrets.NAME_GATE_TOKENS }}"
     assert "scripts/ci/check-name-gate.py" in scan["run"]
@@ -564,3 +566,205 @@ def test_workflow_checkout_does_not_persist_credentials() -> None:
     assert checkouts
     for step in checkouts:
         assert step.get("with", {}).get("persist-credentials") is False
+
+
+# ---------------------------------------------------------------------------
+# Pre-check hardening: each case with the control that shows the harness bites
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["examples/C#/zqplant-client.cs", "notes/issue#12-zqplant.md", "a!b/zqplant.txt"],
+)
+def test_a_path_split_by_hash_or_bang_is_still_redacted(tmp_path: Path, name: str) -> None:
+    proc = _run(_tree(tmp_path, {**BASE, name: "clean\n"}), tmp_path)
+    assert proc.returncode == 1
+    assert len(_hits(proc)) == 1 and _hits(proc)[0].endswith(":0 S01")
+    _assert_no_leak(proc)  # the property that matters: the name is not printed
+
+
+def test_a_gitlink_path_is_read(tmp_path: Path) -> None:
+    root = _tree(tmp_path, BASE)
+    nested = root / "clients" / "zqplant"
+    nested.mkdir(parents=True)
+    _git(nested, "init", "-q")
+    (nested / "x.txt").write_text("x\n", encoding="utf-8")
+    _git(nested, "add", "x.txt")
+    _git(nested, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-qm", "x")
+    _git(root, "add", "clients/zqplant")
+    listed = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "-s", "clients"], capture_output=True, text=True
+    ).stdout
+    assert listed.startswith("160000"), "the harness must create a gitlink"
+    proc = _run(root, tmp_path)
+    assert proc.returncode == 1
+    assert _hits(proc) == [f"{_redacted('clients/zqplant')}:0 S01"]
+
+
+def _tar_gz(members: list[tarfile.TarInfo], payloads: dict[str, bytes]) -> bytes:
+    raw = io.BytesIO()
+    with tarfile.open(fileobj=raw, mode="w", format=tarfile.PAX_FORMAT) as tar:
+        for info in members:
+            data = payloads.get(info.name)
+            tar.addfile(info, io.BytesIO(data) if data is not None else None)
+    return gzip.compress(raw.getvalue())
+
+
+def test_tar_directory_and_link_members_and_link_targets_are_read(tmp_path: Path) -> None:
+    d = tarfile.TarInfo("clients/zqplant")
+    d.type = tarfile.DIRTYPE
+    s = tarfile.TarInfo("docs/ptr")
+    s.type, s.linkname = tarfile.SYMTYPE, "zqother5.txt"
+    h = tarfile.TarInfo("docs/copy.txt")
+    h.type, h.linkname = tarfile.LNKTYPE, "docs/zqplant.txt"
+    data = _tar_gz([d, s, h], {})
+    proc = _run(_tree(tmp_path, {**BASE, "dist.tar.gz": data}), tmp_path)
+    assert proc.returncode == 1
+    hits = _hits(proc)
+    assert f"dist.tar.gz!{_redacted('clients/zqplant')}:0 S01" in hits
+    assert "dist.tar.gz!docs/ptr#tar-header:1 S02" in hits
+    assert "dist.tar.gz!docs/copy.txt#tar-header:1 S01" in hits
+    _assert_no_leak(proc)
+
+
+def test_tar_pax_headers_are_read(tmp_path: Path) -> None:
+    f = tarfile.TarInfo("a.txt")
+    f.size = 2
+    f.pax_headers = {"comment": "made for zqplant"}
+    proc = _run(_tree(tmp_path, {**BASE, "dist.tar.gz": _tar_gz([f], {"a.txt": b"x\n"})}), tmp_path)
+    assert proc.returncode == 1
+    assert _hits(proc) == ["dist.tar.gz!a.txt#tar-header:1 S01"]
+
+
+def test_zip_directory_entries_and_comments_are_read(tmp_path: Path) -> None:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr(zipfile.ZipInfo("clients/zqplant/"), b"")
+        member = zipfile.ZipInfo("a.txt")
+        member.comment = b"zqother9"
+        z.writestr(member, "clean\n")
+        z.comment = b"packed for zqplant"
+    proc = _run(_tree(tmp_path, {**BASE, "pack.zip": buf.getvalue()}), tmp_path)
+    assert proc.returncode == 1
+    assert sorted(_hits(proc)) == sorted(
+        [
+            f"pack.zip!{_redacted('clients/zqplant/')}:0 S01",
+            "pack.zip!a.txt#comment:1 S02",
+            "pack.zip#comment:1 S01",
+        ]
+    )
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        (b"x\r\nzqline\r\ny\r\n", "notes.txt:2 S04"),  # CRLF
+        (b"x\rzqline\ry\r", "notes.txt:2 S04"),  # CR only
+        (b"\xef\xbb\xbfzqline\r\n", "notes.txt:1 S04"),  # UTF-8 BOM
+        ("x\r\nzqline\r\n".encode("utf-16"), "notes.txt:2 S04"),  # UTF-16 BOM + CRLF
+        ("zqplant\n".encode("utf-32"), "notes.txt:1 S01"),  # UTF-32 BOM
+        (b'{"name": "zq\\u2019mark"}\n', "notes.txt:1 S03"),  # JSON ASCII escape
+    ],
+)
+def test_line_ends_byte_order_marks_and_escapes(
+    tmp_path: Path, content: bytes, expected: str
+) -> None:
+    proc = _run(_tree(tmp_path, {**BASE, "notes.txt": content}), tmp_path)
+    assert proc.returncode == 1, proc.stdout
+    assert _hits(proc) == [expected]
+
+
+def test_a_nul_free_binary_is_binary_not_cp1252_text(tmp_path: Path) -> None:
+    proc = _run(_tree(tmp_path, {**BASE, "status.md.br": b"\x1b\x05\x01zqplant\x02"}), tmp_path)
+    assert proc.returncode == 1
+    assert _hits(proc) == ["status.md.br:0 BINARY"]
+
+
+def test_text_that_mentions_the_pdf_magic_is_read_as_text(tmp_path: Path) -> None:
+    proc = _run(_tree(tmp_path, {**BASE, "sniff.py": "MAGIC = b'%PDF'  # zqother3\n"}), tmp_path)
+    assert proc.returncode == 1
+    assert _hits(proc) == ["sniff.py:1 S02"]
+
+
+def test_a_plain_tar_is_binary_even_when_a_pdf_comes_first(tmp_path: Path) -> None:
+    raw = io.BytesIO()
+    with tarfile.open(fileobj=raw, mode="w") as tar:
+        for name, data in (("report.pdf", _pdf("Quarterly")), ("names.txt", b"zqplant\n")):
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+    proc = _run(_tree(tmp_path, {**BASE, "docs.tar": raw.getvalue()}), tmp_path)
+    assert proc.returncode == 1
+    assert _hits(proc) == ["docs.tar:0 BINARY"]
+
+
+def test_a_zip_with_a_stored_pdf_first_still_reads_every_member(tmp_path: Path) -> None:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:  # ZIP_STORED: the PDF's bytes sit near the start
+        z.writestr("report.pdf", _pdf("Quarterly"))
+        z.writestr("names.txt", "zqplant\n")
+    proc = _run(_tree(tmp_path, {**BASE, "docs.zip": buf.getvalue()}), tmp_path)
+    assert proc.returncode == 1
+    assert "docs.zip!names.txt:1 S01" in _hits(proc)
+
+
+def test_a_git_lfs_pointer_is_unreadable(tmp_path: Path) -> None:
+    pointer = "version https://git-lfs.github.com/spec/v1\noid sha256:" + "0" * 64 + "\nsize 12\n"
+    proc = _run(_tree(tmp_path, {**BASE, "docs/big.pdf": pointer}), tmp_path)
+    assert proc.returncode == 1
+    assert _hits(proc) == ["docs/big.pdf:0 UNREADABLE"]
+
+
+def test_an_sdist_that_is_not_a_tar_is_refused(tmp_path: Path) -> None:
+    path = tmp_path / "demo-1.0.tar.gz"
+    path.write_bytes(gzip.compress(b"just text zqplant\n"))
+    proc = _run(_tree(tmp_path, BASE), tmp_path, LIST, "--archive", str(path))
+    assert proc.returncode == 2
+
+
+@pytest.mark.skipif(shutil.which("pdfinfo") is None, reason="needs pdfinfo")
+def test_custom_pdf_information_keys_are_read(tmp_path: Path) -> None:
+    pdf = _pdf("Quarterly").replace(b"/Title (Report)", b"/Title (Report) /Client (zqplant)")
+    pdf = _repair_xref(pdf)
+    proc = _run(_tree(tmp_path, {**BASE, "docs/report.pdf": pdf}), tmp_path)
+    assert proc.returncode == 1
+    assert any(
+        h.startswith("docs/report.pdf#pdf-meta:") and h.endswith(" S01") for h in _hits(proc)
+    )
+
+
+def _repair_xref(pdf: bytes) -> bytes:
+    """Recompute xref offsets after an in-place edit of a _pdf() document."""
+    head, _, _ = pdf.partition(b"xref\n")
+    offsets, pos = [], 0
+    while True:
+        i = head.find(b" 0 obj\n", pos)
+        if i < 0:
+            break
+        start = head.rfind(b"\n", 0, i) + 1
+        offsets.append(start)
+        pos = i + 1
+    out = bytearray(head)
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(offsets) + 1)
+    for offset in offsets:
+        out += b"%010d 00000 n \n" % offset
+    out += b"trailer\n<< /Size %d /Root 1 0 R /Info 6 0 R >>\n" % (len(offsets) + 1)
+    out += b"startxref\n%d\n%%%%EOF\n" % xref
+    return bytes(out)
+
+
+@pytest.mark.skipif(
+    sys.platform != "linux", reason="needs a file system that allows undecodable names"
+)
+def test_an_undecodable_file_name_does_not_crash_the_output(tmp_path: Path) -> None:
+    root = _tree(tmp_path, BASE)
+    name = os.fsencode(str(root)) + b"/caf\xe9-notes.txt"
+    with open(name, "wb") as handle:
+        handle.write(b"zqother4\n")
+    proc = _run(root, tmp_path)
+    assert proc.returncode == 1
+    assert "Traceback" not in proc.stderr
+    assert any(h.endswith(":1 S02") for h in _hits(proc))
+    assert " file(s) scanned" in proc.stdout

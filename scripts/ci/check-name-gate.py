@@ -23,16 +23,23 @@ What is read (no path, basename or suffix is exempt):
 - the path of every tracked file and of every untracked file that is
   not ignored (``git ls-files --cached --others --exclude-standard``),
   and the path of every member inside a container;
-- text: UTF-8, UTF-16 with a byte-order mark, and cp1252 where UTF-8
-  decoding fails; every line as written and again with markup tags
-  removed and character references decoded, so ``a<b>c</b>`` and
-  ``&#8217;`` read as text;
-- PDFs (``%PDF`` in the first 1024 bytes): the text layer
-  (``pdftotext``), the document information and XMP metadata
-  (``pdfinfo``), and printable runs of the raw bytes;
+- text: UTF-8 (with or without a byte-order mark), UTF-16 and UTF-32
+  with a byte-order mark, and cp1252 where UTF-8 decoding fails. Line
+  ends are normalised (CRLF and CR to LF), then every line is read as
+  written and again with markup tags removed and character references
+  and ``\\uXXXX`` escapes decoded, so ``a<b>c</b>``, ``&#8217;`` and
+  ``\\u2019`` read as text;
+- PDFs (``%PDF-`` and a version digit in the first 1024 bytes): the text
+  layer (``pdftotext``), the document information including custom keys
+  and the XMP metadata (``pdfinfo``), and printable runs of the raw bytes;
 - zip containers (``.pptx``, ``.docx``, ``.xlsx``, ``.zip``, wheels) and
-  gzip tar archives (sdists), member by member. A member that cannot be
-  read, or a tar with data after its last readable member, fails the run;
+  gzip tar archives (sdists), member by member: every member's name,
+  directories and links included, a link's target, zip comments and tar
+  pax headers. A member that cannot be read, or a tar with data after its
+  last readable member, fails the run. An uncompressed tar is a binary
+  file with no reader;
+- a git LFS pointer is UNREADABLE: the checkout holds the pointer, not
+  the file;
 - with ``--archive``, a built wheel or sdist instead of the tree. Its
   units are named ``wheel!<member>`` or ``sdist!<member>``, with the
   version taken out of member paths (the sdist's ``<name>-<version>/`` top
@@ -40,9 +47,15 @@ What is read (no path, basename or suffix is exempt):
   ``<name>.dist-info/``), so an exception survives a version bump and can
   never be confused with a tree file.
 
+A file is binary when its first 8000 bytes hold a control byte other
+than tab, line and page breaks, SUB and ESC (a NUL included), unless it
+starts with a UTF-16 or UTF-32 byte-order mark.
+
 Output is ``<unit>:<line> <pattern id>``. Line 0 means the path itself.
 The matched text is never printed: a path component that matches a
-token is printed as ``~`` plus the first 12 hex digits of its SHA-256.
+token is printed as ``~`` plus the first 12 hex digits of its SHA-256,
+and if the printed unit would still match a token (a name split by
+``#`` or ``!``), the whole unit is printed that way.
 The ids ``UNREADABLE`` (a document or container that could not be read)
 and ``BINARY`` (a binary file with no reader) are the gate's own.
 
@@ -125,6 +138,12 @@ _DIGITS = re.compile(r"[0-9]+")
 _TRAILING_COMMENT = re.compile(r"\s#")
 _TAG = re.compile(r"<[^<>\n]*>")
 _LINE_BREAKS = re.compile(r"[\r\n]")
+_UNICODE_ESCAPE = re.compile(r"\\u([0-9a-fA-F]{4})")
+_CONTROL_BYTE = re.compile(rb"[\x00-\x08\x0e-\x19\x1c-\x1f]")
+_PDF_HEADER = re.compile(rb"%PDF-[0-9]")
+_LFS_POINTER = b"version https://git-lfs.github.com/spec/"
+_UTF32_BOMS = (b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff")
+_UTF16_BOMS = (b"\xff\xfe", b"\xfe\xff")
 _PRINTABLE_RUN = re.compile(rb"[\x20-\x7e]{8,}")
 _WHEEL_VERSIONED_DIR = re.compile(r"!([A-Za-z0-9_.]+?)-[^/!-]+\.(dist-info|data)/")
 
@@ -262,25 +281,34 @@ class Unit:
 
 
 def _decodings(data: bytes) -> tuple[str, ...]:
-    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+    if data.startswith(_UTF32_BOMS):
+        return (data.decode("utf-32", errors="replace"),)
+    if data.startswith(_UTF16_BOMS):
         return (data.decode("utf-16", errors="replace"),)
     try:
-        return (data.decode("utf-8"),)
+        return (data.decode("utf-8-sig"),)
     except UnicodeDecodeError:
-        return (data.decode("utf-8", errors="replace"), data.decode("cp1252", errors="replace"))
+        return (
+            data.decode("utf-8-sig", errors="replace"),
+            data.decode("cp1252", errors="replace"),
+        )
+
+
+def _unescape_line(line: str) -> str:
+    line = html.unescape(_TAG.sub("", line))
+    line = _UNICODE_ESCAPE.sub(lambda m: chr(int(m[1], 16)), line)
+    return _LINE_BREAKS.sub(" ", line)
 
 
 def _read_as_text(text: str) -> str:
-    """Each line with tags removed and character references decoded; lines kept."""
-    return "\n".join(
-        _LINE_BREAKS.sub(" ", html.unescape(_TAG.sub("", line))) for line in text.split("\n")
-    )
+    """Each line with tags removed and escapes decoded; the line count is kept."""
+    return "\n".join(_unescape_line(line) for line in text.split("\n"))
 
 
 def _is_binary(data: bytes) -> bool:
-    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+    if data.startswith(_UTF32_BOMS + _UTF16_BOMS):
         return False
-    return b"\x00" in data[:BINARY_PROBE_BYTES]
+    return _CONTROL_BYTE.search(data[:BINARY_PROBE_BYTES]) is not None
 
 
 def _run_tool(tool: str, args: list[str], data: bytes) -> str | None:
@@ -308,7 +336,7 @@ def _run_tool(tool: str, args: list[str], data: bytes) -> str | None:
 def _pdf_units(data: bytes, name: str) -> Iterator[Unit]:
     text = _run_tool("pdftotext", ["-q", "-enc", "UTF-8"], data)
     yield Unit(f"{name}#pdf-text", None if text is None else (text,))
-    info = _run_tool("pdfinfo", ["-enc", "UTF-8"], data)
+    info = _run_tool("pdfinfo", ["-custom", "-enc", "UTF-8"], data)
     xmp = _run_tool("pdfinfo", ["-meta"], data)
     meta = None if info is None or xmp is None else (info + "\n" + xmp,)
     yield Unit(f"{name}#pdf-meta", meta)
@@ -323,22 +351,18 @@ def _zip_units(data: bytes, name: str, depth: int) -> Iterator[Unit]:
     except (zipfile.BadZipFile, OSError, RuntimeError, EOFError, ValueError):
         yield Unit(name, None)
         return
+    if archive.comment:
+        yield Unit(f"{name}#comment", (archive.comment.decode("utf-8", errors="replace"),))
     for info in infos:
-        if info.is_dir():
-            continue
         unit = f"{name}!{info.filename}"
         yield Unit(unit, (info.filename,), binary=True)  # the member's path, as line 0
+        if info.comment:
+            yield Unit(f"{unit}#comment", (info.comment.decode("utf-8", errors="replace"),))
+        if info.is_dir():
+            continue
         try:
             content = archive.read(info)
-        except (
-            zipfile.BadZipFile,
-            zlib.error,
-            OSError,
-            RuntimeError,
-            NotImplementedError,
-            EOFError,
-            ValueError,
-        ):
+        except Exception:  # any member that cannot be read is reported, never skipped
             yield Unit(unit, None)
             continue
         yield from extract_units(content, unit, depth + 1)
@@ -348,7 +372,15 @@ class _NotATarError(Exception):
     pass
 
 
-def _read_tar(raw: bytes) -> tuple[list[tuple[str, bytes | None]], bytes]:
+@dataclass(frozen=True)
+class _TarMember:
+    name: str
+    content: bytes | None  # a regular file's bytes; None when it could not be read
+    is_file: bool
+    extra: str  # a link's target and any pax header values, as text
+
+
+def _read_tar(raw: bytes) -> tuple[list[_TarMember], bytes]:
     """Members of an uncompressed tar, and the bytes after the last one read.
 
     Raises ``_NotATarError`` when ``raw`` does not start as a tar, and
@@ -359,13 +391,15 @@ def _read_tar(raw: bytes) -> tuple[list[tuple[str, bytes | None]], bytes]:
     except tarfile.TarError:
         raise _NotATarError from None
     with tar:
-        contents: list[tuple[str, bytes | None]] = []
+        members: list[_TarMember] = []
         for info in tar.getmembers():
-            if not info.isfile():
-                continue
-            handle = tar.extractfile(info)
-            contents.append((info.name, None if handle is None else handle.read()))
-        return contents, raw[tar.offset :]
+            extra = "\n".join([info.linkname, *(f"{k}={v}" for k, v in info.pax_headers.items())])
+            content: bytes | None = None
+            if info.isfile():
+                handle = tar.extractfile(info)
+                content = None if handle is None else handle.read()
+            members.append(_TarMember(info.name, content, info.isfile(), extra.strip()))
+        return members, raw[tar.offset :]
 
 
 def _gzip_units(data: bytes, name: str, depth: int) -> Iterator[Unit]:
@@ -375,7 +409,7 @@ def _gzip_units(data: bytes, name: str, depth: int) -> Iterator[Unit]:
         yield Unit(name, None)
         return
     try:
-        contents, tail = _read_tar(raw)
+        members, tail = _read_tar(raw)
     except _NotATarError:
         # A lone gzip file, not a tar: read what it decompresses to.
         yield from extract_units(raw, f"{name}#gunzip", depth + 1)
@@ -383,13 +417,17 @@ def _gzip_units(data: bytes, name: str, depth: int) -> Iterator[Unit]:
     except (tarfile.TarError, OSError, EOFError):
         yield Unit(name, None)
         return
-    for member, content in contents:
-        unit = f"{name}!{member}"
-        yield Unit(unit, (member,), binary=True)  # the member's path, as line 0
-        if content is None:
+    for member in members:
+        unit = f"{name}!{member.name}"
+        yield Unit(unit, (member.name,), binary=True)  # the member's path, as line 0
+        if member.extra:
+            yield Unit(f"{unit}#tar-header", (member.extra,))
+        if not member.is_file:
+            continue
+        if member.content is None:
             yield Unit(unit, None)
             continue
-        yield from extract_units(content, unit, depth + 1)
+        yield from extract_units(member.content, unit, depth + 1)
     if tail.strip(b"\0"):
         yield Unit(f"{name}#tar-tail", None)
 
@@ -404,14 +442,20 @@ def extract_units(data: bytes, name: str, depth: int = 0) -> Iterator[Unit]:
     if depth > MAX_NESTING:
         yield Unit(name, None)
         return
-    if b"%PDF" in data[:PDF_HEADER_WINDOW]:
-        yield from _pdf_units(data, name)
+    if data.startswith(_LFS_POINTER):
+        yield Unit(name, None)
         return
     if data.startswith((b"PK\x03\x04", b"PK\x05\x06")):
         yield from _zip_units(data, name, depth)
         return
     if data.startswith(b"\x1f\x8b"):
         yield from _gzip_units(data, name, depth)
+        return
+    if data[257:262] == b"ustar":  # an uncompressed tar: no reader
+        yield Unit(name, None, binary=True)
+        return
+    if _PDF_HEADER.search(data[:PDF_HEADER_WINDOW]):
+        yield from _pdf_units(data, name)
         return
     if _is_binary(data):
         yield Unit(name, None, binary=True)
@@ -425,6 +469,7 @@ def extract_units(data: bytes, name: str, depth: int = 0) -> Iterator[Unit]:
 
 
 def scan_text(unit: str, text: str, tokens: Tokens) -> set[Hit]:
+    text = text.removeprefix("\ufeff").replace("\r\n", "\n").replace("\r", "\n").replace("\f", "")
     hits: set[Hit] = set()
     for variant in (text, _read_as_text(text)):
         starts = [0] + [m.end() for m in re.finditer("\n", variant)]
@@ -466,15 +511,15 @@ def list_tree(root: Path) -> list[str]:
 
 def scan_tree(root: Path, tokens: Tokens, report: Report) -> None:
     for relative in list_tree(root):
+        report.files += 1
+        report.hits |= scan_path(relative, relative, tokens)
         path = root / relative
         if path.is_symlink():
             data = os.readlink(path).encode("utf-8", errors="surrogateescape")
         elif path.is_file():
             data = path.read_bytes()
         else:
-            continue  # tracked but deleted in the work tree
-        report.files += 1
-        report.hits |= scan_path(relative, relative, tokens)
+            continue  # a gitlink, or tracked but deleted in the work tree: the path was read
         scan_units(extract_units(data, relative), tokens, report, lambda n: n)
 
 
@@ -483,6 +528,12 @@ def archive_kind(path: Path, data: bytes) -> str:
     if path.name.endswith(".whl") and data.startswith(b"PK\x03\x04"):
         return "wheel"
     if path.name.endswith(".tar.gz") and data.startswith(b"\x1f\x8b"):
+        try:
+            inner = gzip.decompress(data)
+        except (OSError, EOFError, zlib.error):
+            raise GateError("--archive sdist is not a readable gzip") from None
+        if inner[257:262] != b"ustar":
+            raise GateError("--archive sdist is not a gzip tar")
         return "sdist"
     raise GateError("--archive takes a wheel (.whl, zip) or an sdist (.tar.gz, gzip)")
 
@@ -548,7 +599,13 @@ def display(unit: str, tokens: Tokens) -> str:
                 + hashlib.sha256(path.encode("utf-8", errors="surrogateescape")).hexdigest()[:12]
             )
         parts.append(path + sep + suffix)
-    return "!".join(parts)
+    shown = "!".join(parts)
+    if any(p.search(shown) for _, p in tokens):
+        # A name split across '#' or '!' survives the per-component check.
+        shown = (
+            "~" + hashlib.sha256(unit.encode("utf-8", errors="surrogateescape")).hexdigest()[:12]
+        )
+    return shown
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -562,6 +619,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--list-file", help="read the list from this file instead of the env var")
     args = parser.parse_args(argv)
+    for stream in (sys.stdout, sys.stderr):
+        if isinstance(stream, io.TextIOWrapper):
+            stream.reconfigure(errors="backslashreplace")
 
     report = Report()
     try:

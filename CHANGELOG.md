@@ -16,12 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the accidental case, a name written plainly, not for one hidden on purpose.
   Unlike the file-type and path allowlist of the older banned-string test, it
   exempts no path, basename or suffix. It reads the path of every tracked and
-  untracked-not-ignored file; text as UTF-8, UTF-16 with a byte-order mark, or
-  cp1252, each line also with markup tags removed and character references
-  decoded; PDF text layers and metadata; zip and tar members and their names;
-  and, with `--archive`, a built wheel or sdist. What it cannot read is
-  reported: an unreadable document or container fails the run, and a binary
-  file with no reader fails until the register accepts it by name. It prints
+  untracked-not-ignored file; text as UTF-8, UTF-16 or UTF-32 with a
+  byte-order mark, or cp1252, each line also with markup tags removed and
+  character and `\uXXXX` escapes decoded; PDF text layers and metadata; zip
+  and gzip-tar members, their names, link targets, zip comments and tar
+  headers; and, with `--archive`, a built wheel or sdist. What it cannot read
+  is reported: an unreadable document or container, or a git LFS pointer,
+  fails the run, and a binary file with no reader (an uncompressed tar
+  included) fails until the register accepts it by name. It prints
   `<file>:<line> <pattern id>` and never the matched text; a path that itself
   matches is printed as a hash. An exception register in the same secret
   excuses exact lines, and an entry that no longer matches fails the run.
