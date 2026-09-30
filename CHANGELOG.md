@@ -82,8 +82,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   out because leaving the key out makes Dependabot apply its default labels.
   The pip entry is gone with the development lock (see Removed): its grouping,
   ignore rules and comments were all about that file and a resolve gate that
-  never existed, and the dependency ranges in `pyproject.toml` are edited by
-  hand.
+  was never part of any workflow in this repository, and the dependency ranges
+  in `pyproject.toml` are edited by hand.
 
 ### Deprecated
 - `.fabric-dataops.toml` and the `FDT_` settings env prefix. Both are still
@@ -111,7 +111,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The hash-pinned lock of the development dependencies is removed, with the
   six tests that checked only its format. Nothing installed it: no workflow,
   script or setup step read it, and the resolve gate that the Dependabot
-  config said guarded it was never part of any workflow. It had drifted too:
+  config said guarded it was never part of any workflow in this repository.
+  It had drifted too:
   21 of its comments still named the old distribution, and on 2026-09-30 the
   OSV database listed 37 advisories against 8 of its 94 pins. A lock that
   looks like a control but is never installed is worse than none. Python

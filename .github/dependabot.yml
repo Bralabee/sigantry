@@ -8,7 +8,8 @@
 # rewrites the version comment alongside the SHA.
 #
 # The cadence is monthly because a bot PR is not merged as-is: its
-# changes are carried in a maintainer-owned PR and the bot PR is closed.
+# changes are carried in a maintainer-owned PR, and once that merges
+# Dependabot closes the bot PR itself as no longer needed.
 # (The pin test requires every workflow to pin ``actions/checkout``, and
 # ``actions/setup-python``, to the same SHA, so those moves are made
 # across all workflows at once.) Grouping keeps related action bumps in

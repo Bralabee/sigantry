@@ -2,6 +2,9 @@
 
 - **Status:** Accepted
 - **Date:** 2026-05-08
+- **Amended:** 2026-09-30 -- the repository no longer carries a hash-pinned
+  development lock, so Decision item 4 and the option B rationale no longer
+  cite one. The original wording is in git history.
 - **Milestone:** v3.0.x (Audit-2026-05-07 Wave 3 / W3.4)
 - **Deciders:** platform team (audit synthesis: security dimension finding S-04, "Plugin trust model is implicit -- any installed dist that declares an entry-point participates in resolution")
 - **Context:** The v3.0 plugin model uses Python entry points

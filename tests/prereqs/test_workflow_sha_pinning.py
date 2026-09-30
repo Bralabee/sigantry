@@ -6,8 +6,8 @@ Pre-W3.2 the workflows referenced actions by version tag
 who compromised the action's repo could push a malicious commit and
 re-tag, and every CI run would silently pull the malicious version.
 SHA-pinning makes the reference immutable. Dependabot
-(``.github/dependabot.yml``, also added in W3.2) rewrites the SHAs +
-trailing version comments weekly so the pin stays current with
+(``.github/dependabot.yml``, also added in W3.2) proposes new SHAs +
+trailing version comments monthly so the pin stays current with
 upstream patches.
 
 The expected pin format::
@@ -27,6 +27,7 @@ import re
 from pathlib import Path
 
 import pytest
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
@@ -118,6 +119,27 @@ def test_dependabot_config_exists_and_covers_actions() -> None:
     assert (
         "package-ecosystem: github-actions" in text or 'package-ecosystem: "github-actions"' in text
     ), "dependabot.yml does not declare a github-actions ecosystem entry."
+
+
+def test_dependabot_entries_disable_default_labels() -> None:
+    """Every ``updates`` entry sets ``labels: []`` explicitly.
+
+    Leaving the key out is not the same as an empty list: Dependabot then
+    applies its default labels, and creates them in the repository if they
+    are missing. Nothing here consumes them.
+    """
+    path = REPO_ROOT / ".github" / "dependabot.yml"
+    config = yaml.safe_load(path.read_text(encoding="utf-8"))
+    entries = config.get("updates") or []
+    assert entries, "dependabot.yml declares no updates entries."
+    offenders = [
+        f"{entry.get('package-ecosystem')} {entry.get('directory')}"
+        for entry in entries
+        if entry.get("labels", None) != []
+    ]
+    assert not offenders, (
+        "dependabot.yml entries without an explicit `labels: []`:\n  - " + "\n  - ".join(offenders)
+    )
 
 
 @pytest.mark.parametrize(
