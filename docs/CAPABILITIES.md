@@ -562,7 +562,7 @@ flowchart LR
 | Workflow | Purpose |
 |---|---|
 | [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) | Multi-OS and Python matrix test, lint, and build verification. |
-| `.github/workflows/drift-check.yml` | Scheduled drift detection (cron). |
+| `.github/workflows/drift-check.yml` | Reusable drift detection (`workflow_call` / `workflow_dispatch`); the caller owns the schedule. |
 | `.github/workflows/publish-pypi.yml` | The only workflow that publishes this package. On a published GitHub Release, or a manual dispatch, it runs the `ci.yml` quality jobs, then builds the sdist and wheel and publishes them to PyPI through trusted publishing. |
 | `.github/workflows/review-record.yml` | Posts the required `review-record` commit status on each pull request head. |
 | `.github/workflows/sigantry-cd.yml` | The 5-stage CD workflow. |
