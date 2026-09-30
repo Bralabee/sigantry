@@ -16,12 +16,16 @@ picked up correctly at runtime but can surprise offline lint passes.
 
 Hosts the ``repo_files`` fixture: the single file inventory every repo-wide
 guard test scans (see :func:`repo_tracked_files`).
+
+Isolates every test from the real audit ledgers (see
+:func:`_isolate_home_and_audit_dir`).
 """
 
 from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -108,3 +112,48 @@ def repo_tracked_files(root: Path | None = None) -> tuple[tuple[Path, str], ...]
 def repo_files() -> tuple[tuple[Path, str], ...]:
     """Session-wide file inventory for the repo-wide guard tests."""
     return repo_tracked_files()
+
+
+# Module attributes that hold a default audit location. Each is bound when
+# its module is imported -- ``Path.home()`` evaluated once -- and several
+# modules re-bind ``_DEFAULT_AUDIT_DIR`` by name, so patching the defining
+# module alone leaves the copies pointing at the real directory.
+_AUDIT_DEFAULT_ATTRS: tuple[tuple[str, str], ...] = (
+    ("_DEFAULT_AUDIT_DIR", ""),
+    ("DEFAULT_BOOTSTRAP_LEDGER", "bootstraps.jsonl"),
+)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_home_and_audit_dir(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> Path:
+    """Point HOME and every default audit location at a per-test temp dir.
+
+    Any code path that falls back to the default ledger -- an ``emit_*``
+    call without ``audit_dir``, a CLI run without ``--audit-dir`` --
+    otherwise appends test records to the maintainer's REAL
+    ``~/.sigantry/audit/`` ledgers, which are the only evidence of real
+    deploys. A full run did exactly that: approvals, destructive-op and
+    secret-change records from fixture principals, on every run.
+
+    Setting HOME alone is not enough in-process: the package is imported
+    before this conftest (the ``sigantry_core`` pytest11 plugin loads
+    first), so the import-time defaults already hold the real home. Hence
+    both: HOME / USERPROFILE for subprocesses and for code that calls
+    ``Path.home()`` at run time, and a patch of every loaded
+    ``sigantry_core`` module attribute that holds a default location.
+    ``tests/sigantry_core/governance/test_audit_home_isolation.py`` fails if
+    either is dropped.
+    """
+    home = tmp_path_factory.mktemp("home")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    audit_dir = home / ".sigantry" / "audit"
+    for name, module in list(sys.modules.items()):
+        if module is None or not (name == "sigantry_core" or name.startswith("sigantry_core.")):
+            continue
+        for attr, leaf in _AUDIT_DEFAULT_ATTRS:
+            if hasattr(module, attr):
+                monkeypatch.setattr(module, attr, audit_dir / leaf if leaf else audit_dir)
+    return home
