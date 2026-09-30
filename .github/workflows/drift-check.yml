@@ -1,7 +1,13 @@
 # .github/workflows/drift-check.yml
 # ------------------------------------------------------------------
-# Sigantry scheduled drift-check workflow (DRIFT-03).
-# Daily cron -> sigantry diff --output json --fail-on-drift -> notification sink
+# Sigantry drift-check workflow (DRIFT-03).
+# Caller's schedule -> sigantry diff --output json --fail-on-drift -> notification sink
+#
+# This workflow carries NO `schedule:` trigger. A scheduled run receives an
+# EMPTY `inputs` context -- declared defaults are not applied either -- so a
+# schedule here ran `sigantry diff` with no workspace or manifest and failed
+# every day. Adopters schedule a caller workflow that passes the inputs via
+# `with:` (docs/runbooks/drift-detection/scheduled-drift.md, "GHA").
 #
 # Paired with templates/schedules/drift-check.yml.
 # Parity enforced by scripts/ci/check-dual-ci-parity.py (Plan 10-06).
@@ -12,6 +18,7 @@
 # corresponding lines in templates/schedules/drift-check.yml):
 # sigantry-dual-ci-ignore: gha-uses-oidc-not-service-connection
 # sigantry-dual-ci-ignore: ado-gh-env-naming
+# sigantry-dual-ci-ignore: gha-schedule-lives-in-the-caller
 #
 # Sources (Plan 13-06 / DRIFT-03):
 #   GitHub Docs -- Workflow syntax (on: schedule)
@@ -22,8 +29,6 @@
 name: drift-check
 
 on:
-  schedule:
-    - cron: '0 6 * * *'
   workflow_dispatch:
     inputs:
       workspaceId:      { type: string, required: true }
@@ -38,6 +43,9 @@ on:
       manifestPath:     { type: string, required: false, default: 'sync.yml' }
       notificationSink: { type: string, required: false, default: 'teams' }
       cron:             { type: string, required: false, default: '0 6 * * *' }
+
+permissions:
+  contents: read
 
 jobs:
   drift_check:

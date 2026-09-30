@@ -22,7 +22,11 @@ flowchart LR
 
 The workflow pair ships in the repo: `.github/workflows/drift-check.yml` (GitHub
 Actions) and `templates/schedules/drift-check.yml` (the Azure DevOps half — same
-behaviour, kept in lockstep by the dual-CI parity gate).
+behaviour, kept in lockstep by the dual-CI parity gate). The GitHub workflow has no
+schedule of its own: a scheduled run receives no inputs, so you schedule a small caller
+workflow in your repo that passes `workspaceId` / `manifestPath` / `environment` via
+`with:` — see the GHA section of the
+[scheduled drift runbook](../runbooks/drift-detection/scheduled-drift.md).
 
 ## Step 0 — Pick the right workspace (read this twice)
 

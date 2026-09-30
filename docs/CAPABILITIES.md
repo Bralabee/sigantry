@@ -562,7 +562,7 @@ flowchart LR
 | Workflow | Purpose |
 |---|---|
 | [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) | Multi-OS and Python matrix test, lint, and build verification. |
-| `.github/workflows/drift-check.yml` | Scheduled drift detection (cron). |
+| `.github/workflows/drift-check.yml` | Reusable drift detection (`workflow_call` / `workflow_dispatch`); the caller owns the schedule. |
 | `.github/workflows/release-alpha.yml` | Tag-driven alpha publish. |
 | `.github/workflows/sigantry-cd.yml` | The 5-stage CD workflow. |
 | `.github/workflows/sigantry-pr-bot.yml` | PR-bot trigger workflow. |

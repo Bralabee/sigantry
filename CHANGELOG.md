@@ -81,6 +81,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   removing elsewhere.
 
 ### Fixed
+- **`.github/workflows/drift-check.yml` failed every day.** Its `schedule:`
+  trigger ran the workflow with an empty `inputs` context (declared defaults are
+  not applied to scheduled runs either), so `sigantry diff` got no workspace and
+  no manifest: 11 of 11 scheduled runs failed between 2026-09-20 and 2026-09-30.
+  The workflow is reusable (`workflow_call` / `workflow_dispatch`) and now has no
+  schedule of its own; adopters schedule a caller that passes the inputs, as the
+  drift runbook already showed. It also gains `permissions: contents: read`. A
+  new check fails any scheduled workflow that requires or reads an input.
+- **`sigantry diff --output json` wrote its errors to stdout**, the stream the
+  drift pipelines capture into `drift.json`, so a failed run produced a
+  `drift.json` that was not JSON. Errors now go to stderr.
 - **The assertions guarding "a configured tool must actually RUN" could not
   fail for the reasons that mattered — twice.** Review of the first rewrite
   found it still passed with `if: false` on the mypy step (or a never-matching

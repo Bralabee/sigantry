@@ -62,6 +62,9 @@ diff_app = typer.Typer(
     invoke_without_command=True,
 )
 _console = Console()
+# Errors go to stderr: `--output json` stdout is captured into drift.json by the
+# scheduled drift pipelines, and an error line there is not JSON.
+_err_console = Console(stderr=True)
 
 
 def _render_human_table(report: DriftReport, *, environment: str) -> None:
@@ -188,7 +191,7 @@ def diff_cmd(
     exit 2 with a red error message.
     """
     if output not in {"human", "json", "html"}:
-        _console.print(
+        _err_console.print(
             f"[red]Invalid --output {output!r}; must be 'human', 'json', or 'html'.[/red]"
         )
         raise typer.Exit(code=2)
@@ -196,19 +199,19 @@ def diff_cmd(
     try:
         report = diff_workspace_against_manifest(manifest, workspace_id)
     except ManifestValidationError as exc:
-        _console.print(f"[red]Manifest validation failed:[/red] {exc}")
+        _err_console.print(f"[red]Manifest validation failed:[/red] {exc}")
         for v in exc.violations:
-            _console.print(f"  [yellow]-[/yellow] {v}")
+            _err_console.print(f"  [yellow]-[/yellow] {v}")
         raise typer.Exit(code=2) from exc
     except WorkspacePendingGitUpdateError as exc:
-        _console.print(f"[red]{exc}[/red]")
+        _err_console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=2) from exc
     except Exception as exc:
         # Operational error -- workspace not found, auth chain failure,
         # network issue, or any unexpected SyncEngineError subclass. Exit
         # 2 (D-26) so CI runners can branch the same way they do for
         # WorkspacePendingGitUpdateError.
-        _console.print(f"[red]sigantry diff failed:[/red] {exc}")
+        _err_console.print(f"[red]sigantry diff failed:[/red] {exc}")
         raise typer.Exit(code=2) from exc
 
     if output == "json":
