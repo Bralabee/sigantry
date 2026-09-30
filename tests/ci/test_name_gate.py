@@ -39,6 +39,7 @@ token S01 (?i)zqplant
 token S02 zqother\\d+
 token S03 zq\u2019mark
 token S04 ^zqline$
+token S05 zqm\u00fcller
 """
 
 
@@ -768,3 +769,73 @@ def test_an_undecodable_file_name_does_not_crash_the_output(tmp_path: Path) -> N
     assert "Traceback" not in proc.stderr
     assert any(h.endswith(":1 S02") for h in _hits(proc))
     assert " file(s) scanned" in proc.stdout
+
+
+# ---------------------------------------------------------------------------
+# Review round 2
+# ---------------------------------------------------------------------------
+
+
+def test_a_text_file_that_mentions_the_pdf_header_is_plain_text(tmp_path: Path) -> None:
+    readme = "# Demo\n\nEvery PDF we produce starts with `%PDF-1.7`.\n"
+    clean = _run(_tree(tmp_path, {**BASE, "README.md": readme}), tmp_path)
+    assert clean.returncode == 0, clean.stdout
+    (tmp_path / "tree").rename(tmp_path / "tree-clean")
+    hit = _run(_tree(tmp_path, {**BASE, "README.md": readme + "zqother8\n"}), tmp_path)
+    assert _hits(hit) == ["README.md:4 S02"]
+
+
+def test_a_text_file_that_embeds_pdf_bytes_is_still_read_as_text(tmp_path: Path) -> None:
+    source = (
+        '# maintainer: zqmüller\nSAMPLE = b"""'
+        + _pdf("Quarterly").decode("latin-1").encode("unicode_escape").decode("ascii")
+        + '"""\n'
+    )
+    proc = _run(_tree(tmp_path, {**BASE, "tests/fixture_pdf.py": source}), tmp_path)
+    assert proc.returncode == 1
+    assert _hits(proc) == ["tests/fixture_pdf.py:1 S05"]
+
+
+def test_a_non_ascii_name_in_a_raw_pdf_string_is_read(tmp_path: Path) -> None:
+    pdf = _pdf("Quarterly", title="Reviewed by zqmüller")
+    assert b"zqm\xfcller" in pdf, "the name must sit in the raw bytes as Latin-1"
+    proc = _run(_tree(tmp_path, {**BASE, "docs/report.pdf": pdf}), tmp_path)
+    assert proc.returncode == 1
+    assert any(h.startswith("docs/report.pdf#pdf-raw:") and h.endswith(" S05") for h in _hits(proc))
+
+
+def test_an_all_text_pdf_is_read_as_a_pdf_and_as_text(tmp_path: Path) -> None:
+    pdf = (
+        b"%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\n"
+        b"2 0 obj << /Length 40 >> stream\nBT (Prepared for zqplant) Tj ET\nendstream endobj\n"
+        b"trailer << /Root 1 0 R >>\n%%EOF\n"
+    )
+    proc = _run(_tree(tmp_path, {**BASE, "docs/plain.pdf": pdf}), tmp_path)
+    assert proc.returncode == 1
+    assert "docs/plain.pdf:4 S01" in _hits(proc)  # the text reading, line 4
+
+
+def test_a_tar_whose_header_breaks_the_reader_is_unreadable_and_not_echoed(
+    tmp_path: Path,
+) -> None:
+    f = tarfile.TarInfo("a.txt")
+    f.size = 2
+    f.pax_headers = {"GNU.sparse.size": "zqplant"}
+    proc = _run(_tree(tmp_path, {**BASE, "dist.tar.gz": _tar_gz([f], {"a.txt": b"x\n"})}), tmp_path)
+    assert proc.returncode == 1
+    assert "Traceback" not in proc.stderr
+    assert "dist.tar.gz:0 UNREADABLE" in _hits(proc)
+    _assert_no_leak(proc)
+
+
+def test_an_archive_comment_exception_is_in_the_archive_scope(tmp_path: Path) -> None:
+    root = _tree(tmp_path, BASE)
+    path = tmp_path / "demo-1.0-py3-none-any.whl"
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("demo/__init__.py", "x = 1\n")
+        z.comment = b"built for zqplant"
+    listed = LIST + "exception wheel#comment:1 S01\n"
+    archive_run = _run(root, tmp_path, listed, "--archive", str(path))
+    tree_run = _run(root, tmp_path, listed)
+    assert archive_run.returncode == 0, archive_run.stdout
+    assert tree_run.returncode == 0, tree_run.stdout

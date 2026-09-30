@@ -29,9 +29,14 @@ What is read (no path, basename or suffix is exempt):
   written and again with markup tags removed and character references
   and ``\\uXXXX`` escapes decoded, so ``a<b>c</b>``, ``&#8217;`` and
   ``\\u2019`` read as text;
-- PDFs (``%PDF-`` and a version digit in the first 1024 bytes): the text
-  layer (``pdftotext``), the document information including custom keys
-  and the XMP metadata (``pdfinfo``), and printable runs of the raw bytes;
+- PDFs: a file that starts with ``%PDF-`` and a version digit (after
+  whitespace), or a binary file (by the rule below) with that header in
+  its first 1024 bytes. For each: the text layer (``pdftotext``), the
+  document information including custom keys and the XMP metadata
+  (``pdfinfo``), runs of printable bytes (high bytes included, read as
+  cp1252) from the raw file, and, when it holds no control byte, its text.
+  A text file that mentions or embeds the header further in is read as
+  text only;
 - zip containers (``.pptx``, ``.docx``, ``.xlsx``, ``.zip``, wheels) and
   gzip tar archives (sdists), member by member: every member's name,
   directories and links included, a link's target, zip comments and tar
@@ -144,7 +149,7 @@ _PDF_HEADER = re.compile(rb"%PDF-[0-9]")
 _LFS_POINTER = b"version https://git-lfs.github.com/spec/"
 _UTF32_BOMS = (b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff")
 _UTF16_BOMS = (b"\xff\xfe", b"\xfe\xff")
-_PRINTABLE_RUN = re.compile(rb"[\x20-\x7e]{8,}")
+_PRINTABLE_RUN = re.compile(rb"[\x20-\x7e\x80-\xff]{8,}")
 _WHEEL_VERSIONED_DIR = re.compile(r"!([A-Za-z0-9_.]+?)-[^/!-]+\.(dist-info|data)/")
 
 Tokens = list[tuple[str, "re.Pattern[str]"]]
@@ -340,7 +345,7 @@ def _pdf_units(data: bytes, name: str) -> Iterator[Unit]:
     xmp = _run_tool("pdfinfo", ["-meta"], data)
     meta = None if info is None or xmp is None else (info + "\n" + xmp,)
     yield Unit(f"{name}#pdf-meta", meta)
-    raw = "\n".join(run.decode("ascii") for run in _PRINTABLE_RUN.findall(data))
+    raw = "\n".join(run.decode("cp1252", errors="replace") for run in _PRINTABLE_RUN.findall(data))
     yield Unit(f"{name}#pdf-raw", (raw,))
 
 
@@ -414,7 +419,7 @@ def _gzip_units(data: bytes, name: str, depth: int) -> Iterator[Unit]:
         # A lone gzip file, not a tar: read what it decompresses to.
         yield from extract_units(raw, f"{name}#gunzip", depth + 1)
         return
-    except (tarfile.TarError, OSError, EOFError):
+    except Exception:  # any tar that breaks while being read is reported, never echoed
         yield Unit(name, None)
         return
     for member in members:
@@ -454,12 +459,17 @@ def extract_units(data: bytes, name: str, depth: int = 0) -> Iterator[Unit]:
     if data[257:262] == b"ustar":  # an uncompressed tar: no reader
         yield Unit(name, None, binary=True)
         return
-    if _PDF_HEADER.search(data[:PDF_HEADER_WINDOW]):
+    binary = _is_binary(data)
+    starts_as_pdf = _PDF_HEADER.match(data.lstrip()[:16]) is not None
+    if starts_as_pdf or (binary and _PDF_HEADER.search(data[:PDF_HEADER_WINDOW])):
         yield from _pdf_units(data, name)
+        if not binary:  # an all-text PDF: its strings are read as text as well
+            yield Unit(name, _decodings(data))
         return
-    if _is_binary(data):
+    if binary:
         yield Unit(name, None, binary=True)
         return
+    # Text, even when it mentions or embeds the PDF magic further in.
     yield Unit(name, _decodings(data))
 
 
@@ -571,7 +581,7 @@ def scan_archive(path: Path, tokens: Tokens, report: Report) -> str:
 
 def in_scope(entry: Hit, kinds: tuple[str, ...]) -> bool:
     """Is this register entry checked by a run over ``kinds`` (empty = the tree)?"""
-    prefix = entry.unit.split("!", 1)[0]
+    prefix = re.split(r"[!#]", entry.unit, maxsplit=1)[0]
     if not kinds:
         return prefix not in ARCHIVE_KINDS
     return prefix in kinds
