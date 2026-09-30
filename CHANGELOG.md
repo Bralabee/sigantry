@@ -73,8 +73,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   runtime. `actions/checkout` v7 refuses to check out a fork's pull-request
   code in a `pull_request_target` or `workflow_run` workflow unless
   `allow-unsafe-pr-checkout` is set. No workflow here uses either trigger; a
-  caller that reached `sigantry-pr-bot.yml` through `workflow_call` from one,
-  on a fork pull request, would now be refused at its head checkout.
+  caller that reached `sigantry-pr-bot.yml` through `workflow_call` from a
+  `pull_request_target` workflow, on a fork pull request, would now be
+  refused at its head checkout.
 
 ### Deprecated
 - `.fabric-dataops.toml` and the `FDT_` settings env prefix. Both are still
