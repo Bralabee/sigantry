@@ -22,7 +22,11 @@ flowchart LR
 
 The workflow pair ships in the repo: `.github/workflows/drift-check.yml` (GitHub
 Actions) and `templates/schedules/drift-check.yml` (the Azure DevOps half — same
-behaviour, kept in lockstep by the dual-CI parity gate).
+behaviour, kept in lockstep by the dual-CI parity gate). The GitHub workflow has no
+schedule of its own: a scheduled run receives no inputs, so you schedule a small caller
+workflow in your repo that passes `workspaceId` / `manifestPath` / `environment` via
+`with:` — see the GHA section of the
+[scheduled drift runbook](../runbooks/drift-detection/scheduled-drift.md).
 
 ## Step 0 — Pick the right workspace (read this twice)
 
@@ -79,13 +83,12 @@ also confirm outbound HTTPS to `*.webhook.office.com` / `*.logic.azure.com` is o
 
 ## Step 4 — Trigger the workflow once by hand
 
-Before trusting the schedule, run the workflow manually with your real inputs:
+Before trusting the schedule, run your caller workflow once through its
+`workflow_dispatch:` trigger. It passes the inputs from its own `with:` block, so
+there are no `-f` flags to add:
 
 ```bash
-gh workflow run drift-check.yml --repo <owner>/<repo> \
-  -f workspaceId=<governed-workspace-guid> \
-  -f manifestPath=<path/to/sync.yml-in-repo> \
-  -f environment=prod
+gh workflow run <your-caller>.yml --repo <owner>/<repo>
 gh run watch
 # expect: drift_check job green; notify job SKIPPED (you are clean from Tutorial 03);
 #         drift.json attached as a run artefact
@@ -105,8 +108,9 @@ green and silent again.
 
 ## Step 6 — Let the schedule take over
 
-The workflow's `schedule:` block defaults to a daily cron. Adjust frequency to taste
-(hourly for hot workspaces, daily for stable ones) and merge. From now on the only
+The cadence is your caller workflow's `schedule:` block (the runbook's example runs
+daily at 06:00 UTC). Adjust frequency to taste (hourly for hot workspaces, daily for
+stable ones) and merge. From now on the only
 time you hear about this workspace is when reality stops matching the contract.
 
 ## Operational notes
