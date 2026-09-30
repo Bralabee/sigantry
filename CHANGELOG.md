@@ -65,6 +65,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   this, the documented `.sigantry.toml` filename was read by nothing: an
   operator who followed the migration guide got a config file that was
   silently ignored and a run on all defaults.
+- The workflows' action pins move to `actions/checkout` v7.0.1,
+  `actions/setup-python` v7.0.0 and `actions/setup-node` v7.0.0, still pinned
+  by commit SHA: 28 pins in 7 workflows, moved together because the pin test
+  requires every workflow to pin `actions/checkout`, and
+  `actions/setup-python`, to the same SHA. All three stay on the node24
+  runtime. `actions/checkout` v7 refuses to check out a fork's pull-request
+  code in a `pull_request_target` or `workflow_run` workflow unless
+  `allow-unsafe-pr-checkout` is set. No workflow here uses either trigger; a
+  caller that reached `sigantry-pr-bot.yml` through `workflow_call` from a
+  `pull_request_target` workflow, on a fork pull request, would now be
+  refused at its head checkout.
 
 ### Deprecated
 - `.fabric-dataops.toml` and the `FDT_` settings env prefix. Both are still
