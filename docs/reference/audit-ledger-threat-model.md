@@ -49,9 +49,11 @@ filesystem, a bad deploy script, or a colleague who edited a line by hand.
   leaves a shorter, perfectly valid chain, and a verifier with no independent record of
   the expected tip cannot tell.
 - **A chain migration used as laundering.** `scripts/audit_chain_migrate.py` legitimately
-  re-seals every record when it back-fills `prev_hash`. Re-sealing is inherent to any
-  rewrite of an unkeyed chain, so the same operation restores validity to an edited
-  ledger.
+  re-seals every record when it back-fills `prev_hash`. It refuses a ledger in which any
+  record fails its own stored hash or any chain link is broken, so it no longer turns an
+  edit made without recomputing hashes into a valid chain. It cannot tell an edit whose
+  hash was recomputed from a genuine record — nothing can, in an unkeyed chain — so this
+  narrows the laundering path; it does not close it.
 - **Loss.** An unkeyed chain has no durability property at all. A ledger written to an
   ephemeral runner and never uploaded leaves no evidence of anything; each run also
   starts from an empty file, so every record is a first record with `prev_hash = null`

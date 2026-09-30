@@ -81,6 +81,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   removing elsewhere.
 
 ### Fixed
+- **`scripts/audit_chain_migrate.py` could destroy or launder audit records,
+  and reported success either way.** A re-run read the `.pre-w3.1.bak` backup
+  whenever it existed and replaced the live ledger with it, so every record
+  written since the first migration was lost; on a copy of a real deploy
+  ledger it dropped 13 of 63 records at exit 0 and `release verify` then
+  reported the shorter chain as valid. It also re-sealed a record that failed
+  its own hash (so a hand edit came out verifying), and judged a ledger
+  "already chained" from its first two records only, leaving a broken later
+  link in place. The script now reads the backup only when the live ledger is
+  absent; verifies every record against its own stored hash and every chain
+  link before re-sealing, and on any failure writes nothing and exits 1
+  (`--dry-run` included); holds the audit writers' lock from read to replace;
+  copies the ledger to a backup that never overwrites an earlier one; and
+  checks the post-migration chain before writing it.
+- **The test suite wrote into the real `~/.sigantry/audit/` ledgers.** Tests
+  that fall back to the default audit directory appended fixture records
+  (approvals, destructive-op and secret-change records from principals such as
+  `MockCredential`) to the developer's own ledgers on every run. A root
+  `conftest.py` fixture now points `HOME` and every default audit location at
+  a per-test temp directory, and a guard test fails if either half is removed.
 - **The assertions guarding "a configured tool must actually RUN" could not
   fail for the reasons that mattered — twice.** Review of the first rewrite
   found it still passed with `if: false` on the mypy step (or a never-matching

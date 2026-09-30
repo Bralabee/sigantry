@@ -149,9 +149,14 @@ def test_atomic_write_does_not_leak_tmpfile_on_success(tmp_path: Path) -> None:
     # Records 1..2 carry a new prev_hash; record 0 unchanged.
     assert processed == 3 and changed == 2
 
-    # Only the migrated file + the .pre-w3.1.bak should be present.
+    # Only the migrated file, the .pre-w3.1.bak and the writers' shared
+    # lock file (the migration holds ``audit_chain_lock``) should be present.
     actual = sorted(p.name for p in tmp_path.iterdir() if p.is_file())
-    expected = ["secret_changes.jsonl", "secret_changes.jsonl.pre-w3.1.bak"]
+    expected = [
+        "secret_changes.jsonl",
+        "secret_changes.jsonl.lock",
+        "secret_changes.jsonl.pre-w3.1.bak",
+    ]
     assert actual == expected, (
         f"unexpected files in tmp_path after migration: {actual}; "
         f"expected exactly {expected}. Tempfile leak?"
