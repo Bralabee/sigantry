@@ -20,6 +20,7 @@ import importlib.util
 import json
 import os
 import stat
+import subprocess
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -213,8 +214,14 @@ def test_chain_shape_violations_are_refused(tmp_path: Path, mutate: Any, reason:
         (b"\xff\xfe not utf-8\n", "not valid UTF-8"),
         (b'{"workspace": "x"\n', "line 1 is not a valid DeployRecord"),
         (b"[1, 2]\n", "line 1 is not a valid DeployRecord"),
+        (b"[" * 100_000 + b"]" * 100_000 + b"\n", "line 1 is not a valid DeployRecord"),
+        (
+            json.dumps(_legacy_line(0)).replace('"alice@corp.example"', '"a\\ud800"').encode()
+            + b"\n",
+            "record 0 fails verification",
+        ),
     ],
-    ids=["invalid-utf8", "truncated-json", "not-an-object"],
+    ids=["invalid-utf8", "truncated-json", "not-an-object", "deeply-nested", "lone-surrogate"],
 )
 def test_unparseable_ledger_is_refused_and_the_others_still_run(
     tmp_path: Path, data: bytes, match: str, capsys: pytest.CaptureFixture[str]
@@ -222,13 +229,15 @@ def test_unparseable_ledger_is_refused_and_the_others_still_run(
     audit = tmp_path / "audit"
     audit.mkdir()
     (audit / "deploys.jsonl").write_bytes(data)
-    _write(audit / "approvals.jsonl", [])  # a ledger the run must still reach
+    # secret_changes.jsonl sorts AFTER deploys.jsonl, so it is only reached if
+    # the run goes on past the refusal.
+    _write(audit / "secret_changes.jsonl", [])
 
     assert _mig.main(["--audit-dir", str(audit)]) == 1
 
     out = capsys.readouterr()
     assert match in out.err
-    assert "approvals.jsonl" in out.out, "one bad ledger stopped the run"
+    assert "secret_changes.jsonl" in out.out, "one bad ledger stopped the run"
     assert (audit / "deploys.jsonl").read_bytes() == data
 
 
@@ -323,7 +332,7 @@ def test_missing_live_ledger_with_later_backups_is_refused(tmp_path: Path) -> No
     _write(audit / "deploys.jsonl.pre-w3.1.bak", [_legacy_line(i) for i in range(2)])
     _write(audit / "deploys.jsonl.pre-w3.1.bak.1", [_legacy_line(i) for i in range(4)])
 
-    with pytest.raises(_mig.MigrationRefusedError, match="later backups exist"):
+    with pytest.raises(_mig.MigrationRefusedError, match="backups exist"):
         _mig.migrate_one_file(audit / "deploys.jsonl", record_cls=DeployRecord)
     assert not (audit / "deploys.jsonl").exists()
 
@@ -457,3 +466,135 @@ def test_a_record_appended_while_waiting_for_the_lock_is_kept(
     with pytest.raises(_mig.MigrationRefusedError, match="holds 3 record"):
         _mig.migrate_one_file(audit / "deploys.jsonl", record_cls=DeployRecord)
     assert [r["release_id"] for r in _read(audit / "deploys.jsonl")] == ["R-50"]
+
+
+# --- round-1 review findings ------------------------------------------------------
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="symlinks need privileges on Windows")
+def test_dangling_symlink_at_a_backup_name_does_not_hang(tmp_path: Path) -> None:
+    """``Path.exists`` is False for a dangling link, but the name is taken.
+
+    Run in a subprocess with a timeout: the defect is an endless loop that
+    holds the writers' lock.
+    """
+    audit = tmp_path / "audit"
+    _write(audit / "deploys.jsonl", [_legacy_line(i) for i in range(2)])
+    (audit / "deploys.jsonl.pre-w3.1.bak").symlink_to(tmp_path / "unmounted" / "nothing")
+    script = Path(_mig.__file__)
+    env = {**os.environ, "PYTHONPATH": str(script.parents[1])}
+
+    proc = subprocess.run(
+        [sys.executable, str(script), "--audit-dir", str(audit)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env=env,
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    assert (audit / "deploys.jsonl.pre-w3.1.bak.1").is_file()
+    assert _verifies(audit / "deploys.jsonl")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
+@pytest.mark.skipif(
+    hasattr(os, "geteuid") and os.geteuid() == 0, reason="root ignores permission bits"
+)
+def test_an_unreadable_backup_fails_that_ledger_and_the_others_still_run(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    audit = tmp_path / "audit"
+    _write(audit / "deploys.jsonl", [_legacy_line(i) for i in range(2)])
+    unreadable = audit / "deploys.jsonl.pre-w3.1.bak"
+    _write(unreadable, [_legacy_line(0)])
+    _write(audit / "secret_changes.jsonl", [])
+    live_before = (audit / "deploys.jsonl").read_bytes()
+    unreadable.chmod(0)
+    try:
+        rc = _mig.main(["--audit-dir", str(audit)])
+    finally:
+        unreadable.chmod(0o600)
+
+    out = capsys.readouterr()
+    assert rc == 1
+    assert "FAILED: deploys.jsonl" in out.err
+    assert "secret_changes.jsonl" in out.out, "one failed ledger stopped the run"
+    assert (audit / "deploys.jsonl").read_bytes() == live_before
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows publishes with os.rename")
+def test_backup_is_still_written_where_hard_links_are_unsupported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    audit = tmp_path / "audit"
+    live = audit / "deploys.jsonl"
+    _write(live, [_legacy_line(i) for i in range(2)])
+    original = live.read_bytes()
+
+    def no_hard_links(*_a: object, **_k: object) -> None:
+        raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr(_mig.os, "link", no_hard_links)
+
+    _mig.migrate_one_file(live, record_cls=DeployRecord)
+
+    assert (audit / "deploys.jsonl.pre-w3.1.bak").read_bytes() == original
+    assert stat.S_IMODE((audit / "deploys.jsonl.pre-w3.1.bak").stat().st_mode) == 0o600
+    assert not [p.name for p in audit.iterdir() if p.name.endswith(".tmp")]
+    assert _verifies(live)
+
+
+def test_chain_intact_as_stored_but_not_under_the_model_is_refused(tmp_path: Path) -> None:
+    """Links and stored hashes hold, but ``release verify`` (via the model) fails.
+
+    ``created_at`` is stored with microseconds; the model truncates to
+    milliseconds, so every model hash differs from the stored one.
+    """
+    audit = tmp_path / "audit"
+    lines, prev = [], None
+    for i in range(3):
+        body = _record(i).model_dump(mode="json")
+        body.pop("audit_hash")
+        body["created_at"] = "2026-01-01T00:00:00.123456Z"
+        body["prev_hash"] = prev
+        body["audit_hash"] = hashlib.sha256(json.dumps(body, **_KW).encode()).hexdigest()
+        lines.append(body)
+        prev = body["audit_hash"]
+    _write(audit / "deploys.jsonl", lines)
+    assert not _verifies(audit / "deploys.jsonl")  # precondition: release verify rejects it
+
+    _refused(audit, "intact as stored but does not verify under the current record model")
+
+
+def test_missing_live_ledger_with_only_numbered_backups_is_refused(tmp_path: Path) -> None:
+    audit = tmp_path / "audit"
+    _write(audit / "deploys.jsonl.pre-w3.1.bak.1", [_legacy_line(i) for i in range(4)])
+
+    with pytest.raises(_mig.MigrationRefusedError, match="backups exist"):
+        _mig.migrate_one_file(audit / "deploys.jsonl", record_cls=DeployRecord)
+    assert _mig.main(["--audit-dir", str(audit)]) == 1
+
+
+def test_recovery_is_reported_as_recovery(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    audit = tmp_path / "audit"
+    _emit_chained(audit, range(3))
+    (audit / "deploys.jsonl").rename(audit / "deploys.jsonl.pre-w3.1.bak")
+
+    assert _mig.main(["--audit-dir", str(audit), "--dry-run"]) == 0
+    assert "would recover from backup: deploys.jsonl" in capsys.readouterr().out
+    assert _mig.main(["--audit-dir", str(audit)]) == 0
+    assert "recovered from backup: deploys.jsonl" in capsys.readouterr().out
+
+
+def test_backup_names_that_are_not_ours_are_ignored(tmp_path: Path) -> None:
+    """Only an ASCII-decimal suffix is a numbered backup ('²' passes isdigit())."""
+    audit = tmp_path / "audit"
+    _write(audit / "deploys.jsonl", [_legacy_line(i) for i in range(2)])
+    for suffix in ("\u00b2", "orig"):
+        (audit / f"deploys.jsonl.pre-w3.1.bak.{suffix}").write_text("not a ledger\n")
+
+    assert _mig.migrate_one_file(audit / "deploys.jsonl", record_cls=DeployRecord) == (2, 2)
+    assert _verifies(audit / "deploys.jsonl")

@@ -75,9 +75,11 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import glob
 import hashlib
 import json
 import os
+import re
 import sys
 import tempfile
 from collections.abc import Iterator
@@ -104,6 +106,7 @@ _FILENAME_TO_RECORD: dict[str, type] = {
 }
 
 _BACKUP_SUFFIX = ".pre-w3.1.bak"
+_PUBLISH_ATTEMPTS = 1000
 
 
 class MigrationRefusedError(RuntimeError):
@@ -123,8 +126,11 @@ def _stored_hash_ok(raw: dict[str, Any]) -> bool:
     stored = body.pop("audit_hash", None)
     if not isinstance(stored, str):
         return False
-    recomputed = hashlib.sha256(json.dumps(body, **_CANONICAL_KWARGS).encode("utf-8")).hexdigest()
-    return recomputed == stored
+    try:  # a lone-surrogate escape decodes but cannot be re-encoded
+        canonical = json.dumps(body, **_CANONICAL_KWARGS).encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return hashlib.sha256(canonical).hexdigest() == stored
 
 
 def _chain_violation(raws: list[dict[str, Any]]) -> str | None:
@@ -205,9 +211,9 @@ def _parse(
             if not isinstance(raw, dict):
                 raise ValueError("not a JSON object")
             records.append(record_cls(**raw))
-        except (ValueError, TypeError, ValidationError) as exc:
+        except (ValueError, TypeError, ValidationError, RecursionError) as exc:
             raise MigrationRefusedError(
-                f"{source.name} line {lineno} is not a valid {record_cls.__name__}: {exc}"
+                f"{source.name} line {lineno} is not a valid {record_cls.__name__}: {exc!r:.300}"
             ) from exc
         raws.append(raw)
     return raws, records
@@ -221,13 +227,24 @@ def _content(record: Any) -> dict[str, Any]:
     return dumped
 
 
+def _base_backup(jsonl_path: Path) -> Path:
+    return jsonl_path.with_name(jsonl_path.name + _BACKUP_SUFFIX)
+
+
 def _backups(jsonl_path: Path) -> list[Path]:
-    base = jsonl_path.with_name(jsonl_path.name + _BACKUP_SUFFIX)
-    numbered = sorted(
-        jsonl_path.parent.glob(base.name + ".*"),
-        key=lambda p: int(p.name.rsplit(".", 1)[1]) if p.name.rsplit(".", 1)[1].isdigit() else -1,
-    )
-    return ([base] if base.is_file() else []) + [p for p in numbered if p.is_file()]
+    """The backups this script writes: ``.pre-w3.1.bak`` then ``.bak.<n>`` by n.
+
+    Only an ASCII-decimal suffix counts (``str.isdigit`` also accepts
+    characters such as superscripts, which ``int()`` rejects); any other
+    ``.bak.<suffix>`` file is not ours and is left alone.
+    """
+    base = _base_backup(jsonl_path)
+    numbered: list[tuple[int, Path]] = []
+    for p in jsonl_path.parent.glob(glob.escape(base.name) + ".*"):
+        suffix = p.name[len(base.name) + 1 :]
+        if re.fullmatch(r"[0-9]+", suffix) and p.is_file():
+            numbered.append((int(suffix), p))
+    return ([base] if base.is_file() else []) + [p for _, p in sorted(numbered)]
 
 
 def _refuse_unless_backups_contained(
@@ -257,14 +274,34 @@ def _refuse_unless_backups_contained(
 
 
 def _new_backup_path(jsonl_path: Path) -> Path:
-    """Return the first backup name that does not exist yet."""
-    base = jsonl_path.with_name(jsonl_path.name + _BACKUP_SUFFIX)
-    if not base.exists():
+    """Return the first backup name that is free.
+
+    ``os.path.lexists``, not ``Path.exists``: a dangling or looping symlink
+    at a backup name makes ``exists()`` report False while the link/rename
+    that follows raises ``FileExistsError`` -- the same name forever.
+    """
+    base = _base_backup(jsonl_path)
+    if not os.path.lexists(base):
         return base
     n = 1
-    while base.with_name(f"{base.name}.{n}").exists():
+    while os.path.lexists(base.with_name(f"{base.name}.{n}")):
         n += 1
     return base.with_name(f"{base.name}.{n}")
+
+
+def _write_exclusive(target: Path, data: bytes) -> None:
+    """Create ``target`` (must not exist) holding ``data``: owner-only, binary, fsynced."""
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+    fd = os.open(str(target), flags, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+    except BaseException:
+        with contextlib.suppress(OSError):
+            target.unlink()
+        raise
 
 
 def _write_backup(jsonl_path: Path, data: bytes) -> Path:
@@ -273,7 +310,9 @@ def _write_backup(jsonl_path: Path, data: bytes) -> Path:
     The bytes go to a temp file in the same directory (``mkstemp``: owner-only,
     binary) and are fsynced, then published under the backup name without
     overwriting anything: a hard link on POSIX (``os.rename`` would replace an
-    existing file there), ``os.rename`` on Windows (which refuses to).
+    existing file there), ``os.rename`` on Windows (which refuses to). Where
+    the filesystem has no hard links (vfat, exFAT, many SMB/FUSE mounts) the
+    backup is created directly under its name with ``O_EXCL`` instead.
     """
     fd, tmp_str = tempfile.mkstemp(
         prefix=f".{jsonl_path.name}.", suffix=".bak.tmp", dir=str(jsonl_path.parent)
@@ -284,16 +323,25 @@ def _write_backup(jsonl_path: Path, data: bytes) -> Path:
             f.write(data)
             f.flush()
             os.fsync(f.fileno())
-        while True:
+        for _ in range(_PUBLISH_ATTEMPTS):
             target = _new_backup_path(jsonl_path)
             try:
                 if os.name == "nt":
                     os.rename(tmp, target)
                 else:
-                    os.link(tmp, target)
+                    try:
+                        os.link(tmp, target)
+                    except FileExistsError:
+                        raise
+                    except OSError:  # no hard links on this filesystem
+                        _write_exclusive(target, data)
             except FileExistsError:
                 continue
             return target
+        raise MigrationRefusedError(
+            f"could not find a free backup name beside {jsonl_path.name} "
+            f"after {_PUBLISH_ATTEMPTS} attempts"
+        )
     finally:
         with contextlib.suppress(FileNotFoundError):
             tmp.unlink()
@@ -350,13 +398,13 @@ def migrate_one_file(
     Raises :class:`MigrationRefusedError`, having written nothing, when
     the ledger fails a pre-seal check (see the module docstring).
     """
-    backup = jsonl_path.with_name(jsonl_path.name + _BACKUP_SUFFIX)
+    backup = _base_backup(jsonl_path)
     if jsonl_path.is_symlink():
         raise MigrationRefusedError(
             f"{jsonl_path.name} is a symlink; replacing it would detach the ledger from "
             "its target -- migrate the target directory instead"
         )
-    if not jsonl_path.is_file() and not backup.is_file():
+    if not jsonl_path.is_file() and not _backups(jsonl_path):
         return (0, 0)
 
     # A dry run writes nothing, so it takes no lock (which would create a
@@ -365,18 +413,22 @@ def migrate_one_file(
     with lock(jsonl_path):
         # Choose the read source under the lock, so no writer can change
         # the answer between the choice and the read.
+        backups = _backups(jsonl_path)
         if jsonl_path.is_file():
             read_source = jsonl_path
-        elif backup.is_file():
+        elif backups:
             # Audit-2026-05-08 review follow-up (WR-03): a run of the
             # previous version of this script renamed the ledger to the
             # backup and was interrupted before writing the migrated
-            # file. The backup holds the full pre-migration content.
-            later = _backups(jsonl_path)[1:]
-            if later:
+            # file. The backup holds the full pre-migration content --
+            # but only if it is the ONLY backup. Numbered backups come
+            # from this version, which never leaves the ledger absent,
+            # so their presence means something else removed it.
+            if backups != [backup]:
                 raise MigrationRefusedError(
-                    f"{jsonl_path.name} is missing but later backups exist "
-                    f"({', '.join(p.name for p in later)}); restore the ledger by hand"
+                    f"{jsonl_path.name} is missing but backups exist "
+                    f"({', '.join(p.name for p in backups)}) that this recovery cannot "
+                    "choose between; restore the ledger by hand"
                 )
             read_source = backup
         else:  # removed while we waited for the lock
@@ -389,6 +441,17 @@ def migrate_one_file(
             _refuse_unless_backups_contained(jsonl_path, records, record_cls=record_cls)
 
         if _is_already_chained(raws):
+            # Intact as stored; it must also verify the way ``release verify``
+            # checks it (through the current model). A difference means the
+            # model drifted from what was sealed -- re-sealing would change
+            # every hash, which is not this script's call.
+            ok, bad_index, why = verify_audit_chain(records)
+            if not ok:
+                raise MigrationRefusedError(
+                    f"{read_source.name}: the chain is intact as stored but does not verify "
+                    f"under the current record model (record {bad_index}: {why}); "
+                    "reconcile it by hand"
+                )
             if not recovering:
                 return (len(records), 0)
             changed = 0  # restore the chained backup as the live ledger
@@ -463,6 +526,7 @@ def main(argv: list[str] | None = None) -> int:
     refused: list[str] = []
     for name, record_cls in sorted(_FILENAME_TO_RECORD.items()):
         jsonl_path = audit_dir / name
+        recovering = not os.path.lexists(jsonl_path)
         try:
             processed, changed = migrate_one_file(
                 jsonl_path,
@@ -473,9 +537,18 @@ def main(argv: list[str] | None = None) -> int:
             print(f"REFUSED: {exc}", file=sys.stderr)
             refused.append(name)
             continue
+        except OSError as exc:
+            # Unreadable file, lock or filesystem failure: this ledger is not
+            # migrated (a failed write leaves it as it was -- the replace is
+            # atomic), and the others still run.
+            print(f"FAILED: {name}: {exc!r}", file=sys.stderr)
+            refused.append(name)
+            continue
         if processed == 0 and not jsonl_path.exists():
             continue
-        if changed == 0:
+        if recovering:
+            action = "would recover from backup" if args.dry_run else "recovered from backup"
+        elif changed == 0:
             action = "already chained"
         else:
             action = "would migrate" if args.dry_run else "migrated"
@@ -486,7 +559,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"\nTotal: records={total_processed}  rehashed={total_changed}")
     if refused:
         print(
-            f"{len(refused)} ledger(s) refused and left exactly as found: {', '.join(refused)}",
+            f"{len(refused)} ledger(s) refused or failed and left as found: {', '.join(refused)}",
             file=sys.stderr,
         )
         return 1
