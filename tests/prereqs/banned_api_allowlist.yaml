@@ -69,10 +69,6 @@ allowlist:
     pattern_class: acme_repo_wide_grep
     rationale: |
       CI workflow references the ACME plugin package + module by name so PSScriptAnalyzer and Pester can find them.
-  - path: '.github/workflows/release-alpha.yml'
-    pattern_class: acme_repo_wide_grep
-    rationale: |
-      Plan 10-08 alpha-release workflow: references sigantry-acme/ as the build path for the plugin wheel + names "ACME ADO" (the historical owner of the primary v3.0.0-alpha.1 publish feed) in its header comment. Same rationale as azure-pipelines.yml below: literal path references + feed-naming context.
   - path: 'tests/Pester.config.ps1'
     pattern_class: acme_repo_wide_grep
     adr: ADR-0011

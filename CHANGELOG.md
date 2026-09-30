@@ -73,6 +73,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   wins.
 
 ### Removed
+- `.github/workflows/release-alpha.yml` and `scripts/release/publish-v3-alpha.sh`
+  are removed, with the dated `_PUBLISH_GATE_EXEMPT` carve-out that excused
+  the workflow's ungated publish job (#13). The workflow served a retired
+  `v*-alpha` tag scheme, could not succeed (its build script named directories
+  absent from this repository, under `set -euo pipefail`), and the carve-out's
+  review-by date of 2026-12-31 would have turned the `test` job red on
+  2027-01-01 with no code change, blocking every release until someone edited
+  the date. No dated carve-out remains. The script-routed publish detection
+  and the carve-out checks keep their own direct tests, since loops over an
+  empty map assert nothing.
 - `scripts/ci/mypy_gate.py` and its tests are removed. It was a baseline-ratchet
   gate invoked by nothing, its docstring claimed 63 pre-existing errors in a
   tree that is clean, and the `mypy-baseline.txt` it read never existed. With
@@ -135,12 +145,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Carve-outs are keyed `"<workflow>::<job>"`, not by filename. A filename key
   excused every publish job in that file, including ones added later, on a
   reason recorded about a different job.
-- **The publish scan looked at one filename and one action.**
-  `release-alpha.yml` publishes via `twine upload` in a job with no `needs:` —
-  precisely the defect the test exists to catch, and invisible to it. Every
-  workflow is now scanned for both mechanisms. `release-alpha.yml` carries an
-  explicit, dated carve-out pointing at #13 (it cannot currently succeed at
-  all, so gating it would assert nothing) rather than being silently missed.
+- **The publish scan looked at one filename and one action.** A workflow
+  that published via `twine upload` in a job with no `needs:` — precisely the
+  defect the test exists to catch — was invisible to it. Every workflow is now
+  scanned for both mechanisms. That workflow is removed in this release (see
+  Removed), so no carve-out remains.
 - **`ci.yml` became reusable while keeping `group: ci-${{ github.ref }}` with
   `cancel-in-progress`.** Publishing a release fires both `push: tags` on
   `ci.yml` and `release: published` on `publish-pypi.yml`, which calls
@@ -228,12 +237,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `sigantry diff`) each contain that substring, so the assertion would be true
   on every possible input, `pip install sigantry-core` included. The check is
   now the absence of the dead name plus a real `pip install` line.
-- The test.pypi.org upload step in `release-alpha.yml` was relabelled
-  `sigantry` while its twine glob still read `dist/sigantry_core-*`. Measured
-  against a real `python -m build`: the artifacts are
-  `sigantry-1.0.0-py3-none-any.whl` / `sigantry-1.0.0.tar.gz`, and the old
-  glob expands to nothing, so bash passes the literal to twine and the release
-  step fails.
 - Shipped quickstart templates told adopters to run
   `pip install "sigantry>=3.0.0"`, which cannot resolve against the shipped
   1.0.x line, and claimed `requires-python = ">=3.11,<3.13"` refuses 3.13 when
