@@ -11,14 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **A name gate** (`scripts/ci/check-name-gate.py`, run by
-  `.github/workflows/name-gate.yml`) fails when any file in the repository
-  carries a name from a token list held outside it, in a repository secret.
+  `.github/workflows/name-gate.yml`) fails when the repository carries a name
+  from a token list held outside it, in a repository secret. It is built for
+  the accidental case, a name written plainly, not for one hidden on purpose.
   Unlike the file-type and path allowlist of the older banned-string test, it
-  exempts no path, basename or suffix. It scans every tracked and
-  untracked-not-ignored file, PDF text layers and metadata, Office XML (with
-  formatting runs joined, so a split word is still seen), and, with
-  `--archive`, a built wheel or sdist. It prints `<file>:<line> <pattern id>`
-  and never the matched text. An exception register in the same secret
+  exempts no path, basename or suffix. It reads the path of every tracked and
+  untracked-not-ignored file; text as UTF-8, UTF-16 with a byte-order mark, or
+  cp1252, each line also with markup tags removed and character references
+  decoded; PDF text layers and metadata; zip and tar members and their names;
+  and, with `--archive`, a built wheel or sdist. What it cannot read is
+  reported: an unreadable document or container fails the run, and a binary
+  file with no reader fails until the register accepts it by name. It prints
+  `<file>:<line> <pattern id>` and never the matched text; a path that itself
+  matches is printed as a hash. An exception register in the same secret
   excuses exact lines, and an entry that no longer matches fails the run.
   Without the list, as on a fork's pull request, it fails closed. It is not a
   required check yet.

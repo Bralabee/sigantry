@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import gzip
+import hashlib
 import io
 import os
 import shutil
@@ -36,6 +37,8 @@ marker {MARKER}
 # a comment line
 token S01 (?i)zqplant
 token S02 zqother\\d+
+token S03 zq\u2019mark
+token S04 ^zqline$
 """
 
 
@@ -132,10 +135,89 @@ def test_untracked_file_is_scanned_and_ignored_file_is_not(tmp_path: Path) -> No
     assert _hits(proc) == ["notes.txt:1 S01"]
 
 
-def test_other_binary_files_are_skipped_and_counted(tmp_path: Path) -> None:
-    proc = _run(_tree(tmp_path, {**BASE, "img.png": b"\x89PNG\x00\x00zqplant"}), tmp_path)
-    assert proc.returncode == 0, proc.stdout
-    assert "1 binary skipped" in proc.stdout
+@pytest.mark.parametrize(
+    ("name", "content"),
+    [
+        ("img.png", b"\x89PNG\x00\x00zqplant"),
+        ("bundle.tar", b"a" * 100 + b"\x00" * 400 + b"zqplant"),
+        ("old.doc", b"\xd0\xcf\x11\xe0\x00\x00zqplant"),
+        ("utf16-no-bom.txt", "zqplant\n".encode("utf-16-le")),
+    ],
+)
+def test_a_binary_file_with_no_reader_fails_until_registered(
+    tmp_path: Path, name: str, content: bytes
+) -> None:
+    root = _tree(tmp_path, {**BASE, name: content})
+    proc = _run(root, tmp_path)
+    assert proc.returncode == 1
+    assert _hits(proc) == [f"{name}:0 BINARY"]
+    registered = _run(root, tmp_path, LIST + f"exception {name}:0 BINARY\n")
+    assert registered.returncode == 0, registered.stdout
+    _assert_no_leak(proc)
+
+
+def test_utf16_text_with_a_bom_is_read(tmp_path: Path) -> None:
+    proc = _run(_tree(tmp_path, {**BASE, "notes.txt": "x\nzqplant\n".encode("utf-16")}), tmp_path)
+    assert proc.returncode == 1
+    assert _hits(proc) == ["notes.txt:2 S01"]
+
+
+def test_cp1252_text_is_read_when_it_is_not_utf8(tmp_path: Path) -> None:
+    proc = _run(_tree(tmp_path, {**BASE, "legacy.csv": b"id,name\n1,zq\x92mark\n"}), tmp_path)
+    assert proc.returncode == 1
+    assert _hits(proc) == ["legacy.csv:2 S03"]
+
+
+@pytest.mark.parametrize(
+    ("name", "content"),
+    [
+        ("page.html", "<p>zq<b></b>plant</p>\n"),
+        ("page.md", "Made by zq&#112;lant.\n"),
+        ("page.svg", "<text>zq&#x70;lant</text>\n"),
+        ("notes.txt", "zq&amp;plant is not a hit, zq<i>plant</i> is\n"),
+    ],
+)
+def test_markup_and_character_references_are_read_as_text(
+    tmp_path: Path, name: str, content: str
+) -> None:
+    proc = _run(_tree(tmp_path, {**BASE, name: content}), tmp_path)
+    assert proc.returncode == 1
+    assert _hits(proc) == [f"{name}:1 S01"]
+
+
+def test_anchors_match_at_line_ends(tmp_path: Path) -> None:
+    proc = _run(_tree(tmp_path, {**BASE, "a.txt": "x\nzqline\ny\n"}), tmp_path)
+    assert proc.returncode == 1
+    assert _hits(proc) == ["a.txt:2 S04"]
+
+
+def _redacted(path: str) -> str:
+    return "~" + hashlib.sha256(path.encode("utf-8")).hexdigest()[:12]
+
+
+def test_a_name_in_a_file_path_is_a_hit_and_is_never_printed(tmp_path: Path) -> None:
+    name = "docs/zqplant-report.md"
+    proc = _run(_tree(tmp_path, {**BASE, name: "# Report\n\nzqother1\n"}), tmp_path)
+    assert proc.returncode == 1
+    assert sorted(_hits(proc)) == [f"{_redacted(name)}:0 S01", f"{_redacted(name)}:3 S02"]
+    _assert_no_leak(proc)
+
+
+def test_a_name_in_a_member_path_is_a_hit_and_is_never_printed(tmp_path: Path) -> None:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("media/zqplant.txt", "clean\n")
+    proc = _run(_tree(tmp_path, {**BASE, "docs/pack.zip": buf.getvalue()}), tmp_path)
+    assert proc.returncode == 1
+    assert _hits(proc) == [f"docs/pack.zip!{_redacted('media/zqplant.txt')}:0 S01"]
+    _assert_no_leak(proc)
+
+
+def test_a_stale_exception_for_a_redacted_path_is_printed_redacted(tmp_path: Path) -> None:
+    proc = _run(_tree(tmp_path, BASE), tmp_path, LIST + "exception gone/zqplant.md:2 S01\n")
+    assert proc.returncode == 1
+    assert _hits(proc) == [f"stale exception {_redacted('gone/zqplant.md')}:2 S01"]
+    _assert_no_leak(proc)
 
 
 def _office_zip(xml: bytes) -> bytes:
@@ -150,7 +232,7 @@ def test_a_token_split_across_office_runs_is_seen(tmp_path: Path) -> None:
     xml = b'<?xml version="1.0"?><p:sld><a:t>Zq</a:t><a:t>plant</a:t></p:sld>'
     proc = _run(_tree(tmp_path, {**BASE, "docs/deck.pptx": _office_zip(xml)}), tmp_path)
     assert proc.returncode == 1
-    assert "docs/deck.pptx!ppt/slides/slide1.xml#text:1 S01" in _hits(proc)
+    assert _hits(proc) == ["docs/deck.pptx!ppt/slides/slide1.xml:1 S01"]
     _assert_no_leak(proc)
 
 
@@ -160,7 +242,7 @@ def test_an_office_file_without_the_token_passes(tmp_path: Path) -> None:
     assert proc.returncode == 0, proc.stdout
 
 
-def _pdf(text: str, title: str = "Report") -> bytes:
+def _pdf(text: str, title: str = "Report", author_hex: str = "", lead: bytes = b"") -> bytes:
     """A one-page PDF whose page text is Flate-compressed (not in the raw bytes)."""
     content = zlib.compress(f"BT /F1 18 Tf 20 100 Td ({text}) Tj ET".encode("latin-1"))
     objects = [
@@ -172,9 +254,13 @@ def _pdf(text: str, title: str = "Report") -> bytes:
         + content
         + b"\nendstream",
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-        b"<< /Title (" + title.encode("latin-1") + b") >>",
+        b"<< /Title ("
+        + title.encode("latin-1")
+        + b")"
+        + (b" /Author <" + author_hex.encode("ascii") + b">" if author_hex else b"")
+        + b" >>",
     ]
-    out = bytearray(b"%PDF-1.4\n")
+    out = bytearray(lead + b"%PDF-1.4\n")
     offsets = []
     for number, body in enumerate(objects, start=1):
         offsets.append(len(out))
@@ -204,6 +290,27 @@ def test_pdf_page_text_is_read_or_the_gate_fails_closed(tmp_path: Path) -> None:
 def test_a_pdf_without_the_token_passes(tmp_path: Path) -> None:
     proc = _run(_tree(tmp_path, {**BASE, "docs/report.pdf": _pdf("Quarterly")}), tmp_path)
     assert proc.returncode == 0, proc.stdout
+
+
+def test_pdf_metadata_in_a_utf16_hex_string_is_read_or_fails_closed(tmp_path: Path) -> None:
+    author_hex = "FEFF" + "".join(f"{ord(c):04X}" for c in "zqplant")
+    pdf = _pdf("Quarterly", author_hex=author_hex)
+    assert TOKEN.encode() not in pdf.lower()
+    proc = _run(_tree(tmp_path, {**BASE, "docs/report.pdf": pdf}), tmp_path)
+    assert proc.returncode == 1
+    if shutil.which("pdfinfo"):
+        meta = [h for h in _hits(proc) if h.startswith("docs/report.pdf#pdf-meta:")]
+        assert meta and all(h.endswith(" S01") for h in meta), _hits(proc)
+    else:
+        assert "docs/report.pdf#pdf-meta:0 UNREADABLE" in _hits(proc)
+
+
+@pytest.mark.skipif(shutil.which("pdftotext") is None, reason="needs pdftotext")
+def test_a_pdf_with_bytes_before_its_header_is_still_a_pdf(tmp_path: Path) -> None:
+    pdf = _pdf("Prepared for zqplant", lead=b"\n")
+    proc = _run(_tree(tmp_path, {**BASE, "docs/report.pdf": pdf}), tmp_path)
+    assert proc.returncode == 1
+    assert "docs/report.pdf#pdf-text:1 S01" in _hits(proc)
 
 
 def test_pdf_metadata_is_read_from_the_raw_bytes(tmp_path: Path) -> None:
@@ -257,6 +364,50 @@ def test_clean_built_artifacts_pass(tmp_path: Path) -> None:
     assert proc.returncode == 0, proc.stdout
 
 
+def test_a_tar_with_data_after_its_last_readable_member_fails(tmp_path: Path) -> None:
+    raw = io.BytesIO()
+    with tarfile.open(fileobj=raw, mode="w") as tar:
+        data = b"clean\n"
+        info = tarfile.TarInfo("a.txt")
+        info.size = len(data)
+        tar.addfile(info, io.BytesIO(data))
+    body = raw.getvalue()
+    broken = body[:1024] + b"#" * 512 + b"zqplant" + body[1024:]
+    proc = _run(_tree(tmp_path, {**BASE, "dist.tar.gz": gzip.compress(broken)}), tmp_path)
+    assert proc.returncode == 1
+    assert "dist.tar.gz#tar-tail:0 UNREADABLE" in _hits(proc)
+
+
+def test_a_corrupt_zip_member_is_unreadable_not_a_crash(tmp_path: Path) -> None:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        # Varied text, so the compressed member is long enough to damage in the middle.
+        z.writestr("a.txt", " ".join(str(i * 7919 % 10007) for i in range(400)))
+    data = bytearray(buf.getvalue())
+    start = data.index(b"a.txt") + len(b"a.txt")
+    end = data.rindex(b"a.txt")  # the central directory's copy of the name
+    assert end - start > 200
+    for i in range(start + 100, start + 120):
+        data[i] ^= 0xFF
+    proc = _run(_tree(tmp_path, {**BASE, "pack.zip": bytes(data)}), tmp_path)
+    assert proc.returncode == 1
+    assert "Traceback" not in proc.stderr
+    assert "pack.zip!a.txt:0 UNREADABLE" in _hits(proc)
+
+
+@pytest.mark.parametrize(
+    ("name", "content"),
+    [("demo-1.0-py3-none-any.whl", b""), ("demo-1.0.tar.gz", b"plain text zqplant\n")],
+)
+def test_an_archive_argument_must_be_a_real_archive(
+    tmp_path: Path, name: str, content: bytes
+) -> None:
+    path = tmp_path / name
+    path.write_bytes(content)
+    proc = _run(_tree(tmp_path, BASE), tmp_path, LIST, "--archive", str(path))
+    assert proc.returncode == 2
+
+
 @pytest.mark.parametrize("value", [None, "", "   \n"])
 def test_the_gate_fails_closed_without_a_list(tmp_path: Path, value: str | None) -> None:
     root = _tree(tmp_path, BASE)
@@ -277,6 +428,13 @@ def test_the_gate_fails_closed_without_a_list(tmp_path: Path, value: str | None)
         "name-gate-list v1\ntoken S01 zqplant\nexception a.py:1 S09\n",  # unknown id
         "name-gate-list v1\ntoken S01 zqplant\nexception a.py:x S01\n",  # bad line
         "name-gate-list v1\ntoken S01 zqplant\nstray zqplant\n",  # unknown kind
+        "name-gate-list v1\ntoken S01 zqplant   # the thing\n",  # trailing comment
+        "name-gate-list v1\ntoken UNREADABLE zqplant\n",  # reserved id
+        "name-gate-list v1\ntoken BINARY zqplant\n",  # reserved id
+        "name-gate-list v1\ntoken S/1 zqplant\n",  # bad id characters
+        "name-gate-list v1\ntoken S01 zqplant\nexception a.py:\u00b2 S01\n",  # not ASCII digits
+        "name-gate-list v1\ntoken S01 zqplant\nexception a.pdf#pdf-text:0 UNREADABLE\n",
+        "name-gate-list v1\ntoken S01 zqplant\nexception a.png:3 BINARY\n",  # BINARY at a line
     ],
 )
 def test_an_invalid_list_is_refused_without_quoting_it(tmp_path: Path, bad: str) -> None:
@@ -382,6 +540,11 @@ def test_workflow_is_read_only_and_hands_the_secret_only_to_the_scan() -> None:
         assert not job.get("continue-on-error"), "a gate that cannot fail the job is no gate"
         for step in job["steps"]:
             assert not step.get("continue-on-error")
+
+
+def test_workflow_job_has_a_timeout() -> None:
+    for job in _workflow()["jobs"].values():
+        assert 0 < int(job["timeout-minutes"]) <= 30
 
 
 def test_workflow_can_read_pdf_text() -> None:
