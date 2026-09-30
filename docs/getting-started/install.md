@@ -73,6 +73,13 @@ examples).
 
 Create `.sigantry.toml` in the repo root (or consumer repo):
 
+> [!IMPORTANT]
+> **The PyPI release 1.0.0 reads the old names.** `sigantry` 1.0.0 loads only
+> `.fabric-dataops.toml` and `FDT_`-prefixed environment variables. `.sigantry.toml`
+> and the `SIGANTRY_` prefix, which this page uses, are read from the next release;
+> the change is on `main` but not yet on PyPI (#31). On 1.0.0, name the file
+> `.fabric-dataops.toml` and use `FDT_` variables — the file's contents are the same.
+
 ```toml
 [core]
 tenant_id = "<your-tenant-id>"
