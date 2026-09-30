@@ -106,8 +106,8 @@ def test_dependabot_config_exists_and_covers_actions() -> None:
     """``.github/dependabot.yml`` exists with a ``github-actions`` ecosystem entry.
 
     Without dependabot SHA pins become frozen-in-time security risks --
-    they're stable but drift behind upstream patches. Dependabot bumps
-    them weekly.
+    they're stable but drift behind upstream patches. Dependabot proposes
+    the bumps monthly.
     """
     path = REPO_ROOT / ".github" / "dependabot.yml"
     assert path.is_file(), (

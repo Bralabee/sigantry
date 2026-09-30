@@ -76,6 +76,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   caller that reached `sigantry-pr-bot.yml` through `workflow_call` from a
   `pull_request_target` workflow, on a fork pull request, would now be
   refused at its head checkout.
+- Dependabot now proposes GitHub Actions bumps monthly instead of weekly and
+  applies no labels. Its PRs are not merged as they stand: their changes move
+  in a maintainer-owned PR, and the bot PR is closed. `labels: []` is written
+  out because leaving the key out makes Dependabot apply its default labels.
+  The pip entry is gone with the development lock (see Removed): its grouping,
+  ignore rules and comments were all about that file and a resolve gate that
+  never existed, and the dependency ranges in `pyproject.toml` are edited by
+  hand.
 
 ### Deprecated
 - `.fabric-dataops.toml` and the `FDT_` settings env prefix. Both are still
@@ -100,6 +108,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   both type-checked roots clean there is nothing to ratchet, and an unrun tool
   that describes a world that no longer exists is exactly what this release is
   removing elsewhere.
+- The hash-pinned lock of the development dependencies is removed, with the
+  six tests that checked only its format. Nothing installed it: no workflow,
+  script or setup step read it, and the resolve gate that the Dependabot
+  config said guarded it was never part of any workflow. It had drifted too:
+  21 of its comments still named the old distribution, and on 2026-09-30 the
+  OSV database listed 37 advisories against 8 of its 94 pins. A lock that
+  looks like a control but is never installed is worse than none. Python
+  dependencies stay declared as ranges in `pyproject.toml`.
 
 ### Fixed
 - **`.github/workflows/drift-check.yml` failed every day.** Its `schedule:`
@@ -316,15 +332,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rather than half-corrected here. Two of them must survive any such change:
   ADR-0017 quotes the dead name to explain the defect, and ADR-0011 records it
   as history.
-- `requirements-lock.txt` carries 21 `# via sigantry-core (pyproject.toml)`
-  annotations. pip-compile writes the project's own name into those comments,
-  so they are evidence the lock has not been regenerated since `pyproject.toml`
-  became `name = "sigantry"`. They are comments and do not affect resolution,
-  but regenerating the lock belongs with the dependency work, not here.
 - The guard scans `templates/`, `.github/workflows/`, `scripts/` and the
-  package. It does **not** scan `requirements-lock.txt`, `pyproject.toml`,
-  `environment.yml`, `README.md` or `CONTRIBUTING.md`, so the dead name could
-  reappear in those without failing CI.
+  package. It does **not** scan `pyproject.toml`, `environment.yml`,
+  `README.md` or `CONTRIBUTING.md`, so the dead name could reappear in those
+  without failing CI.
 - The ADO artifact identifier `sigantry-core-wheel` and the template parameter
   `fabricDataopsVersion` are public interface names. Renaming them breaks
   consumer pipelines that reference them, so both need a deprecation window

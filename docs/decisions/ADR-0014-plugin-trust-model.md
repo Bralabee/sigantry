@@ -55,7 +55,7 @@ The trust model is **opt-in tightening**, not built-in restriction:
 4. **No automatic rejection at runtime.** The registry does NOT refuse
    to resolve an untrusted plugin. The trust list is an **operator
    visibility** mechanism, not a runtime sandbox. Pin the universe
-   via a wheel-hash-pinned ``requirements-lock.txt`` (W3.3) or by
+   with a hash-pinned install of your own, or by
    running ``--strict-trust`` in CI; the trust list is the single
    point of acceptance for what counts as "expected".
 
@@ -106,7 +106,7 @@ smokeCommand: 'sigantry doctor --strict-trust'
 | Option                                                                                  | Why rejected |
 |-----------------------------------------------------------------------------------------|--------------|
 | **A. Reject at registry resolution** -- the registry refuses to dispatch to untrusted plugins. | Conflicts with the "permissive by design" v3.0 plugin model. A fresh-laptop install with no env var would refuse to resolve a legitimate plugin -- worse UX than the current state. |
-| **B. Hash-pin plugin wheels and lock the universe by checksum.** | Already in W3.3 territory for the toolkit's own dev dependencies. Plugin wheels live outside ``requirements-lock.txt`` (consumers install them ad-hoc). Hash-pinning plugins requires either a per-consumer lockfile (operator burden) or a curated index (infrastructure burden). Out of scope for v3.0. |
+| **B. Hash-pin plugin wheels and lock the universe by checksum.** | Plugin wheels are installed by consumers ad hoc, outside anything this repository pins. Hash-pinning plugins requires either a per-consumer lockfile (operator burden) or a curated index (infrastructure burden). Out of scope for v3.0. |
 | **C. Code-signing on plugin wheels.** | The Python package ecosystem does not have a uniformly-supported wheel-signature standard yet. Sigstore is promising but not universal. Premature. |
 | **D. Trust list (chosen).** | Single env var, single doctor flag, zero impact on the existing plugin model. The blast radius doesn't shrink, but the operator now has a visibility surface. Net cost: one env var to set + one CLI flag to add to CI. Net benefit: surprise plugin installs surface immediately. |
 
