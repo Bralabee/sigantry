@@ -526,7 +526,7 @@ PowerShell support is intentionally minimal -- it's the operator's "I just need 
 
 ## 5. CI/CD pipeline templates
 
-[VERIFIED]. Templates in [`templates/`](../templates/) are imported by consumer pipelines via ADO `template:` or GHA `uses:` and gated by the dual-CI parity registry at `scripts/ci/check-dual-ci-parity.py` (`pairs=3 exceptions=9 errors=0`).
+[VERIFIED]. Templates in [`templates/`](../templates/) are imported by consumer pipelines via ADO `template:` or GHA `uses:` and gated by the dual-CI parity registry at `scripts/ci/check-dual-ci-parity.py` (`pairs=3 exceptions=10 errors=0`).
 
 **Template subdirectory map:**
 
@@ -557,13 +557,14 @@ flowchart LR
     S3 -. fail .-> ROLL
 ```
 
-**GitHub Actions workflow inventory** (verified 2026-05-12):
+**GitHub Actions workflow inventory** (one row per file in `.github/workflows/`):
 
 | Workflow | Purpose |
 |---|---|
 | [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) | Multi-OS and Python matrix test, lint, and build verification. |
-| `.github/workflows/drift-check.yml` | Scheduled drift detection (cron). |
-| `.github/workflows/release-alpha.yml` | Tag-driven alpha publish. |
+| `.github/workflows/drift-check.yml` | Reusable drift detection (`workflow_call` / `workflow_dispatch`); the caller owns the schedule. |
+| `.github/workflows/publish-pypi.yml` | The only workflow that publishes this package. On a published GitHub Release, or a manual dispatch, it runs the `ci.yml` quality jobs, then builds the sdist and wheel and publishes them to PyPI through trusted publishing. |
+| `.github/workflows/review-record.yml` | Posts the required `review-record` commit status on each pull request head. |
 | `.github/workflows/sigantry-cd.yml` | The 5-stage CD workflow. |
 | `.github/workflows/sigantry-pr-bot.yml` | PR-bot trigger workflow. |
 | `.github/workflows/sigantry-demo-mp4.yml` | Remotion mp4 build for the public demo. |

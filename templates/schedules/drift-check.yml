@@ -14,6 +14,9 @@
 # sigantry-dual-ci-ignore: gha-uses-oidc-not-service-connection
 # sigantry-dual-ci-ignore: ado-gh-env-naming
 #
+# The GHA half has no `schedule:` of its own (see its header). The parity
+# lint compares parameters, not triggers, so that difference carries no token.
+#
 # Sources (Plan 13-06 / DRIFT-03):
 #   Microsoft Learn -- Scheduled triggers
 #     https://learn.microsoft.com/azure/devops/pipelines/process/scheduled-triggers
