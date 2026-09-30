@@ -563,7 +563,6 @@ flowchart LR
 |---|---|
 | [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) | Multi-OS and Python matrix test, lint, and build verification. |
 | `.github/workflows/drift-check.yml` | Scheduled drift detection (cron). |
-| `.github/workflows/release-alpha.yml` | Tag-driven alpha publish. |
 | `.github/workflows/sigantry-cd.yml` | The 5-stage CD workflow. |
 | `.github/workflows/sigantry-pr-bot.yml` | PR-bot trigger workflow. |
 | `.github/workflows/sigantry-demo-mp4.yml` | Remotion mp4 build for the public demo. |

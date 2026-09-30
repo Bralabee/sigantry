@@ -73,6 +73,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   wins.
 
 ### Removed
+- `.github/workflows/release-alpha.yml` and `scripts/release/publish-v3-alpha.sh`
+  are removed, with the dated `_PUBLISH_GATE_EXEMPT` carve-out that excused
+  the workflow's ungated publish job (#13). The workflow served a retired
+  `v*-alpha` tag scheme, could not succeed (its build script named directories
+  absent from this repository, under `set -euo pipefail`), and the carve-out's
+  review-by date of 2026-12-31 would have turned the `test` job red on
+  2027-01-01 with no code change, blocking every release until someone edited
+  the date. No dated carve-out remains. The script-routed publish detection
+  and the carve-out checks keep their own direct tests, since loops over an
+  empty map assert nothing.
 - `scripts/ci/mypy_gate.py` and its tests are removed. It was a baseline-ratchet
   gate invoked by nothing, its docstring claimed 63 pre-existing errors in a
   tree that is clean, and the `mypy-baseline.txt` it read never existed. With

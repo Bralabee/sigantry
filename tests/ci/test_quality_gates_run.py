@@ -80,8 +80,9 @@ _LINT_JOB_NAME = "Lint & Formatting"
 # that runs nothing.
 _CI_WORKFLOW_USES = "./.github/workflows/ci.yml"
 
-# A publish that goes through a repo script is still a publish. release-alpha
-# calls `bash scripts/release/publish-v3-alpha.sh`, which runs twine inside.
+# A publish that goes through a repo script is still a publish: a job that
+# runs `bash scripts/release/<name>.sh` which calls twine inside uploads just
+# as surely as one that calls twine inline.
 _PUBLISH_SCRIPT_RE = re.compile(r"scripts/[\w/.-]*(?:publish|release)[\w/.-]*\.(?:sh|py)")
 
 # Any shell operator: an invocation sharing its line with one is not, on its
@@ -491,16 +492,7 @@ _BUILD_DEPS_EXEMPT: dict[str, tuple[str, str]] = {}
 # Keyed "<workflow>::<job>", not by filename: a filename key would go on
 # excusing any publish job added to that file later, including a production
 # one, on a reason recorded about a different job.
-_PUBLISH_GATE_EXEMPT: dict[str, tuple[str, str]] = {
-    "release-alpha.yml::publish-testpypi": (
-        "Tracked in #13: this workflow cannot currently succeed at all "
-        "(PACKAGE_DIRS names directories absent from the repo under "
-        "`set -euo pipefail`, and the twine operands match nothing), and "
-        "whether it still has a purpose is an open decision. Gating a "
-        "workflow that cannot run would assert nothing.",
-        "2026-12-31",
-    ),
-}
+_PUBLISH_GATE_EXEMPT: dict[str, tuple[str, str]] = {}
 
 
 def test_mypy_is_configured(repo_root: pathlib.Path) -> None:
@@ -784,11 +776,10 @@ def _publish_jobs(workflow: dict) -> list[str]:
         if any("pypa/gh-action-pypi-publish" in str(s.get("uses", "")) for s in steps):
             out.append(name)
             continue
-        # A publish routed through a repo script is still a publish:
-        # release-alpha calls `bash scripts/release/publish-v3-alpha.sh`, which
-        # runs twine inside. Without this, deleting that job's inline upload
-        # step would make it vanish from the scan -- the one direction this
-        # file must never fail in.
+        # A publish routed through a repo script is still a publish: moving a
+        # job's inline upload into `bash scripts/release/<name>.sh` must not
+        # make it vanish from the scan -- the one direction this file must
+        # never fail in.
         if any(
             _PUBLISH_SCRIPT_RE.search(line)
             for s in steps
@@ -808,9 +799,9 @@ def test_every_publish_path_is_gated_by_the_quality_jobs(
     dependency on lint, test or types. CI's own ``build`` job gates only the
     ``dist`` artifact uploaded for that run, which nobody installs.
 
-    Every workflow is scanned, not just ``publish-pypi.yml``: ``release-alpha``
-    publishes via ``twine upload`` in an ungated job, and a check that looked
-    only at one filename and one action could not see it.
+    Every workflow is scanned, not just ``publish-pypi.yml``: a removed alpha
+    workflow once published via ``twine upload`` in an ungated job, and a
+    check that looked only at one filename and one action could not see it.
     """
     found_any = False
     for filename, workflow in all_workflows.items():
@@ -847,23 +838,68 @@ def test_every_publish_path_is_gated_by_the_quality_jobs(
     )
 
 
-def test_publish_gate_exemptions_name_real_publish_jobs(
-    all_workflows: dict[str, dict],
+def _assert_exemptions_name_real_publish_jobs(
+    exempt: dict[str, tuple[str, str]], workflows: dict[str, dict]
 ) -> None:
-    """A carve-out must still name a job that really publishes."""
-    for key in _PUBLISH_GATE_EXEMPT:
+    for key in exempt:
         filename, sep, job_id = key.partition("::")
         assert sep and job_id, (
             f"_PUBLISH_GATE_EXEMPT key {key!r} must be '<workflow>.yml::<job-id>'; a "
             "filename alone excuses every publish job in that file, now and later."
         )
-        assert filename in all_workflows, (
+        assert filename in workflows, (
             f"_PUBLISH_GATE_EXEMPT names a workflow that does not exist: {filename}"
         )
-        assert job_id in _publish_jobs(all_workflows[filename]), (
+        assert job_id in _publish_jobs(workflows[filename]), (
             f"_PUBLISH_GATE_EXEMPT excuses {key!r}, which no longer publishes "
             "anything -- the carve-out is dead weight."
         )
+
+
+def test_publish_gate_exemptions_name_real_publish_jobs(
+    all_workflows: dict[str, dict],
+) -> None:
+    """A carve-out must still name a job that really publishes."""
+    _assert_exemptions_name_real_publish_jobs(_PUBLISH_GATE_EXEMPT, all_workflows)
+
+
+def test_exemption_check_rejects_a_stale_carve_out() -> None:
+    """The check above loops over a map that is empty today; exercise it directly."""
+    workflows = {
+        "pub.yml": {"jobs": {"up": {"steps": [{"run": "python -m twine upload dist/*"}]}}},
+        "quiet.yml": {"jobs": {"lint": {"steps": [{"run": "ruff check ."}]}}},
+    }
+    _assert_exemptions_name_real_publish_jobs({"pub.yml::up": ("r", "2099-01-01")}, workflows)
+    with pytest.raises(AssertionError, match="must be"):
+        _assert_exemptions_name_real_publish_jobs({"pub.yml": ("r", "2099-01-01")}, workflows)
+    with pytest.raises(AssertionError, match="does not exist"):
+        _assert_exemptions_name_real_publish_jobs({"gone.yml::up": ("r", "2099-01-01")}, workflows)
+    with pytest.raises(AssertionError, match="no longer publishes"):
+        _assert_exemptions_name_real_publish_jobs(
+            {"quiet.yml::lint": ("r", "2099-01-01")}, workflows
+        )
+
+
+@pytest.mark.parametrize(
+    ("steps", "publishes"),
+    [
+        ([{"run": "twine upload dist/*"}], True),
+        ([{"run": "python -m twine upload dist/*"}], True),
+        ([{"uses": "pypa/gh-action-pypi-publish@v1"}], True),
+        ([{"run": "bash scripts/release/publish-thing.sh"}], True),
+        ([{"run": "twine check dist/*"}], False),
+        ([{"run": "python -m build"}], False),
+    ],
+    ids=["twine", "python-m-twine", "pypa-action", "repo-script", "twine-check", "build"],
+)
+def test_publish_job_detection(steps: list[dict], publishes: bool) -> None:
+    """Every publish mechanism is seen, including one routed through a repo script.
+
+    No workflow in the repo publishes through a script any more, so without
+    this the script branch of ``_publish_jobs`` would go untested.
+    """
+    workflow = {"jobs": {"j": {"steps": steps}}}
+    assert (_publish_jobs(workflow) == ["j"]) is publishes
 
 
 def test_ci_concurrency_group_does_not_cancel_the_release_gate(ci_workflow: dict) -> None:
