@@ -1,0 +1,46 @@
+# sigantry-dual-ci-exception: ci-mechanics
+# The name gate scans the repository for names from a token list that is
+# held outside it, in the NAME_GATE_TOKENS repository secret. It prints
+# `<file>:<line> <pattern id>` and never the matched text; see
+# scripts/ci/check-name-gate.py.
+#
+# A pull request from a fork, or from Dependabot, does not receive
+# repository secrets, so on those the gate fails closed by design: such a
+# change is carried in a branch of this repository instead.
+#
+# It is a separate workflow, not a job in ci.yml, because publish-pypi.yml
+# calls ci.yml: the gate's own failures must not hold a release until it is
+# made a required check.
+name: Name gate
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: name-gate-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  name-gate:
+    name: Name gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+      - name: Install the PDF text extractor
+        run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends poppler-utils
+      - name: Scan the tree
+        env:
+          NAME_GATE_TOKENS: ${{ secrets.NAME_GATE_TOKENS }}
+        run: python scripts/ci/check-name-gate.py --root .

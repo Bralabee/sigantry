@@ -1,0 +1,397 @@
+"""Behaviour of ``scripts/ci/check-name-gate.py`` on synthetic trees.
+
+Every test plants a synthetic token that names nothing (``zqplant`` and
+friends) and runs the gate as CI does, as a subprocess. The real token
+list never enters the repository, so nothing here depends on it.
+
+Each planted-file test has a clean control: the same tree without the
+plant exits 0, so a pass is not a gate that cannot fail.
+"""
+
+from __future__ import annotations
+
+import base64
+import gzip
+import io
+import os
+import shutil
+import subprocess
+import sys
+import tarfile
+import zipfile
+import zlib
+from pathlib import Path
+
+import pytest
+import yaml
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+GATE = REPO_ROOT / "scripts" / "ci" / "check-name-gate.py"
+WORKFLOW = REPO_ROOT / ".github" / "workflows" / "name-gate.yml"
+
+TOKEN = "zqplant"
+MARKER = "zq-list-only-marker-7f3a"
+LIST = f"""name-gate-list v1
+marker {MARKER}
+# a comment line
+token S01 (?i)zqplant
+token S02 zqother\\d+
+"""
+
+
+def _git(root: Path, *args: str) -> None:
+    subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True)
+
+
+def _tree(tmp_path: Path, files: dict[str, bytes | str], ignore: str = "") -> Path:
+    root = tmp_path / "tree"
+    root.mkdir()
+    _git(root, "init", "-q")
+    if ignore:
+        (root / ".gitignore").write_text(ignore, encoding="utf-8")
+    for name, content in files.items():
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(content, str):
+            path.write_bytes(content.encode("utf-8"))
+        else:
+            path.write_bytes(content)
+    _git(root, "add", "-A")
+    return root
+
+
+def _run(
+    root: Path,
+    tmp_path: Path,
+    list_text: str | None = LIST,
+    *extra: str,
+    env_value: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    env = {k: v for k, v in os.environ.items() if k != "NAME_GATE_TOKENS"}
+    args = [sys.executable, str(GATE), "--root", str(root), *extra]
+    if env_value is not None:
+        env["NAME_GATE_TOKENS"] = env_value
+    elif list_text is not None:
+        list_file = tmp_path / "list.txt"
+        list_file.write_text(list_text, encoding="utf-8")
+        args += ["--list-file", str(list_file)]
+    return subprocess.run(args, capture_output=True, text=True, env=env, check=False)
+
+
+def _hits(proc: subprocess.CompletedProcess[str]) -> list[str]:
+    return [
+        line.removeprefix("name-gate: ")
+        for line in proc.stdout.splitlines()
+        if line.startswith("name-gate: ") and " file(s) scanned" not in line
+    ]
+
+
+def _assert_no_leak(proc: subprocess.CompletedProcess[str]) -> None:
+    out = proc.stdout + proc.stderr
+    assert TOKEN not in out.lower(), "the gate printed the matched text"
+    assert MARKER not in out, "the gate printed list content"
+
+
+BASE = {"src/app.py": "print('hello')\n", "README.md": "# Demo\n"}
+
+
+def test_clean_tree_passes(tmp_path: Path) -> None:
+    proc = _run(_tree(tmp_path, BASE), tmp_path)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert _hits(proc) == []
+
+
+@pytest.mark.parametrize(
+    ("name", "content", "expected"),
+    [
+        ("src/app.py", "x = 1\n\n# ZqPlant here\n", "src/app.py:3 S01"),
+        ("README.md", "# Demo\nzqplant\n", "README.md:2 S01"),
+        ("docs/page.html", "<p>zqplant</p>\n", "docs/page.html:1 S01"),
+        ("scripts/run.sh", "echo zqother42\n", "scripts/run.sh:1 S02"),
+        ("scripts/creds.template", "a\nb\nzqplant\n", "scripts/creds.template:3 S01"),
+        ("LICENSE", "zqplant\n", "LICENSE:1 S01"),
+        (".github/workflows/x.yml", "name: zqplant\n", ".github/workflows/x.yml:1 S01"),
+    ],
+)
+def test_a_plant_in_any_text_file_fails(
+    tmp_path: Path, name: str, content: str, expected: str
+) -> None:
+    proc = _run(_tree(tmp_path, {**BASE, name: content}), tmp_path)
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert expected in _hits(proc)
+    _assert_no_leak(proc)
+
+
+def test_untracked_file_is_scanned_and_ignored_file_is_not(tmp_path: Path) -> None:
+    root = _tree(tmp_path, BASE, ignore="build/\n")
+    (root / "notes.txt").write_text("zqplant\n", encoding="utf-8")
+    (root / "build").mkdir()
+    (root / "build" / "out.txt").write_text("zqplant\n", encoding="utf-8")
+    proc = _run(root, tmp_path)
+    assert proc.returncode == 1
+    assert _hits(proc) == ["notes.txt:1 S01"]
+
+
+def test_other_binary_files_are_skipped_and_counted(tmp_path: Path) -> None:
+    proc = _run(_tree(tmp_path, {**BASE, "img.png": b"\x89PNG\x00\x00zqplant"}), tmp_path)
+    assert proc.returncode == 0, proc.stdout
+    assert "1 binary skipped" in proc.stdout
+
+
+def _office_zip(xml: bytes) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("[Content_Types].xml", b'<?xml version="1.0"?><Types/>')
+        z.writestr("ppt/slides/slide1.xml", xml)
+    return buf.getvalue()
+
+
+def test_a_token_split_across_office_runs_is_seen(tmp_path: Path) -> None:
+    xml = b'<?xml version="1.0"?><p:sld><a:t>Zq</a:t><a:t>plant</a:t></p:sld>'
+    proc = _run(_tree(tmp_path, {**BASE, "docs/deck.pptx": _office_zip(xml)}), tmp_path)
+    assert proc.returncode == 1
+    assert "docs/deck.pptx!ppt/slides/slide1.xml#text:1 S01" in _hits(proc)
+    _assert_no_leak(proc)
+
+
+def test_an_office_file_without_the_token_passes(tmp_path: Path) -> None:
+    xml = b'<?xml version="1.0"?><p:sld><a:t>Quarterly</a:t></p:sld>'
+    proc = _run(_tree(tmp_path, {**BASE, "docs/deck.pptx": _office_zip(xml)}), tmp_path)
+    assert proc.returncode == 0, proc.stdout
+
+
+def _pdf(text: str, title: str = "Report") -> bytes:
+    """A one-page PDF whose page text is Flate-compressed (not in the raw bytes)."""
+    content = zlib.compress(f"BT /F1 18 Tf 20 100 Td ({text}) Tj ET".encode("latin-1"))
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 144] /Contents 4 0 R "
+        b"/Resources << /Font << /F1 5 0 R >> >> >>",
+        b"<< /Length %d /Filter /FlateDecode >>\nstream\n" % len(content)
+        + content
+        + b"\nendstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        b"<< /Title (" + title.encode("latin-1") + b") >>",
+    ]
+    out = bytearray(b"%PDF-1.4\n")
+    offsets = []
+    for number, body in enumerate(objects, start=1):
+        offsets.append(len(out))
+        out += b"%d 0 obj\n" % number + body + b"\nendobj\n"
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1)
+    for offset in offsets:
+        out += b"%010d 00000 n \n" % offset
+    out += b"trailer\n<< /Size %d /Root 1 0 R /Info 6 0 R >>\n" % (len(objects) + 1)
+    out += b"startxref\n%d\n%%%%EOF\n" % xref
+    return bytes(out)
+
+
+def test_pdf_page_text_is_read_or_the_gate_fails_closed(tmp_path: Path) -> None:
+    pdf = _pdf("Prepared for zqplant")
+    assert TOKEN.encode() not in pdf.lower(), "the plant must be compressed, not raw"
+    proc = _run(_tree(tmp_path, {**BASE, "docs/report.pdf": pdf}), tmp_path)
+    assert proc.returncode == 1, proc.stdout
+    if shutil.which("pdftotext"):
+        assert "docs/report.pdf#pdf-text:1 S01" in _hits(proc)
+    else:
+        assert "docs/report.pdf#pdf-text:0 UNREADABLE" in _hits(proc)
+    _assert_no_leak(proc)
+
+
+@pytest.mark.skipif(shutil.which("pdftotext") is None, reason="needs pdftotext")
+def test_a_pdf_without_the_token_passes(tmp_path: Path) -> None:
+    proc = _run(_tree(tmp_path, {**BASE, "docs/report.pdf": _pdf("Quarterly")}), tmp_path)
+    assert proc.returncode == 0, proc.stdout
+
+
+def test_pdf_metadata_is_read_from_the_raw_bytes(tmp_path: Path) -> None:
+    pdf = _pdf("Quarterly", title="zqplant draft")
+    proc = _run(_tree(tmp_path, {**BASE, "docs/report.pdf": pdf}), tmp_path)
+    assert proc.returncode == 1
+    assert any(h.startswith("docs/report.pdf#pdf-raw:") and h.endswith(" S01") for h in _hits(proc))
+
+
+def _wheel(tmp_path: Path, member_text: str) -> Path:
+    path = tmp_path / "demo-1.2.3-py3-none-any.whl"
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("demo/__init__.py", member_text)
+        z.writestr("demo-1.2.3.dist-info/METADATA", "Name: demo\n")
+    return path
+
+
+def _sdist(tmp_path: Path, member_text: str) -> Path:
+    path = tmp_path / "demo-1.2.3.tar.gz"
+    with tarfile.open(path, "w:gz") as tar:
+        data = member_text.encode("utf-8")
+        info = tarfile.TarInfo("demo-1.2.3/README.md")
+        info.size = len(data)
+        tar.addfile(info, io.BytesIO(data))
+    return path
+
+
+def test_built_wheel_and_sdist_are_scanned_by_kind(tmp_path: Path) -> None:
+    root = _tree(tmp_path, BASE)
+    wheel = _wheel(tmp_path, "x = 1\n# zqplant\n")
+    sdist = _sdist(tmp_path, "zqother7\n")
+    proc = _run(root, tmp_path, LIST, "--archive", str(wheel), "--archive", str(sdist))
+    assert proc.returncode == 1
+    assert sorted(_hits(proc)) == ["sdist!README.md:1 S02", "wheel!demo/__init__.py:2 S01"]
+    _assert_no_leak(proc)
+
+
+def test_wheel_metadata_units_carry_no_version(tmp_path: Path) -> None:
+    root = _tree(tmp_path, BASE)
+    path = tmp_path / "demo-1.2.3-py3-none-any.whl"
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("demo-1.2.3.dist-info/METADATA", "Name: demo\nSummary: zqplant\n")
+    proc = _run(root, tmp_path, LIST, "--archive", str(path))
+    assert _hits(proc) == ["wheel!demo.dist-info/METADATA:2 S01"]
+
+
+def test_clean_built_artifacts_pass(tmp_path: Path) -> None:
+    root = _tree(tmp_path, BASE)
+    wheel, sdist = _wheel(tmp_path, "x = 1\n"), _sdist(tmp_path, "# Demo\n")
+    proc = _run(root, tmp_path, LIST, "--archive", str(wheel), "--archive", str(sdist))
+    assert proc.returncode == 0, proc.stdout
+
+
+@pytest.mark.parametrize("value", [None, "", "   \n"])
+def test_the_gate_fails_closed_without_a_list(tmp_path: Path, value: str | None) -> None:
+    root = _tree(tmp_path, BASE)
+    # None: no --list-file and no env var at all; otherwise the env var is set but blank.
+    proc = _run(root, tmp_path, None) if value is None else _run(root, tmp_path, env_value=value)
+    assert proc.returncode == 2
+    assert "fails closed" in proc.stderr
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "token S01 zqplant\n",  # no header
+        "name-gate-list v1\n# nothing\n",  # no tokens
+        "name-gate-list v1\ntoken S01 (zqplant\n",  # does not compile
+        "name-gate-list v1\ntoken S01 zq|\n",  # matches the empty string
+        "name-gate-list v1\ntoken S01 zqplant\ntoken S01 zqother\n",  # duplicate id
+        "name-gate-list v1\ntoken S01 zqplant\nexception a.py:1 S09\n",  # unknown id
+        "name-gate-list v1\ntoken S01 zqplant\nexception a.py:x S01\n",  # bad line
+        "name-gate-list v1\ntoken S01 zqplant\nstray zqplant\n",  # unknown kind
+    ],
+)
+def test_an_invalid_list_is_refused_without_quoting_it(tmp_path: Path, bad: str) -> None:
+    proc = _run(_tree(tmp_path, BASE), tmp_path, bad)
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert TOKEN not in proc.stderr.lower()
+    assert "zqother" not in proc.stderr
+
+
+def test_the_list_is_read_from_the_environment(tmp_path: Path) -> None:
+    root = _tree(tmp_path, {**BASE, "a.py": "zqplant\n"})
+    proc = _run(root, tmp_path, env_value=LIST)
+    assert proc.returncode == 1
+    assert _hits(proc) == ["a.py:1 S01"]
+
+
+def test_a_gzip_base64_list_is_accepted(tmp_path: Path) -> None:
+    packed = base64.b64encode(gzip.compress(LIST.encode("utf-8"))).decode("ascii")
+    wrapped = "\n".join(packed[i : i + 60] for i in range(0, len(packed), 60))
+    root = _tree(tmp_path, {**BASE, "a.py": "zqplant\n"})
+    proc = _run(root, tmp_path, env_value=wrapped)
+    assert proc.returncode == 1, proc.stderr
+    assert _hits(proc) == ["a.py:1 S01"]
+
+
+def test_garbage_that_is_not_a_list_is_refused(tmp_path: Path) -> None:
+    proc = _run(_tree(tmp_path, BASE), tmp_path, env_value="not a list at all")
+    assert proc.returncode == 2
+
+
+def test_an_exact_exception_excuses_one_hit(tmp_path: Path) -> None:
+    root = _tree(tmp_path, {**BASE, "a.py": "x\nzqplant\n"})
+    proc = _run(root, tmp_path, LIST + "exception a.py:2 S01\n")
+    assert proc.returncode == 0, proc.stdout
+    assert "1 excused" in proc.stdout
+
+
+def test_an_exception_one_line_off_fails_twice(tmp_path: Path) -> None:
+    root = _tree(tmp_path, {**BASE, "a.py": "x\nzqplant\n"})
+    proc = _run(root, tmp_path, LIST + "exception a.py:1 S01\n")
+    assert proc.returncode == 1
+    assert _hits(proc) == ["a.py:2 S01", "stale exception a.py:1 S01"]
+
+
+def test_an_exception_for_the_wrong_pattern_does_not_excuse(tmp_path: Path) -> None:
+    root = _tree(tmp_path, {**BASE, "a.py": "x\nzqplant\n"})
+    proc = _run(root, tmp_path, LIST + "exception a.py:2 S02\n")
+    assert proc.returncode == 1
+    assert _hits(proc) == ["a.py:2 S01", "stale exception a.py:2 S02"]
+
+
+def test_a_stale_exception_fails_a_clean_tree(tmp_path: Path) -> None:
+    proc = _run(_tree(tmp_path, BASE), tmp_path, LIST + "exception gone.py:4 S01\n")
+    assert proc.returncode == 1
+    assert _hits(proc) == ["stale exception gone.py:4 S01"]
+
+
+def test_tree_and_archive_runs_do_not_read_each_others_exceptions_as_stale(
+    tmp_path: Path,
+) -> None:
+    root = _tree(tmp_path, {**BASE, "a.py": "zqplant\n"})
+    wheel = _wheel(tmp_path, "# zqplant\n")
+    both = LIST + "exception a.py:1 S01\nexception wheel!demo/__init__.py:1 S01\n"
+    tree_run = _run(root, tmp_path, both)
+    archive_run = _run(root, tmp_path, both, "--archive", str(wheel))
+    assert tree_run.returncode == 0, tree_run.stdout
+    assert archive_run.returncode == 0, archive_run.stdout
+
+
+def test_a_non_repository_root_is_an_error_not_a_pass(tmp_path: Path) -> None:
+    empty = tmp_path / "not-a-repo"
+    empty.mkdir()
+    proc = _run(empty, tmp_path)
+    assert proc.returncode == 2
+
+
+# ---------------------------------------------------------------------------
+# The workflow that runs the gate
+# ---------------------------------------------------------------------------
+
+
+def _workflow() -> dict:
+    return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+
+
+def test_workflow_runs_on_pull_requests_and_main() -> None:
+    on = _workflow()[True]  # PyYAML reads the bare key `on` as True
+    assert "pull_request" in on
+    assert "main" in on["push"]["branches"]
+
+
+def test_workflow_is_read_only_and_hands_the_secret_only_to_the_scan() -> None:
+    wf = _workflow()
+    assert wf["permissions"] == {"contents": "read"}
+    steps = [s for job in wf["jobs"].values() for s in job["steps"]]
+    with_secret = [s for s in steps if "NAME_GATE_TOKENS" in str(s.get("env", {}))]
+    assert len(with_secret) == 1
+    scan = with_secret[0]
+    assert scan["env"]["NAME_GATE_TOKENS"] == "${{ secrets.NAME_GATE_TOKENS }}"
+    assert "scripts/ci/check-name-gate.py" in scan["run"]
+    assert "||" not in scan["run"], "the gate's exit status must reach the job"
+    for job in wf["jobs"].values():
+        assert not job.get("continue-on-error"), "a gate that cannot fail the job is no gate"
+        for step in job["steps"]:
+            assert not step.get("continue-on-error")
+
+
+def test_workflow_can_read_pdf_text() -> None:
+    steps = [s for job in _workflow()["jobs"].values() for s in job["steps"]]
+    assert any("poppler-utils" in str(s.get("run", "")) for s in steps)
+
+
+def test_workflow_checkout_does_not_persist_credentials() -> None:
+    steps = [s for job in _workflow()["jobs"].values() for s in job["steps"]]
+    checkouts = [s for s in steps if str(s.get("uses", "")).startswith("actions/checkout@")]
+    assert checkouts
+    for step in checkouts:
+        assert step.get("with", {}).get("persist-credentials") is False
