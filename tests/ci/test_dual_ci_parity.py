@@ -273,6 +273,13 @@ def _schedule_input_problems(doc: dict) -> list[str]:
     Measured on this repo's drift-check runs, where the job env showed
     ``SIGANTRY_DRIFT_MANIFEST_PATH:`` empty despite ``default: 'sync.yml'``.
     So a scheduled workflow must neither require an input nor read one.
+
+    What this checks, and no more: a ``required: true`` input under either
+    trigger, and the text ``inputs.`` anywhere under ``jobs``. It does not
+    evaluate expressions, so a read with a fallback (``inputs.x || 'd'``),
+    which works on a schedule, is flagged too. Not detected, and pinned by
+    ``test_schedule_input_check_known_gaps``: reads outside ``jobs``
+    (top-level ``env:``, ``concurrency:``) and the index form ``inputs['x']``.
     """
     on = doc.get("on", doc.get(True)) or {}
     if not isinstance(on, dict) or "schedule" not in on:
@@ -286,17 +293,40 @@ def _schedule_input_problems(doc: dict) -> list[str]:
             if isinstance(spec, dict) and spec.get("required") is True
         ]
     if "inputs." in yaml.safe_dump(doc.get("jobs") or {}):
-        problems.append("its jobs read `inputs.*`, which is empty on a scheduled run")
+        problems.append("its jobs mention `inputs.`, which is empty on a scheduled run")
     return problems
 
 
-def test_scheduled_workflows_do_not_depend_on_inputs() -> None:
-    checked = 0
-    for path in sorted(_WORKFLOWS.glob("*.yml")):
+def _assert_no_scheduled_workflow_depends_on_inputs(directory: pathlib.Path) -> None:
+    # GitHub runs workflow files with either extension.
+    paths = sorted([*directory.glob("*.yml"), *directory.glob("*.yaml")])
+    assert paths, f"no workflows found in {directory} -- the scan read nothing"
+    for path in paths:
         problems = _schedule_input_problems(yaml.safe_load(path.read_text(encoding="utf-8")))
         assert not problems, f"{path.name} is scheduled, but {'; '.join(problems)}"
-        checked += 1
-    assert checked, "no workflows found -- the scan read nothing"
+
+
+def test_scheduled_workflows_do_not_depend_on_inputs() -> None:
+    _assert_no_scheduled_workflow_depends_on_inputs(_WORKFLOWS)
+
+
+def test_schedule_input_scan_reads_yaml_files_too(tmp_path: pathlib.Path) -> None:
+    (tmp_path / "a.yml").write_text("on: push\njobs: {}\n", encoding="utf-8")
+    (tmp_path / "nightly.yaml").write_text(
+        textwrap.dedent(
+            """
+            on:
+              schedule: [{cron: '0 6 * * *'}]
+              workflow_dispatch:
+                inputs:
+                  ws: {type: string, required: true}
+            jobs: {}
+            """
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(AssertionError, match=r"nightly\.yaml is scheduled"):
+        _assert_no_scheduled_workflow_depends_on_inputs(tmp_path)
 
 
 def test_schedule_input_check_rejects_a_scheduled_workflow_with_inputs() -> None:
@@ -319,6 +349,48 @@ def test_schedule_input_check_rejects_a_scheduled_workflow_with_inputs() -> None
     )
     problems = _schedule_input_problems(doc)
     assert any("'workspaceId' is required" in p for p in problems)
-    assert any("inputs.*" in p for p in problems)
+    assert any("mention `inputs.`" in p for p in problems)
     del doc[True]["schedule"]
     assert _schedule_input_problems(doc) == []
+
+
+_SCHEDULED_WITH_OPTIONAL_INPUT = """
+on:
+  schedule: [{cron: '0 6 * * *'}]
+  workflow_dispatch:
+    inputs:
+      x: {type: string, required: false, default: 'd'}
+"""
+
+
+def test_schedule_input_check_flags_a_read_with_a_fallback() -> None:
+    """Deliberately conservative: the check does not evaluate expressions."""
+    doc = yaml.safe_load(
+        _SCHEDULED_WITH_OPTIONAL_INPUT
+        + "jobs: {j: {runs-on: ubuntu-latest, env: {X: \"${{ inputs.x || 'd' }}\"}}}\n"
+    )
+    assert _schedule_input_problems(doc)
+
+
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="known gap: only `jobs` is scanned, and only for the text `inputs.`",
+)
+@pytest.mark.parametrize(
+    "rest",
+    [
+        "env: {X: '${{ inputs.x }}'}",
+        "concurrency: {group: 'g-${{ inputs.x }}'}",
+        "jobs: {j: {runs-on: ubuntu-latest, env: {X: \"${{ inputs['x'] }}\"}}}",
+    ],
+    ids=["top-level-env", "concurrency", "index-form"],
+)
+def test_schedule_input_check_known_gaps(rest: str) -> None:
+    """Scheduled workflows that read an input and still pass the check.
+
+    Closing a gap turns its case into a strict XPASS failure: drop the case
+    and update ``_schedule_input_problems``'s docstring with it.
+    """
+    doc = yaml.safe_load(_SCHEDULED_WITH_OPTIONAL_INPUT + rest + "\n")
+    assert _schedule_input_problems(doc)

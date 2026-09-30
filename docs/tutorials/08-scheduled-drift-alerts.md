@@ -83,13 +83,12 @@ also confirm outbound HTTPS to `*.webhook.office.com` / `*.logic.azure.com` is o
 
 ## Step 4 — Trigger the workflow once by hand
 
-Before trusting the schedule, run the workflow manually with your real inputs:
+Before trusting the schedule, run your caller workflow once through its
+`workflow_dispatch:` trigger. It passes the inputs from its own `with:` block, so
+there are no `-f` flags to add:
 
 ```bash
-gh workflow run drift-check.yml --repo <owner>/<repo> \
-  -f workspaceId=<governed-workspace-guid> \
-  -f manifestPath=<path/to/sync.yml-in-repo> \
-  -f environment=prod
+gh workflow run <your-caller>.yml --repo <owner>/<repo>
 gh run watch
 # expect: drift_check job green; notify job SKIPPED (you are clean from Tutorial 03);
 #         drift.json attached as a run artefact
@@ -109,8 +108,9 @@ green and silent again.
 
 ## Step 6 — Let the schedule take over
 
-The workflow's `schedule:` block defaults to a daily cron. Adjust frequency to taste
-(hourly for hot workspaces, daily for stable ones) and merge. From now on the only
+The cadence is your caller workflow's `schedule:` block (the runbook's example runs
+daily at 06:00 UTC). Adjust frequency to taste (hourly for hot workspaces, daily for
+stable ones) and merge. From now on the only
 time you hear about this workspace is when reality stops matching the contract.
 
 ## Operational notes

@@ -98,10 +98,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The workflow is reusable (`workflow_call` / `workflow_dispatch`) and now has no
   schedule of its own; adopters schedule a caller that passes the inputs, as the
   drift runbook already showed. It also gains `permissions: contents: read`. A
-  new check fails any scheduled workflow that requires or reads an input.
+  new check fails any scheduled workflow file (`.yml` or `.yaml`) that declares
+  a required input or whose jobs mention `inputs.`. It does not see reads
+  outside `jobs` or the index form `inputs['x']`, and it flags a read with a
+  `||` fallback, which does work on a schedule.
 - **`sigantry diff --output json` wrote its errors to stdout**, the stream the
-  drift pipelines capture into `drift.json`, so a failed run produced a
-  `drift.json` that was not JSON. Errors now go to stderr.
+  drift pipelines capture into `drift.json`, so a failed run's `drift.json`
+  held error text. Errors now go to stderr, and on an error `drift.json` is
+  empty. The notify step still cannot report an operational error (#34).
 - **`scripts/audit_chain_migrate.py` could destroy or launder audit records,
   and reported success either way.** A re-run read the `.pre-w3.1.bak` backup
   whenever it existed and replaced the live ledger with it, so every record
