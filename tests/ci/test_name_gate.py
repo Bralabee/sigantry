@@ -286,7 +286,13 @@ def test_pdf_page_text_is_read_or_the_gate_fails_closed(tmp_path: Path) -> None:
     _assert_no_leak(proc)
 
 
-@pytest.mark.skipif(shutil.which("pdftotext") is None, reason="needs pdftotext")
+# A clean PDF passes only when BOTH poppler readers exist: without pdfinfo the
+# metadata is UNREADABLE and the gate fails closed (a Windows runner can have
+# pdftotext but not pdfinfo).
+@pytest.mark.skipif(
+    shutil.which("pdftotext") is None or shutil.which("pdfinfo") is None,
+    reason="needs pdftotext and pdfinfo",
+)
 def test_a_pdf_without_the_token_passes(tmp_path: Path) -> None:
     proc = _run(_tree(tmp_path, {**BASE, "docs/report.pdf": _pdf("Quarterly")}), tmp_path)
     assert proc.returncode == 0, proc.stdout
