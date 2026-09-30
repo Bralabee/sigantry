@@ -89,12 +89,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reported the shorter chain as valid. It also re-sealed a record that failed
   its own hash (so a hand edit came out verifying), and judged a ledger
   "already chained" from its first two records only, leaving a broken later
-  link in place. The script now reads the backup only when the live ledger is
-  absent; verifies every record against its own stored hash and every chain
-  link before re-sealing, and on any failure writes nothing and exits 1
-  (`--dry-run` included); holds the audit writers' lock from read to replace;
-  copies the ledger to a backup that never overwrites an earlier one; and
-  checks the post-migration chain before writing it.
+  link in place. Now:
+  - every record is checked against its own stored hash, and records from
+    before chaining may only form a prefix: from the first record that carries
+    `prev_hash`, each must link to its predecessor, so a truncated, reset or
+    forked chain is refused rather than re-sealed;
+  - the backup is read only when the live ledger is absent, and a backup whose
+    records are not all at the head of the live ledger is refused (it may be
+    their only copy);
+  - a refusal writes nothing and exits 1, the other ledgers still run, and
+    unreadable input (invalid UTF-8, malformed JSON) is a refusal, not a crash;
+  - records are split on `\n` only, as the readers do, so U+2028, U+2029 or
+    U+0085 inside a field no longer breaks a record in two;
+  - the migration holds the audit writers' lock from choosing the file to
+    replacing it; the backup never overwrites an earlier one and appears under
+    its name only once complete; the written ledger is read back and verified;
+  - `--dry-run` refuses exactly as a real run would and creates no file (not
+    even a lock file), so it works on a read-only copy.
 - **The test suite wrote into the real `~/.sigantry/audit/` ledgers.** Tests
   that fall back to the default audit directory appended fixture records
   (approvals, destructive-op and secret-change records from principals such as

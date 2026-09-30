@@ -13,6 +13,7 @@ HOME override fails the subprocess test.
 
 from __future__ import annotations
 
+import importlib
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -22,6 +23,18 @@ import pytest
 
 from sigantry_core.governance.audit import emit_secret_change_record
 from sigantry_core.governance.records import SecretChangeRecord
+
+# Load every module that binds a default audit location at import time, so
+# the scan below sees them whether or not other test modules ran first.
+for _module in (
+    "sigantry_core.deploy.rollback",
+    "sigantry_core.governance.audit",
+    "sigantry_core.governance.audit_io",
+    "sigantry_core.release.cli",
+    "sigantry_core.release.ledger",
+    "sigantry_core.workspace.records",
+):
+    importlib.import_module(_module)
 
 _DEFAULT_ATTRS = ("_DEFAULT_AUDIT_DIR", "DEFAULT_BOOTSTRAP_LEDGER")
 
@@ -51,8 +64,16 @@ def test_every_loaded_default_audit_location_is_isolated(
 def test_default_emit_lands_in_the_isolated_home(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> None:
+    base = tmp_path_factory.getbasetemp()
     home = Path.home()
-    assert _inside(home, tmp_path_factory.getbasetemp()), f"HOME is not isolated: {home}"
+    assert _inside(home, base), f"HOME is not isolated: {home}"
+    # Check where the emit will actually write BEFORE emitting, so a broken
+    # isolation fails here instead of writing a probe into the real ledger.
+    # (``sigantry_core.governance.audit`` as an attribute is a re-exported
+    # function that shadows the submodule, hence import_module.)
+    target = importlib.import_module("sigantry_core.governance.audit")._DEFAULT_AUDIT_DIR
+    if not _inside(Path(target), base):
+        pytest.fail(f"the default emit would write outside the test temp dir: {target}")
     emit_secret_change_record(
         SecretChangeRecord(
             operation="set",

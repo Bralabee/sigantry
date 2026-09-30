@@ -20,10 +20,12 @@ but the code did not actually act on it.
 
 Post-fix:
 
-- The read source is selected as ``backup if backup.exists() else
-  jsonl_path`` (or ``return (0,0)`` if neither exists). A rerun
-  after interrupt-during-rename reads from the backup and completes
-  the migration.
+- When ``jsonl_path`` is absent and the backup exists, the backup is
+  the read source, so a rerun after interrupt-during-rename completes
+  the migration. (The first version of this fix read the backup
+  whenever it EXISTED, which replayed it over every record written
+  after a completed migration; the live file now wins whenever it is
+  present -- see ``test_audit_chain_migrate_safety.py``.)
 - The final write goes through ``tempfile.mkstemp`` in the same
   directory + ``os.replace`` so an interrupted write never leaves a
   half-written ``jsonl_path``.
@@ -34,6 +36,7 @@ below from PASS to FAIL.
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 from datetime import UTC, datetime
@@ -64,28 +67,34 @@ _migrate_module = _load_migrate_module()
 migrate_one_file = _migrate_module.migrate_one_file
 
 
-def _seal_unchained(records: list[SecretChangeRecord]) -> list[SecretChangeRecord]:
-    """Seal a list of records WITHOUT prev_hash linkage (pre-W3.1 shape).
+def _seal_unchained(records: list[SecretChangeRecord]) -> list[dict]:
+    """Seal records the way a pre-W3.1 ledger stored them.
 
-    Mirrors the pre-W3.1 ledger: each record's ``audit_hash`` is
-    computed against ``prev_hash=None`` (the default). The migration
-    re-seals these into a chained shape.
+    A pre-W3.1 record has NO ``prev_hash`` key: the field did not exist,
+    and its ``audit_hash`` covers the remaining fields only. (Sealing
+    through the current model instead adds ``"prev_hash": null`` to
+    every record -- a shape no real ledger has, which ``release verify``
+    rejects as a reset chain after record 0 and the migration refuses.)
     """
-    return [r.with_hash() for r in records]
+    lines = []
+    for r in records:
+        body = r.model_dump(mode="json")
+        body.pop("audit_hash", None)
+        body.pop("prev_hash", None)
+        canonical = json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        body["audit_hash"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        lines.append(body)
+    return lines
 
 
-def _write_jsonl(path: Path, records: list[SecretChangeRecord]) -> None:
+def _write_jsonl(path: Path, lines: list[dict]) -> None:
     path.write_text(
-        "\n".join(
-            json.dumps(r.model_dump(mode="json"), sort_keys=True, ensure_ascii=False)
-            for r in records
-        )
-        + "\n",
+        "\n".join(json.dumps(x, sort_keys=True, ensure_ascii=False) for x in lines) + "\n",
         encoding="utf-8",
     )
 
 
-def _build_records(n: int) -> list[SecretChangeRecord]:
+def _build_records(n: int) -> list[dict]:
     return _seal_unchained(
         [
             SecretChangeRecord(
@@ -122,10 +131,9 @@ def test_rerun_after_interrupt_reads_from_backup(tmp_path: Path) -> None:
     assert processed == 5, (
         f"expected 5 records processed (rerun reads from backup); got {processed}"
     )
-    # Records 1..N-1 carry a new prev_hash so their audit_hash changes.
-    # Record 0 keeps prev_hash=None (chain head), so its canonical
-    # payload is unchanged and the audit_hash is unchanged too.
-    assert changed == 4, f"expected 4 of 5 records re-hashed; got {changed}"
+    # Every record gains the prev_hash field (null on record 0), so every
+    # canonical payload -- and every audit_hash -- changes.
+    assert changed == 5, f"expected 5 of 5 records re-hashed; got {changed}"
     # And jsonl_path was rewritten with the migrated content.
     assert jsonl_path.is_file()
     rebuilt = [
@@ -146,8 +154,8 @@ def test_atomic_write_does_not_leak_tmpfile_on_success(tmp_path: Path) -> None:
     _write_jsonl(jsonl_path, _build_records(3))
 
     processed, changed = migrate_one_file(jsonl_path, record_cls=SecretChangeRecord)
-    # Records 1..2 carry a new prev_hash; record 0 unchanged.
-    assert processed == 3 and changed == 2
+    # Every record gains the prev_hash field, so all three are re-hashed.
+    assert processed == 3 and changed == 3
 
     # Only the migrated file, the .pre-w3.1.bak and the writers' shared
     # lock file (the migration holds ``audit_chain_lock``) should be present.
@@ -175,8 +183,9 @@ def test_dry_run_does_not_modify_source_or_create_backup(tmp_path: Path) -> None
     pre_text = jsonl_path.read_text("utf-8")
 
     processed, changed = migrate_one_file(jsonl_path, record_cls=SecretChangeRecord, dry_run=True)
-    # Records 1..2 carry a new prev_hash; record 0 unchanged.
-    assert processed == 3 and changed == 2
+    assert processed == 3 and changed == 3
+    # Nothing at all is created -- not even the writers' lock file.
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["secret_changes.jsonl"]
     # No backup created.
     assert not (jsonl_path.with_suffix(".jsonl.pre-w3.1.bak")).exists()
     # Source unchanged.
@@ -206,7 +215,7 @@ def test_idempotent_when_already_chained(tmp_path: Path) -> None:
         sealed = rec.model_copy(update={"prev_hash": prev}).with_hash()
         chained.append(sealed)
         prev = sealed.audit_hash
-    _write_jsonl(jsonl_path, chained)
+    _write_jsonl(jsonl_path, [r.model_dump(mode="json") for r in chained])
     pre_text = jsonl_path.read_text("utf-8")
 
     processed, changed = migrate_one_file(jsonl_path, record_cls=SecretChangeRecord)

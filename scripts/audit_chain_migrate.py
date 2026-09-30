@@ -14,25 +14,32 @@ Safety contract -- a ledger is the evidence, so the migration never
 trades records for a valid-looking chain:
 
 - **Verify before re-sealing.** Every record must match its own
-  ``audit_hash`` in the form it was stored (a pre-W3.1 record was
-  sealed without a ``prev_hash`` key, so the current model's
-  ``verify_hash()`` cannot judge it), and every chain link a record
-  carries must point at its predecessor. A ledger that fails either
-  check is REFUSED: nothing is written and the script exits non-zero.
-  Re-sealing an unverifiable record would launder it into a chain that
+  ``audit_hash`` in the form it was stored. A pre-W3.1 record was
+  sealed before ``prev_hash`` existed and carries no key for it, so the
+  current model's ``verify_hash()`` cannot judge it. Pre-W3.1 records
+  may only form a prefix; from the first record that carries
+  ``prev_hash`` on, every record must link to its predecessor. A ledger
+  that fails either check is REFUSED: nothing is written and the script
+  exits non-zero. Re-sealing an unverifiable record, or a chain that was
+  truncated or reset, would launder it into a chain that
   ``sigantry release verify`` reports as valid.
-- **Read the live ledger.** The ``<filename>.pre-w3.1.bak`` backup is a
-  read source only when the live file is absent (a run of the previous
-  version of this script interrupted between its rename and its write).
-  Reading the backup while the live file exists replays the old content
-  over every record written since the first migration.
+- **Read the live ledger, and account for every backup.** A
+  ``<filename>.pre-w3.1.bak`` backup is a read source only when the live
+  file is absent (a run of the previous version of this script
+  interrupted between its rename and its write). When the live file
+  exists, every backup beside it must be contained in it -- its records,
+  in order, at the head of the live ledger. Otherwise the ledger is
+  refused: a backup holding records the live ledger lacks is the only
+  copy of those records.
 - **Hold the writer's lock.** The read-verify-write sequence runs under
   :func:`audit_chain_lock`, the lock every audit writer takes, so no
   record can be appended between the read and the replace.
 - **Never clobber a backup.** The live file is copied (not renamed) to
   ``<filename>.pre-w3.1.bak``, or to ``.pre-w3.1.bak.<n>`` when earlier
-  backups exist, and then atomically replaced. The live ledger is never
-  absent.
+  backups exist; the backup appears under its name only once complete.
+  The live ledger is then atomically replaced, so it is never absent.
+- **Check what was written.** The serialised result is parsed back and
+  must verify as a whole chain with the same number of records.
 
 Idempotency: a ledger whose whole chain already verifies is left
 untouched, so the script can be run any number of times.
@@ -45,7 +52,8 @@ Usage::
     # Migrate a custom directory:
     python scripts/audit_chain_migrate.py --audit-dir /path/to/audit
 
-    # Dry-run (no file writes; still verifies and still refuses):
+    # Dry-run: verifies and refuses exactly like a real run, but takes no
+    # lock and creates no file (so it also works on a read-only copy):
     python scripts/audit_chain_migrate.py --dry-run
 
 Exit status: 0 when every ledger was migrated or already chained; 1 when
@@ -72,6 +80,7 @@ import json
 import os
 import sys
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -95,7 +104,6 @@ _FILENAME_TO_RECORD: dict[str, type] = {
 }
 
 _BACKUP_SUFFIX = ".pre-w3.1.bak"
-_BACKUP_MODE = 0o600
 
 
 class MigrationRefusedError(RuntimeError):
@@ -122,58 +130,74 @@ def _stored_hash_ok(raw: dict[str, Any]) -> bool:
 def _chain_violation(raws: list[dict[str, Any]]) -> str | None:
     """Return why ``raws`` must not be re-sealed, or None if it may be.
 
-    A record is *linked* when it carries a non-null ``prev_hash`` and
-    *unlinked* otherwise (a pre-W3.1 record without the key, or one
-    sealed with ``prev_hash = null``). A ledger may start with any
-    number of unlinked records; the W3.1 writer then links its first
-    record onto the last of them. So:
+    A pre-W3.1 record carries no ``prev_hash`` key. A ledger may start
+    with any number of them; the W3.1 writer then links its first record
+    onto the last of them. So:
 
     - every record must match its own ``audit_hash`` as stored;
-    - a linked record must point at its predecessor's ``audit_hash``
-      (so the first record can never be linked);
-    - once the chain has started, every later record must be linked --
-      an unlinked record there is a fork or a reset head.
+    - the first record that carries ``prev_hash`` starts the chain, and
+      from there every record must carry it and point at its
+      predecessor's ``audit_hash`` (``None`` only at index 0). A null
+      link later on is a reset head -- what a truncated ledger or a
+      writer that lost the tail produces -- and ``release verify``
+      rejects it, so re-sealing it would launder it.
     """
     chain_started = False
     for i, raw in enumerate(raws):
         if not _stored_hash_ok(raw):
-            return f"record {i} fails verification: it does not match its own audit_hash (edited or corrupt)"
-        prev = raw.get("prev_hash")
-        if prev is None:
+            return (
+                f"record {i} fails verification: it does not match its own "
+                "audit_hash (edited or corrupt)"
+            )
+        if "prev_hash" not in raw:
             if chain_started:
-                return (
-                    f"record {i} is unlinked but follows linked records (fork or reset chain head)"
-                )
+                return f"record {i} has no prev_hash but follows chained records"
+            continue
+        chain_started = True
+        expected = None if i == 0 else raws[i - 1].get("audit_hash")
+        if raw["prev_hash"] == expected:
             continue
         if i == 0:
             return "record 0 links to a predecessor the ledger does not hold (truncated head)"
-        if prev != raws[i - 1].get("audit_hash"):
-            return f"record {i} prev_hash does not match record {i - 1}'s audit_hash (broken chain link)"
-        chain_started = True
+        if raw["prev_hash"] is None:
+            return f"record {i} restarts the chain (prev_hash is null): reset or forked chain head"
+        return (
+            f"record {i} prev_hash does not match record {i - 1}'s audit_hash (broken chain link)"
+        )
     return None
 
 
 def _is_already_chained(raws: list[dict[str, Any]]) -> bool:
     """Return True if the WHOLE ledger is already a verified W3.1 chain.
 
-    Every record carries the ``prev_hash`` key, every link after the
-    head is set, and :func:`_chain_violation` finds nothing. Checking
-    only the first two records (as this function once did) passes a
-    ledger whose later links are broken and leaves it broken.
+    Every record carries the ``prev_hash`` key and :func:`_chain_violation`
+    finds nothing. Checking only the first two records (as this function
+    once did) passes a ledger whose later links are broken and leaves it
+    broken.
     """
-    if not raws:
-        return True
     if not all("prev_hash" in raw for raw in raws):
-        return False
-    if any(raw["prev_hash"] is None for raw in raws[1:]):
         return False
     return _chain_violation(raws) is None
 
 
-def _parse(text: str, *, record_cls: type, source: Path) -> tuple[list[dict[str, Any]], list[Any]]:
+def _parse(
+    data: bytes, *, record_cls: type, source: Path
+) -> tuple[list[dict[str, Any]], list[Any]]:
+    """Parse a ledger the way the audit readers do, refusing anything invalid.
+
+    Lines are split on ``\\n`` only (a trailing ``\\r`` is dropped).
+    ``str.splitlines()`` would also split on U+2028, U+2029 and U+0085,
+    which the writers emit raw inside string fields (``ensure_ascii=False``),
+    and so would break a genuine record in two.
+    """
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise MigrationRefusedError(f"{source.name} is not valid UTF-8: {exc}") from exc
     raws: list[dict[str, Any]] = []
     records: list[Any] = []
-    for lineno, line in enumerate(text.splitlines(), start=1):
+    for lineno, line in enumerate(text.split("\n"), start=1):
+        line = line.removesuffix("\r")
         if not line.strip():
             continue
         try:
@@ -189,7 +213,50 @@ def _parse(text: str, *, record_cls: type, source: Path) -> tuple[list[dict[str,
     return raws, records
 
 
-def _backup_path(jsonl_path: Path) -> Path:
+def _content(record: Any) -> dict[str, Any]:
+    """A record's content without its chain fields, normalised by the model."""
+    dumped: dict[str, Any] = record.model_dump(mode="json")
+    dumped.pop("prev_hash", None)
+    dumped.pop("audit_hash", None)
+    return dumped
+
+
+def _backups(jsonl_path: Path) -> list[Path]:
+    base = jsonl_path.with_name(jsonl_path.name + _BACKUP_SUFFIX)
+    numbered = sorted(
+        jsonl_path.parent.glob(base.name + ".*"),
+        key=lambda p: int(p.name.rsplit(".", 1)[1]) if p.name.rsplit(".", 1)[1].isdigit() else -1,
+    )
+    return ([base] if base.is_file() else []) + [p for p in numbered if p.is_file()]
+
+
+def _refuse_unless_backups_contained(
+    jsonl_path: Path, live_records: list[Any], *, record_cls: type
+) -> None:
+    """Refuse if any backup holds records the live ledger does not.
+
+    A completed migration leaves the backup's records, re-sealed, at the
+    head of the live ledger. If the old version of this script was
+    interrupted after its rename and a writer then started a fresh
+    ledger, the pre-migration records exist ONLY in the backup -- and the
+    live ledger alone would pass as "already chained".
+    """
+    live = [_content(r) for r in live_records]
+    for backup in _backups(jsonl_path):
+        _, backup_records = _parse(backup.read_bytes(), record_cls=record_cls, source=backup)
+        held = [_content(r) for r in backup_records]
+        if live[: len(held)] != held:
+            missing = next(
+                (i for i, c in enumerate(held) if i >= len(live) or live[i] != c), len(held)
+            )
+            raise MigrationRefusedError(
+                f"{backup.name} holds {len(held)} record(s) that are not all at the head of "
+                f"{jsonl_path.name} (first difference at backup record {missing}); the backup "
+                "may be their only copy -- reconcile it by hand"
+            )
+
+
+def _new_backup_path(jsonl_path: Path) -> Path:
     """Return the first backup name that does not exist yet."""
     base = jsonl_path.with_name(jsonl_path.name + _BACKUP_SUFFIX)
     if not base.exists():
@@ -200,13 +267,36 @@ def _backup_path(jsonl_path: Path) -> Path:
     return base.with_name(f"{base.name}.{n}")
 
 
-def _write_backup(path: Path, data: bytes) -> None:
-    """Write ``data`` to a NEW file at ``path`` (owner-only, fsynced)."""
-    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, _BACKUP_MODE)
-    with os.fdopen(fd, "wb") as f:
-        f.write(data)
-        f.flush()
-        os.fsync(f.fileno())
+def _write_backup(jsonl_path: Path, data: bytes) -> Path:
+    """Write ``data`` to a NEW backup file; it appears under its name only once complete.
+
+    The bytes go to a temp file in the same directory (``mkstemp``: owner-only,
+    binary) and are fsynced, then published under the backup name without
+    overwriting anything: a hard link on POSIX (``os.rename`` would replace an
+    existing file there), ``os.rename`` on Windows (which refuses to).
+    """
+    fd, tmp_str = tempfile.mkstemp(
+        prefix=f".{jsonl_path.name}.", suffix=".bak.tmp", dir=str(jsonl_path.parent)
+    )
+    tmp = Path(tmp_str)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        while True:
+            target = _new_backup_path(jsonl_path)
+            try:
+                if os.name == "nt":
+                    os.rename(tmp, target)
+                else:
+                    os.link(tmp, target)
+            except FileExistsError:
+                continue
+            return target
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            tmp.unlink()
 
 
 def _atomic_replace(jsonl_path: Path, new_text: str) -> None:
@@ -226,7 +316,7 @@ def _atomic_replace(jsonl_path: Path, new_text: str) -> None:
     )
     tmp_path = Path(tmp_path_str)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
             f.write(new_text)
             f.flush()
             os.fsync(f.fileno())
@@ -237,6 +327,11 @@ def _atomic_replace(jsonl_path: Path, new_text: str) -> None:
             with contextlib.suppress(OSError):
                 tmp_path.unlink()
         raise
+
+
+@contextlib.contextmanager
+def _no_lock(_path: Path) -> Iterator[None]:
+    yield
 
 
 def migrate_one_file(
@@ -250,16 +345,24 @@ def migrate_one_file(
     Returns ``(records_processed, records_changed)``. A record is
     "changed" when its ``audit_hash`` differs after re-sealing with
     ``prev_hash`` populated; ``records_changed == 0`` means the ledger
-    was already chained and nothing was written.
+    was already chained.
 
     Raises :class:`MigrationRefusedError`, having written nothing, when
     the ledger fails a pre-seal check (see the module docstring).
     """
     backup = jsonl_path.with_name(jsonl_path.name + _BACKUP_SUFFIX)
+    if jsonl_path.is_symlink():
+        raise MigrationRefusedError(
+            f"{jsonl_path.name} is a symlink; replacing it would detach the ledger from "
+            "its target -- migrate the target directory instead"
+        )
     if not jsonl_path.is_file() and not backup.is_file():
         return (0, 0)
 
-    with audit_chain_lock(jsonl_path):
+    # A dry run writes nothing, so it takes no lock (which would create a
+    # lock file). A concurrent write can make it report a transient refusal.
+    lock = _no_lock if dry_run else audit_chain_lock
+    with lock(jsonl_path):
         # Choose the read source under the lock, so no writer can change
         # the answer between the choice and the read.
         if jsonl_path.is_file():
@@ -269,7 +372,7 @@ def migrate_one_file(
             # previous version of this script renamed the ledger to the
             # backup and was interrupted before writing the migrated
             # file. The backup holds the full pre-migration content.
-            later = sorted(backup.parent.glob(backup.name + ".*"))
+            later = _backups(jsonl_path)[1:]
             if later:
                 raise MigrationRefusedError(
                     f"{jsonl_path.name} is missing but later backups exist "
@@ -280,44 +383,51 @@ def migrate_one_file(
             return (0, 0)
 
         original = read_source.read_bytes()
-        raws, records = _parse(original.decode("utf-8"), record_cls=record_cls, source=read_source)
+        raws, records = _parse(original, record_cls=record_cls, source=read_source)
+        recovering = read_source is not jsonl_path
+        if not recovering:
+            _refuse_unless_backups_contained(jsonl_path, records, record_cls=record_cls)
 
         if _is_already_chained(raws):
-            return (len(records), 0)
+            if not recovering:
+                return (len(records), 0)
+            changed = 0  # restore the chained backup as the live ledger
+            sealed = records
+        else:
+            reason = _chain_violation(raws)
+            if reason is not None:
+                raise MigrationRefusedError(f"{read_source.name}: {reason}")
+            sealed = []
+            prev = None
+            changed = 0
+            for raw, rec in zip(raws, records, strict=True):
+                new_rec = rec.model_copy(update={"prev_hash": prev}).with_hash()
+                if new_rec.audit_hash != raw.get("audit_hash"):
+                    changed += 1
+                sealed.append(new_rec)
+                prev = new_rec.audit_hash
 
-        reason = _chain_violation(raws)
-        if reason is not None:
-            raise MigrationRefusedError(f"{read_source.name}: {reason}")
-
-        sealed: list[Any] = []
-        prev = None
-        changed = 0
-        for raw, rec in zip(raws, records, strict=True):
-            new_rec = rec.model_copy(update={"prev_hash": prev}).with_hash()
-            if new_rec.audit_hash != raw.get("audit_hash"):
-                changed += 1
-            sealed.append(new_rec)
-            prev = new_rec.audit_hash
-
-        # Post-condition: what we would write verifies the way
-        # ``sigantry release verify`` checks it, and keeps every record.
-        ok, bad_index, why = verify_audit_chain(sealed)
-        if not ok or len(sealed) != len(raws):
+        new_text = "".join(
+            json.dumps(s.model_dump(mode="json"), sort_keys=True, ensure_ascii=False) + "\n"
+            for s in sealed
+        )
+        # Post-condition on what would actually be written: parsed back,
+        # it keeps every record and verifies the way ``sigantry release
+        # verify`` checks it.
+        _, reread = _parse(new_text.encode("utf-8"), record_cls=record_cls, source=jsonl_path)
+        ok, bad_index, why = verify_audit_chain(reread)
+        if not ok or len(reread) != len(raws):
             raise MigrationRefusedError(
-                f"{read_source.name}: re-sealed chain does not verify at record {bad_index}: {why}"
+                f"{read_source.name}: re-sealed ledger does not verify when read back "
+                f"({len(reread)} of {len(raws)} records; record {bad_index}: {why})"
             )
 
         if dry_run:
             return (len(records), changed)
 
-        if read_source is jsonl_path:
-            _write_backup(_backup_path(jsonl_path), original)
-
-        new_lines = [
-            json.dumps(s.model_dump(mode="json"), sort_keys=True, ensure_ascii=False)
-            for s in sealed
-        ]
-        _atomic_replace(jsonl_path, "\n".join(new_lines) + "\n")
+        if not recovering:
+            _write_backup(jsonl_path, original)
+        _atomic_replace(jsonl_path, new_text)
         return (len(records), changed)
 
 
@@ -332,7 +442,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Verify and report what would change without touching files on disk.",
+        help=(
+            "Verify and report what would change. Takes no lock and creates no file; "
+            "refuses exactly as a real run would."
+        ),
     )
     args = parser.parse_args(argv)
 
@@ -360,7 +473,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"REFUSED: {exc}", file=sys.stderr)
             refused.append(name)
             continue
-        if processed == 0:
+        if processed == 0 and not jsonl_path.exists():
             continue
         if changed == 0:
             action = "already chained"
