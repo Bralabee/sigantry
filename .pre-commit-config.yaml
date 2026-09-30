@@ -6,8 +6,8 @@
 # Audit-2026-05-07 W3.5: standard set + ruff + detect-secrets + mypy
 # added alongside the 2 custom Fabric hooks.
 #
-# All third-party hooks pin to a known good ``rev:``. Dependabot's
-# ``pip`` ecosystem entry covers pre-commit-hook bumps.
+# All third-party hooks pin to a known good ``rev:``. No Dependabot
+# entry covers them; bump each ``rev:`` by hand.
 #
 # The two ``fabric-check-*`` hooks remain ``language: system`` (stdlib
 # only) so they run without installing the sigantry_core wheel into
@@ -61,11 +61,10 @@ repos:
     hooks:
       - id: detect-secrets
         args: ['--baseline', '.secrets.baseline']
-        # Lockfile, .secrets.baseline itself, and test fixtures
-        # legitimately carry hash-shaped strings.
+        # .secrets.baseline itself and test fixtures legitimately
+        # carry hash-shaped strings.
         exclude: |
           (?x)^(
-              requirements-lock\.txt|
               \.secrets\.baseline|
               tests/.*/fixtures/.*
           )$
