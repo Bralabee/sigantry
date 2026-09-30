@@ -80,9 +80,10 @@ _LINT_JOB_NAME = "Lint & Formatting"
 # that runs nothing.
 _CI_WORKFLOW_USES = "./.github/workflows/ci.yml"
 
-# A publish that goes through a repo script is still a publish: a job that
-# runs `bash scripts/release/<name>.sh` which calls twine inside uploads just
-# as surely as one that calls twine inline.
+# A publish that goes through a repo script is still a publish. This matches
+# the script's PATH on a run line -- any `scripts/**` `.sh`/`.py` whose path
+# says publish or release -- not what the script runs, so it is a guess by name
+# in both directions: see `_publish_jobs` for what that misses and misreads.
 _PUBLISH_SCRIPT_RE = re.compile(r"scripts/[\w/.-]*(?:publish|release)[\w/.-]*\.(?:sh|py)")
 
 # Any shell operator: an invocation sharing its line with one is not, on its
@@ -484,11 +485,12 @@ _BUILD_DEPS_EXEMPT: dict[str, tuple[str, str]] = {}
 
 # Publish paths not yet gated by a quality job.
 #
-# NOTE: a lapsed date here reds the `test` job, which gates `build`, which the
-# release path now depends on -- so an expired carve-out blocks a release on a
-# calendar date with no code change. That is intended (an expired excuse should
-# stop the thing it was excusing) and is a one-line fix, but it is a real
-# consequence and is recorded rather than discovered during a release.
+# NOTE: `test_carve_outs_have_not_expired` reads the wall clock inside the
+# `test` job, which gates `build` and is what `publish-pypi.yml` runs as its
+# quality gate. So a lapsed date in EITHER map reds every merge to main and
+# blocks every release on a calendar date, with no code change. That is not
+# intended; it is issue #23, and it is why no dated entry remains. Whoever adds
+# the next one should move the expiry check off those paths first.
 # Keyed "<workflow>::<job>", not by filename: a filename key would go on
 # excusing any publish job added to that file later, including a production
 # one, on a reason recorded about a different job.
@@ -755,7 +757,18 @@ def test_carve_outs_have_not_expired() -> None:
 
 
 def _publish_jobs(workflow: dict) -> list[str]:
-    """Jobs that push a distribution to an index, by any mechanism.
+    """Jobs that push a distribution to an index, by the mechanisms below only.
+
+    Seen: ``twine upload`` run as ``twine``, ``python -m twine`` or ``python3
+    -m twine`` with ``upload`` as its first argument; the action
+    ``pypa/gh-action-pypi-publish`` spelled in lower case; and a run line that
+    names a ``scripts/**`` ``.sh``/``.py`` path containing ``publish`` or
+    ``release``. That last rule reads a name, not what the script runs, so it
+    also flags a script that publishes nothing. ``test_publish_job_detection``
+    pins the known misses and misreadings as strict xfails; the list is the
+    known ones, not all of them. Closing them one spelling at a time does not
+    converge, so they wait on a detection that does not depend on how a command
+    is spelled (issue #33).
 
     Uses ``_invocations`` rather than a second hand-rolled tokeniser: the
     duplicate copy had already drifted once (it compared raw tokens to
@@ -790,25 +803,21 @@ def _publish_jobs(workflow: dict) -> list[str]:
     return out
 
 
-def test_every_publish_path_is_gated_by_the_quality_jobs(
-    all_workflows: dict[str, dict], ci_workflow: dict
-) -> None:
-    """The distribution users install is gated, not just the CI artifact.
+def _assert_publish_jobs_gated(
+    exempt: dict[str, tuple[str, str]], workflows: dict[str, dict]
+) -> bool:
+    """Every publish job depends on an enforcing ci.yml job unless ``exempt`` names it.
 
-    ``publish-pypi.yml`` ran checkout -> build -> twine -> publish with no
-    dependency on lint, test or types. CI's own ``build`` job gates only the
-    ``dist`` artifact uploaded for that run, which nobody installs.
-
-    Every workflow is scanned, not just ``publish-pypi.yml``: a removed alpha
-    workflow once published via ``twine upload`` in an ungated job, and a
-    check that looked only at one filename and one action could not see it.
+    Only the exact key ``<workflow>::<job-id>`` excuses a job. Returns whether
+    any publish job was seen, so the caller can refuse a vacuous scan. The map
+    is a parameter so the lookup stays under test while the live map is empty.
     """
     found_any = False
-    for filename, workflow in all_workflows.items():
+    for filename, workflow in workflows.items():
         jobs = workflow.get("jobs") or {}
         for job_id in _publish_jobs(workflow):
             found_any = True
-            if f"{filename}::{job_id}" in _PUBLISH_GATE_EXEMPT:
+            if f"{filename}::{job_id}" in exempt:
                 continue
             # `needs:` alone is not a gate. `if: always()` on the publish job
             # keeps the dependency and publishes anyway once the gate fails.
@@ -826,6 +835,23 @@ def test_every_publish_path_is_gated_by_the_quality_jobs(
                 _assert_job_enforcing(
                     jobs, gate, f"{filename}:{job_id} would publish an ungated distribution"
                 )
+    return found_any
+
+
+def test_every_publish_path_is_gated_by_the_quality_jobs(
+    all_workflows: dict[str, dict], ci_workflow: dict
+) -> None:
+    """The distribution users install is gated, not just the CI artifact.
+
+    ``publish-pypi.yml`` ran checkout -> build -> twine -> publish with no
+    dependency on lint, test or types. CI's own ``build`` job gates only the
+    ``dist`` artifact uploaded for that run, which nobody installs.
+
+    Every workflow is scanned, not just ``publish-pypi.yml``: a removed alpha
+    workflow once published via ``twine upload`` in an ungated job, and a
+    check that looked only at one filename and one action could not see it.
+    """
+    found_any = _assert_publish_jobs_gated(_PUBLISH_GATE_EXEMPT, all_workflows)
     assert found_any, (
         "no publish path found in any workflow; this scan would be vacuous. "
         "Either the detection is broken or publishing moved somewhere unseen."
@@ -838,20 +864,23 @@ def test_every_publish_path_is_gated_by_the_quality_jobs(
     )
 
 
+# GitHub's rule for a job id: a letter or `_`, then letters, digits, `-` or `_`.
+_PUBLISH_GATE_KEY_RE = re.compile(r"[^:/]+\.ya?ml::[A-Za-z_][A-Za-z0-9_-]*")
+
+
 def _assert_exemptions_name_real_publish_jobs(
-    exempt: dict[str, tuple[str, str]], workflows: dict[str, dict]
+    exempt: dict[str, tuple[str, str]], workflows: dict[str, dict], where: str
 ) -> None:
     for key in exempt:
-        filename, sep, job_id = key.partition("::")
-        assert sep and job_id, (
-            f"_PUBLISH_GATE_EXEMPT key {key!r} must be '<workflow>.yml::<job-id>'; a "
-            "filename alone excuses every publish job in that file, now and later."
+        assert _PUBLISH_GATE_KEY_RE.fullmatch(key), (
+            f"{where} key {key!r} must be '<workflow>.yml::<job-id>'. A filename "
+            "alone excuses every publish job in that file, now and later, and "
+            "any other shape matches no job at all."
         )
-        assert filename in workflows, (
-            f"_PUBLISH_GATE_EXEMPT names a workflow that does not exist: {filename}"
-        )
+        filename, _, job_id = key.partition("::")
+        assert filename in workflows, f"{where} names a workflow that does not exist: {filename}"
         assert job_id in _publish_jobs(workflows[filename]), (
-            f"_PUBLISH_GATE_EXEMPT excuses {key!r}, which no longer publishes "
+            f"{where} excuses {key!r}, which no longer publishes "
             "anything -- the carve-out is dead weight."
         )
 
@@ -860,7 +889,9 @@ def test_publish_gate_exemptions_name_real_publish_jobs(
     all_workflows: dict[str, dict],
 ) -> None:
     """A carve-out must still name a job that really publishes."""
-    _assert_exemptions_name_real_publish_jobs(_PUBLISH_GATE_EXEMPT, all_workflows)
+    _assert_exemptions_name_real_publish_jobs(
+        _PUBLISH_GATE_EXEMPT, all_workflows, "_PUBLISH_GATE_EXEMPT"
+    )
 
 
 def test_exemption_check_rejects_a_stale_carve_out() -> None:
@@ -869,34 +900,125 @@ def test_exemption_check_rejects_a_stale_carve_out() -> None:
         "pub.yml": {"jobs": {"up": {"steps": [{"run": "python -m twine upload dist/*"}]}}},
         "quiet.yml": {"jobs": {"lint": {"steps": [{"run": "ruff check ."}]}}},
     }
-    _assert_exemptions_name_real_publish_jobs({"pub.yml::up": ("r", "2099-01-01")}, workflows)
-    with pytest.raises(AssertionError, match="must be"):
-        _assert_exemptions_name_real_publish_jobs({"pub.yml": ("r", "2099-01-01")}, workflows)
-    with pytest.raises(AssertionError, match="does not exist"):
-        _assert_exemptions_name_real_publish_jobs({"gone.yml::up": ("r", "2099-01-01")}, workflows)
-    with pytest.raises(AssertionError, match="no longer publishes"):
-        _assert_exemptions_name_real_publish_jobs(
-            {"quiet.yml::lint": ("r", "2099-01-01")}, workflows
-        )
+
+    def check(key: str) -> None:
+        _assert_exemptions_name_real_publish_jobs({key: ("r", "2099-01-01")}, workflows, "_TEST")
+
+    check("pub.yml::up")
+    # Each malformed shape fails on its format, not on a later check that
+    # happens to reject it with a message about something else.
+    for key in ("pub.yml", "pub.yml::", "pub.yml::up::extra", "pub.yml:::up", "::up"):
+        with pytest.raises(AssertionError, match=r"^_TEST key .* must be"):
+            check(key)
+    with pytest.raises(AssertionError, match=r"^_TEST names a workflow that does not exist"):
+        check("gone.yml::up")
+    with pytest.raises(AssertionError, match=r"^_TEST excuses .* no longer publishes"):
+        check("quiet.yml::lint")
+
+
+# One publish job that no ci.yml job gates: the carve-out alone decides its fate.
+_UNGATED_PUBLISH = {"pub.yml": {"jobs": {"up": {"steps": [{"run": "twine upload dist/*"}]}}}}
+_UNGATED = "does not depend on a job that runs ci.yml"
+
+
+def test_publish_gate_carve_out_excuses_the_exact_job() -> None:
+    """The gate's carve-out lookup runs although the live map is empty.
+
+    Without the key the scan fails, so the pass with it is the key's doing.
+    """
+    with pytest.raises(AssertionError, match=_UNGATED):
+        _assert_publish_jobs_gated({}, _UNGATED_PUBLISH)
+    assert _assert_publish_jobs_gated({"pub.yml::up": ("r", "2099-01-01")}, _UNGATED_PUBLISH)
+
+
+@pytest.mark.parametrize(
+    "key",
+    ["pub.yml:up", "pub.yml::other", "pub.yml", "other.yml::up", "pub.yml::up::extra"],
+    ids=["single-colon", "other-job", "filename-only", "other-workflow", "extra-suffix"],
+)
+def test_publish_gate_carve_out_near_miss_excuses_nothing(key: str) -> None:
+    """A key that is not exactly ``<workflow>::<job-id>`` leaves the job gated."""
+    with pytest.raises(AssertionError, match=_UNGATED):
+        _assert_publish_jobs_gated({key: ("r", "2099-01-01")}, _UNGATED_PUBLISH)
+
+
+def _known_gap(reason: str) -> pytest.MarkDecorator:
+    # `raises=AssertionError`: a crash in the detector must not pass for the
+    # gap it is pinned as.
+    return pytest.mark.xfail(strict=True, raises=AssertionError, reason=reason)
+
+
+def _run(line: str) -> list[dict]:
+    return [{"run": line}]
 
 
 @pytest.mark.parametrize(
     ("steps", "publishes"),
     [
-        ([{"run": "twine upload dist/*"}], True),
-        ([{"run": "python -m twine upload dist/*"}], True),
-        ([{"uses": "pypa/gh-action-pypi-publish@v1"}], True),
-        ([{"run": "bash scripts/release/publish-thing.sh"}], True),
-        ([{"run": "twine check dist/*"}], False),
-        ([{"run": "python -m build"}], False),
+        pytest.param(_run("twine upload dist/*"), True, id="twine"),
+        pytest.param(_run("python -m twine upload dist/*"), True, id="python-m-twine"),
+        pytest.param([{"uses": "pypa/gh-action-pypi-publish@v1"}], True, id="pypa-action"),
+        pytest.param(_run("bash scripts/release/publish-thing.sh"), True, id="repo-script"),
+        pytest.param(_run("twine check dist/*"), False, id="twine-check"),
+        pytest.param(_run("python -m build"), False, id="build"),
+        # Known gaps (issue #33). An ungated job spelled like this passes
+        # the gate; each would need its own arm, and arms do not converge.
+        pytest.param(
+            _run("uv publish"),
+            True,
+            id="gap-uv-publish",
+            marks=_known_gap("uv is not a tool the scan knows"),
+        ),
+        pytest.param(
+            _run("python3.12 -m twine upload dist/*"),
+            True,
+            id="gap-versioned-python",
+            marks=_known_gap("only python and python3 are launchers"),
+        ),
+        pytest.param(
+            _run("sudo -E twine upload dist/*"),
+            True,
+            id="gap-wrapper",
+            marks=_known_gap("twine must be the first word"),
+        ),
+        pytest.param(
+            _run("bash -c 'twine upload dist/*'"),
+            True,
+            id="gap-inline-program",
+            marks=_known_gap("a -c program is one quoted word"),
+        ),
+        pytest.param(
+            [{"uses": "PyPA/gh-action-pypi-publish@v1"}],
+            True,
+            id="gap-action-case",
+            marks=_known_gap("the action match is case-sensitive"),
+        ),
+        pytest.param(
+            _run("./release.sh"),
+            True,
+            id="gap-script-outside-scripts",
+            marks=_known_gap("the script rule needs a scripts/ path"),
+        ),
+        pytest.param(
+            _run("make publish"),
+            True,
+            id="gap-make-target",
+            marks=_known_gap("a make target is not read"),
+        ),
+        pytest.param(
+            _run("python scripts/ci/check-release-notes.py"),
+            False,
+            id="gap-release-named-check",
+            marks=_known_gap("the script rule reads a name, not what the script runs"),
+        ),
     ],
-    ids=["twine", "python-m-twine", "pypa-action", "repo-script", "twine-check", "build"],
 )
 def test_publish_job_detection(steps: list[dict], publishes: bool) -> None:
-    """Every publish mechanism is seen, including one routed through a repo script.
+    """The mechanisms ``_publish_jobs`` sees, seen; its known gaps, pinned.
 
     No workflow in the repo publishes through a script any more, so without
-    this the script branch of ``_publish_jobs`` would go untested.
+    the ``repo-script`` case the script branch would go untested. The gaps are
+    strict xfails, so closing one fails here until its docstring is updated.
     """
     workflow = {"jobs": {"j": {"steps": steps}}}
     assert (_publish_jobs(workflow) == ["j"]) is publishes
