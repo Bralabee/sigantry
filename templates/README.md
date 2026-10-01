@@ -37,7 +37,7 @@ The dual-CI parity test gate (`tests/ci/test_starter_dual_ci.py`, `tests/ci/test
 
 - **Edits inside `starter/` or `demo/` MUST keep `scripts/export-{starter,demo}.py --dry-run` green.** The script's parity invariants (PR-checklist fenced block byte-equality, paths-filter parity, sample-item parity) are the contract with the public mirror operator.
 - **Edits inside `stages/` / `jobs/` / `steps/` / `extends/` / `schedules/` / `pr-review/` MUST keep `python scripts/ci/check-dual-ci-parity.py` green.** The dual-CI registry asserts pair-with-equivalent-shape semantics; any byte-divergence between halves needs an explicit `sigantry-dual-ci-ignore:` annotation pointing at the divergence rationale.
-- **Adding a NEW pair under section B requires updating** `scripts/ci/check-dual-ci-parity.py`'s registry. The current state is `pairs=3 exceptions=9 errors=0` per CLAUDE.md.
+- **Adding a NEW pair under section B requires updating** `scripts/ci/check-dual-ci-parity.py`'s registry. Run `python scripts/ci/check-dual-ci-parity.py` for the current state (`pairs=3 exceptions=11 errors=0` on 2026-10-01).
 
 ## See also
 

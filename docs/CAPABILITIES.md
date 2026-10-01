@@ -526,7 +526,7 @@ PowerShell support is intentionally minimal -- it's the operator's "I just need 
 
 ## 5. CI/CD pipeline templates
 
-[VERIFIED]. Templates in [`templates/`](../templates/) are imported by consumer pipelines via ADO `template:` or GHA `uses:` and gated by the dual-CI parity registry at `scripts/ci/check-dual-ci-parity.py` (`pairs=3 exceptions=10 errors=0`).
+[VERIFIED]. Templates in [`templates/`](../templates/) are imported by consumer pipelines via ADO `template:` or GHA `uses:` and gated by the dual-CI parity registry at `scripts/ci/check-dual-ci-parity.py` (`pairs=3 exceptions=11 errors=0` on 2026-10-01; run the script for the current state).
 
 **Template subdirectory map:**
 
@@ -564,6 +564,7 @@ flowchart LR
 | [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) | Multi-OS and Python matrix test, lint, and build verification. |
 | `.github/workflows/drift-check.yml` | Reusable drift detection (`workflow_call` / `workflow_dispatch`); the caller owns the schedule. |
 | `.github/workflows/publish-pypi.yml` | The only workflow that publishes this package. On a published GitHub Release, or a manual dispatch, it runs the `ci.yml` quality jobs, then builds the sdist and wheel and publishes them to PyPI through trusted publishing. |
+| `.github/workflows/name-gate.yml` | Scans the repository for names from a token list held in a repository secret, printing `<file>:<line> <pattern id>` only. Not a required check yet. |
 | `.github/workflows/review-record.yml` | Posts the required `review-record` commit status on each pull request head. |
 | `.github/workflows/sigantry-cd.yml` | The 5-stage CD workflow. |
 | `.github/workflows/sigantry-pr-bot.yml` | PR-bot trigger workflow. |
