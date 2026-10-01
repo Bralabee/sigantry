@@ -36,8 +36,8 @@ The dual-CI parity test gate (`tests/ci/test_starter_dual_ci.py`, `tests/ci/test
 ## Editing rules
 
 - **Edits inside `starter/` or `demo/` MUST keep `scripts/export-{starter,demo}.py --dry-run` green.** The script's parity invariants (PR-checklist fenced block byte-equality, paths-filter parity, sample-item parity) are the contract with the public mirror operator.
-- **Edits inside `stages/` / `jobs/` / `steps/` / `extends/` / `schedules/` / `pr-review/` MUST keep `python scripts/ci/check-dual-ci-parity.py` green.** The dual-CI registry asserts pair-with-equivalent-shape semantics; any byte-divergence between halves needs an explicit `sigantry-dual-ci-ignore:` annotation pointing at the divergence rationale.
-- **Adding a NEW pair under section B requires updating** `scripts/ci/check-dual-ci-parity.py`'s registry. Run `python scripts/ci/check-dual-ci-parity.py` for the current state (`pairs=3 exceptions=11 errors=0` on 2026-10-01).
+- **Edits inside `stages/`, `schedules/` or `pr-review/` MUST keep `python scripts/ci/check-dual-ci-parity.py` green.** The lint pairs each ADO template in those three directories with the GitHub Actions workflow of the same basename under `.github/workflows/` and compares their stage graphs and parameter names and types; step bodies may differ. It does not read `jobs/`, `steps/`, `extends/` or `environments/`, so it says nothing about edits there. A parameter present on one side only needs a `sigantry-dual-ci-ignore:` reason in both files, and one such reason waives the extra-parameter check for the whole pair.
+- **Adding a new pair needs no registry edit:** the lint discovers pairs by basename, so give the ADO template (under `stages/`, `schedules/` or `pr-review/`) and the GitHub Actions workflow the same file name. Run `python scripts/ci/check-dual-ci-parity.py` for the current state.
 
 ## See also
 
