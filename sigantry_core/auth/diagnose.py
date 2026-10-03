@@ -1,15 +1,17 @@
 """Diagnostic probes for the diagnose-auth CLI.
 
-This module is the ONLY Phase 1 consumer of `import httpx` outside
-`sigantry_core/client/`. The exception is documented in pyproject.toml
-`[tool.ruff.lint.per-file-ignores]` as `"sigantry_core/auth/diagnose.py" =
-["TID251"]`, which silences the banned-api rule for this single file.
-Phase 2 migrates these probes onto `sigantry_core.client` and removes
-the exception.
+Uses ``httpx`` directly instead of ``sigantry_core.client``, so this file is
+one of the exceptions to the "one HTTP client" rule in CONTRIBUTING.md. The
+exceptions are listed in pyproject.toml: the ``httpx`` banned-api message and
+``[tool.ruff.lint.per-file-ignores]``, which silences TID251 for this file.
 
-Mitigates Pitfall 1 (401 vs 403) via `classify_http_error`.
-Mitigates Pitfall P1-6 (wrong tenant) via `decode_token_claims(token)["tid"]`.
-Mitigates T-1-04 (token leakage) - never logs raw tokens; decodes claims only.
+- ``classify_http_error`` separates 401 (the token itself was rejected) from
+  403 (the token is fine; a tenant setting or role blocks the principal).
+- ``decode_token_claims`` surfaces the token's tenant (``tid``) so a login to
+  the wrong tenant is visible. Raw tokens are never logged or returned; only
+  whitelisted claims are.
+- ``check_entra_group`` checks membership of an expected group only when it
+  is given one; otherwise it reports the check as ``skipped``.
 """
 
 from __future__ import annotations
@@ -19,10 +21,8 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any, Literal
 
-# TID251 (ban httpx) is silenced for this file via pyproject.toml
-# [tool.ruff.lint.per-file-ignores] - diagnose.py is the ONLY documented Phase 1
-# exception to the 'one HTTP client' CLAUDE.md invariant. Phase 2 migrates these
-# probes onto sigantry_core.client and this exception is removed.
+# TID251 (ban httpx) is silenced for this file in pyproject.toml
+# [tool.ruff.lint.per-file-ignores]; see the module docstring.
 import httpx
 
 from sigantry_core.auth.audiences import FABRIC_AUDIENCE, GRAPH_AUDIENCE
@@ -32,7 +32,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-ExpectedEntraGroup = "sg-fabric-automation"  # PREREQ-04
+#: ``check_entra_group`` detail when no expected group was given.
+_GROUP_CHECK_SKIPPED_DETAIL = "not checked: no expected group configured"
 
 ErrorClassification = Literal["ok", "token_rejected", "api_not_enabled", "other"]
 
@@ -150,16 +151,28 @@ def check_entra_group(
     token: str,
     *,
     principal_id: str | None = None,
-    expected_group: str = ExpectedEntraGroup,
+    expected_group: str | None = None,
     client: httpx.Client | None = None,
 ) -> dict[str, Any]:
-    """Probe MS Graph for group membership. Read-only.
+    """Probe MS Graph for membership of ``expected_group``. Read-only.
+
+    With no ``expected_group`` there is nothing to check: no request is sent
+    and the result has ``status="skipped"`` -- never ``"ok"``, so an
+    unconfigured check cannot read as a passed one.
 
     When `principal_id` is provided, use /servicePrincipals/{id}/memberOf.
     Otherwise use /me/memberOf (user token path).
 
-    Returns: `{"status", "groups", "expected", "detail"}`.
+    Returns: `{"status", "groups", "expected", "detail"}`, where status is
+    one of ``ok`` / ``missing`` / ``error`` / ``skipped``.
     """
+    if not expected_group:
+        return {
+            "status": "skipped",
+            "groups": [],
+            "expected": None,
+            "detail": _GROUP_CHECK_SKIPPED_DETAIL,
+        }
     if principal_id:
         url = f"{GRAPH_AUDIENCE}/v1.0/servicePrincipals/{principal_id}/memberOf?$select=displayName"
     else:
@@ -211,13 +224,17 @@ def build_report(
     tenant_toggles: Mapping[str, Any] | None,
     entra_groups: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
-    """Assemble the structured diagnose-auth report. NEVER includes raw token."""
+    """Assemble the structured diagnose-auth report. NEVER includes raw token.
+
+    A group check reported as ``skipped`` (no expected group) does not change
+    the exit code.
+    """
     claims = decode_token_claims(token) if token else {}
     exit_code = 0
     if token is None:
         exit_code = 3
     elif (tenant_toggles and tenant_toggles.get("status") != "ok") or (
-        entra_groups and entra_groups.get("status") not in ("ok", None)
+        entra_groups and entra_groups.get("status") not in ("ok", "skipped", None)
     ):
         exit_code = 2
     return {

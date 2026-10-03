@@ -7,9 +7,16 @@ Invocation paths:
 
 Exit codes:
 - 0 = healthy
-- 2 = degraded (token works but tenant toggle missing OR not in sg-fabric-automation)
+- 2 = degraded (token works but the tenant toggle is missing, or the Entra
+      group check did not pass); Click also exits 2 on a usage error
+      (unknown `--scope`, malformed arguments)
 - 3 = broken (no credential returned a token)
-- 4 = config/CLI error (malformed args, unknown scope, etc.)
+- 4 = invalid `--output` value
+
+The expected Entra group comes from `--expected-group`, else from
+`auth.expected_group` in the settings (`SIGANTRY_AUTH__EXPECTED_GROUP`, or
+`[auth] expected_group` in `.sigantry.toml`). With none set, the group check
+is reported as `skipped` and does not change the exit code.
 
 Never logs the raw token. JSON output schema does not include a `token` key.
 """
@@ -17,9 +24,13 @@ Never logs the raw token. JSON output schema does not include a `token` key.
 from __future__ import annotations
 
 import json
+import logging
+import tomllib
 from typing import Annotated
 
 import typer
+from pydantic import ValidationError
+from pydantic_settings import SettingsError
 from rich.console import Console
 from rich.table import Table
 
@@ -39,6 +50,9 @@ from sigantry_core.auth.diagnose import (
 )
 from sigantry_core.auth.errors import TokenAcquisitionError
 from sigantry_core.auth.token_provider import TokenProvider
+from sigantry_core.config import load_settings
+
+logger = logging.getLogger(__name__)
 
 app = typer.Typer(
     help="Diagnose Fabric authentication from the current runtime. "
@@ -69,6 +83,39 @@ def _resolve_scope(raw: str) -> str:
     )
 
 
+def _resolve_expected_group(flag: str | None) -> str | None:
+    """Return the Entra group to check, or ``None`` to skip the check.
+
+    ``--expected-group`` wins; otherwise ``auth.expected_group`` from
+    :func:`sigantry_core.config.load_settings` (``SIGANTRY_AUTH__EXPECTED_GROUP``
+    over ``[auth] expected_group`` in ``.sigantry.toml``). A blank value counts
+    as unset. A settings file that cannot be loaded is logged as a warning and
+    treated as unset, as ``sigantry sync`` treats it.
+    """
+    if flag is not None and flag.strip():
+        return flag.strip()
+    try:
+        settings = load_settings()
+    except (
+        OSError,
+        UnicodeDecodeError,
+        tomllib.TOMLDecodeError,
+        ValidationError,
+        SettingsError,
+    ) as exc:
+        logger.warning(
+            "Could not load Sigantry settings (%s: %s); continuing without an "
+            "expected Entra group, so the group check is skipped.",
+            type(exc).__name__,
+            exc,
+        )
+        return None
+    configured = settings.auth.expected_group
+    if configured is None or not configured.strip():
+        return None
+    return configured.strip()
+
+
 @app.command()
 def diagnose(
     scope: Annotated[str, typer.Option(help="Scope alias or full /.default scope")] = "fabric",
@@ -87,8 +134,23 @@ def diagnose(
             help="Object id of the SP to look up in Graph (omit for /me path)",
         ),
     ] = None,
+    expected_group: Annotated[
+        str | None,
+        typer.Option(
+            "--expected-group",
+            help=(
+                "Expected Entra group display name, e.g. fabric-deployers. "
+                "Default: auth.expected_group from .sigantry.toml or "
+                "SIGANTRY_AUTH__EXPECTED_GROUP. When none is set, the group "
+                "check is reported as skipped."
+            ),
+        ),
+    ] = None,
 ) -> None:
-    """Diagnose token acquisition, tenant-setting visibility, and Entra group membership."""
+    """Diagnose token acquisition and tenant-setting visibility.
+
+    The Entra group check runs only when an expected group is set.
+    """
     if output not in ("table", "json"):
         console.print(f"[red]--output must be 'table' or 'json' (got {output!r})[/red]")
         raise typer.Exit(code=4)
@@ -139,7 +201,11 @@ def diagnose(
     entra_groups = None
     if resolved_scope == FABRIC_SCOPE:
         tenant_toggles = check_tenant_toggles(token)
-        entra_groups = check_entra_group(token, principal_id=principal_id)
+        entra_groups = check_entra_group(
+            token,
+            principal_id=principal_id,
+            expected_group=_resolve_expected_group(expected_group),
+        )
 
     # Tenant sanity check (Pitfall P1-6)
     claims = decode_token_claims(token)

@@ -15,7 +15,7 @@ carry; where the two ever disagree, **the root file wins**.
 - **Feature branches + PR for every change.** No direct commits to
   `main` (the default branch; there is no `master`). No force pushes
   under any circumstances.
-- **Python 3.11+ and PowerShell 7.4.** Support 3.11, 3.12 and 3.13;
+- **Python 3.11+ and PowerShell 7.4.** CI tests 3.11 and 3.12;
   never require PS 5.1.
 - **No emojis in code, docs, runbooks, or PR descriptions.** Plain-ASCII
   markdown only.

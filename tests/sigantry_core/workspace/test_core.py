@@ -147,9 +147,8 @@ def test_delete_with_force_hits_api(mock_fabric_client: MagicMock) -> None:
 
 
 class TestDeleteWorkspacePbiFallback:
-    """Gotcha #6 — Fabric DELETE intermittently returns UnknownError; PBI
-    fallback (DELETE /v1.0/myorg/groups/{id}) is more reliable. Pattern lifted
-    from usf_fabric_cli_cicd v1.7.16. See ``docs/RELATED-WORK.md``.
+    """Fabric DELETE intermittently returns UnknownError; the Power BI
+    fallback (DELETE /v1.0/myorg/groups/{id}) is more reliable.
     """
 
     def test_pbi_fallback_off_by_default_propagates_error(

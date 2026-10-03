@@ -70,7 +70,7 @@ def test_load_settings_core_tenant_id_optional(tmp_path: Path) -> None:
     """``core.tenant_id`` is optional at the base level.
 
     A greenfield consumer who only needs telemetry can omit it. Plugins that
-    *need* a tenant id (AuthProvider, AimsDeployProfile) validate it
+    *need* a tenant id (an AuthProvider, a DeployProfile) validate it
     themselves at resolve time.
     """
     body = "[auth]\nprovider = 'x'\n"
@@ -336,7 +336,7 @@ preview_apis_acknowledged = false
 
 
 # ---------------------------------------------------------------------------
-# Config-surface cutover (ADR-0011 / V3.X-ROADMAP LEGACY-SURFACE-DROP item 2)
+# Config-surface cutover (ADR-0011)
 # ---------------------------------------------------------------------------
 
 
@@ -563,3 +563,24 @@ def test_env_key_with_an_empty_trailing_segment_is_rejected(
 
     assert "" not in dumped, f"empty-string key written onto [core]: {sorted(dumped)}"
     assert dumped["tenant_id"] == "tenant-abc-123"
+
+
+def test_auth_expected_group_reads_toml_then_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``[auth] expected_group`` loads from TOML; the ``SIGANTRY_`` env var wins."""
+    monkeypatch.delenv("SIGANTRY_AUTH__EXPECTED_GROUP", raising=False)
+    monkeypatch.delenv("FDT_AUTH__EXPECTED_GROUP", raising=False)
+    path = _write_sample(tmp_path, "[auth]\nexpected_group = 'from-toml'\n")
+    assert load_settings(path).auth.expected_group == "from-toml"
+    monkeypatch.setenv("SIGANTRY_AUTH__EXPECTED_GROUP", "from-env")
+    assert load_settings(path).auth.expected_group == "from-env"
+
+
+def test_auth_expected_group_defaults_to_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No file and no env var: there is no expected group."""
+    monkeypatch.delenv("SIGANTRY_AUTH__EXPECTED_GROUP", raising=False)
+    monkeypatch.delenv("FDT_AUTH__EXPECTED_GROUP", raising=False)
+    assert load_settings(tmp_path / "absent.toml").auth.expected_group is None

@@ -8,14 +8,13 @@ description = "Governance, drift detection, and rollback engine for Microsoft Fa
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Apache-2.0" }
-authors = [{ name = "JToye Digital", email = "bralabala@gmail.com" }]
+authors = [{ name = "JToye Digital" }]
 dynamic = ["version"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Build Tools",
     "Topic :: Software Development :: Quality Assurance",
     "Topic :: System :: Systems Administration",
@@ -43,7 +42,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/Bralabee/sigantry"
-Documentation = "https://bralabee.github.io/sigantry"
+Documentation = "https://github.com/Bralabee/sigantry/tree/main/docs"
 Repository = "https://github.com/Bralabee/sigantry"
 Issues = "https://github.com/Bralabee/sigantry/issues"
 Changelog = "https://github.com/Bralabee/sigantry/blob/main/CHANGELOG.md"
@@ -151,18 +150,12 @@ python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-q --strict-markers -m 'not integration and not smoke'"
 markers = [
-    "integration: tests that hit a real tenant (enable with PYTEST_RUN_INTEGRATION=1)",
+    "integration: tests that hit a real tenant; deselected by default (addopts), select with -m integration",
     "slow: tests that exceed ~5s (wheel build, etc.) - run by default in CI, skip locally with -m 'not slow'",
-    "smoke: tests that exercise the full smoke-deploy matrix against the test tenant (enable with PYTEST_RUN_SMOKE=1)",
+    "smoke: tests that exercise the smoke-deploy matrix against a test tenant; deselected by default (addopts)",
     "contract: Contract tests - run each plugin implementation against its seam's contract fixture",
-    "sigantry_ado: integration test gated on SIGANTRY_ADO_TEST_* env vars",
-    "sigantry_github: integration test gated on SIGANTRY_GITHUB_TEST_* env vars",
     "sigantry_pipeline: integration test gated on SIGANTRY_FABRIC_TEST_* env vars",
-    "sigantry_sync: integration test gated on SIGANTRY_FABRIC_TEST_* env vars",
-    "sigantry_pr_bot: integration test gated on SIGANTRY_PR_BOT_* env vars",
-    "sigantry_demo: integration test gated on SIGANTRY_DEMO_* env vars",
     "sigantry_seam: contract test for protocol seams",
-    "sigantry_jtoye: integration test gated on SIGANTRY_JTOYE_* env vars",
 ]
 
 [tool.ruff]

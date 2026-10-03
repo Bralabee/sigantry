@@ -19,10 +19,18 @@ def test_medallion_alias_matches_minimal_starter() -> None:
 def test_minimal_starter_preserves_pipeline_flow_order() -> None:
     """Order matters -- Fabric UI lists folders top-to-bottom in this order."""
     folders = BLUEPRINTS["minimal_starter"]
-    assert folders[0] == "000 Orchestrate"
-    assert folders[1] == "100 Ingest"
-    assert folders[-2] == "999 Libraries"
-    assert folders[-1] == "Archive"
+    assert folders == (
+        "00_control",
+        "10_intake",
+        "20_storage",
+        "30_transform",
+        "40_semantic",
+        "50_reporting",
+        "90_shared",
+        "99_retired",
+    )
+    # The prefixes exist so name-sorting (the Fabric UI's order) is flow order.
+    assert list(folders) == sorted(folders)
 
 
 def test_get_blueprint_returns_tuple() -> None:

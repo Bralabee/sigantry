@@ -226,9 +226,8 @@ class TestStatusConnection:
 
 
 class TestConnectOrReconnect:
-    """Gotcha #12 — disconnect-before-reconnect when desired target differs from
-    current binding. Pattern lifted from usf_fabric_cli_cicd v1.8.1
-    (services/deployer.py:1044-1133). See ``docs/RELATED-WORK.md``.
+    """Disconnect-before-reconnect when the desired target differs from the
+    current binding.
     """
 
     _DESIRED: ClassVar[dict[str, str]] = {
