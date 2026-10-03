@@ -1,0 +1,33 @@
+# sigantry-dual-ci-exception: ci-mechanics
+# Companion of review-record.yml (a GitHub commit-status gate with no Azure
+# DevOps counterpart). Its `name:` below must stay exactly as it is.
+# review-record-relay — turns a submitted PR review into a default-branch run of
+# review-record.yml (#291 review, finding 2).
+#
+# pull_request_review has no _target variant: GitHub runs the copy of the workflow
+# file on the PR's own merge ref, so a branch that edits it runs its edit. That is
+# why THIS file, not review-record.yml, takes the event. It has no permissions,
+# runs no code from the PR, has no outputs or artifacts — it only completes. Its
+# completion fires review-record.yml's `workflow_run` trigger, and a workflow_run
+# run ALWAYS executes the default branch's file, which is the only copy holding
+# statuses: write. Whatever a PR does to this relay, the one thing it hands
+# downstream is "a review happened on PR N", and the verdict is then recomputed
+# from the API by the default-branch gate.
+#
+# The workflow `name:` is load-bearing: review-record.yml's workflow_run trigger
+# matches it by name. Keep this file verbatim in consumers (review-gate-onboard.sh
+# enroll copies it unchanged).
+name: review-record-relay
+on:
+  pull_request_review:
+    types: [submitted]
+permissions: {}
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: hand the event to review-record (workflow_run, default branch)
+        run: echo "review on PR #${PRNUM} -> review-record re-evaluates via workflow_run"
+        env:
+          PRNUM: ${{ github.event.pull_request.number }}

@@ -352,6 +352,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   non-UTF-8 byte: `tomllib.load` decodes the file itself, so it raises
   `UnicodeDecodeError`, which is caught by neither `OSError` nor
   `TOMLDecodeError`.
+- **A pull request could mark itself as reviewed.** The required
+  `review-record` status is posted by `.github/workflows/review-record.yml`,
+  which also ran on `pull_request` and `pull_request_review`. Both events run
+  the pull request's own copy of the workflow file with `statuses: write`, so
+  a pull request that edited the job could post a passing status for its own
+  head. The workflow now runs on `pull_request_target`, `workflow_run` and
+  `issue_comment`, which run the default branch's copy (a manual
+  `workflow_dispatch` runs the ref it is given). A submitted review reaches it
+  through the new `.github/workflows/review-record-relay.yml`, which has no
+  permissions and runs no code from the pull request. The vendored
+  `scripts/gates/review-record-check.sh` is refreshed too: reviews, inline
+  comments and record comments count only from the repository owner, members
+  or GitHub's Copilot reviewer; a review or inline comment counts only for the
+  commit it was made on, and a record comment that names a commit counts only
+  for that commit. A pull request from this repository can still add a new
+  workflow of its own that asks for `statuses: write`; no file here can
+  prevent that.
 
 ### Known remaining
 - 15 `pip install` / dependency lines across 9 files under `docs/` still name
