@@ -7,8 +7,8 @@ the trailer is suppressed. These three tests pin those edges so a regression
 where the trailer either never fires or fires on every successful run gets
 caught at CI time.
 
-Surfaced by the 2026-05-01 live brownfield test against
-COE_F_SBDEVOPS_POC: an operator running ``sync apply`` on a new project
+Surfaced by the 2026-05-01 live brownfield test against a development
+workspace: an operator running ``sync apply`` on a new project
 folder reasonably read ``items_packaged=1`` as "1 item deployed" when in
 fact ``sync apply`` is folder-reconcile only. ADR-0012 formalises the
 boundary; this trailer surfaces it at the moment of confusion.
@@ -62,12 +62,12 @@ def test_trailer_fires_on_first_time_project_setup(
     """items_packaged > 0 AND folders_created > 0 AND items_moved == 0.
 
     This is the exact signature of the 2026-05-01 live test that surfaced
-    the design boundary: a fresh project folder (`si_dataops_testing_project/01_Notebooks`)
-    was created, the scaffold notebook was staged locally, and zero existing
-    items were moved -- because the new notebook didn't exist in the
-    workspace yet for `reconcile_folders_from_repo` to find. The trailer
-    must point the operator at `deploy run` before they spend an hour
-    wondering why their notebook didn't land.
+    the design boundary: a fresh project folder was created, the scaffold
+    notebook was staged locally, and zero existing items were moved --
+    because the new notebook didn't exist in the workspace yet for
+    `reconcile_folders_from_repo` to find. The trailer must point the
+    operator at `deploy run` before they spend an hour wondering why their
+    notebook didn't land.
     """
     _bypass_preview_warning(monkeypatch)
     _stub_apply_returning(

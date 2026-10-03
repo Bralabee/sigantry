@@ -24,9 +24,9 @@ from sigantry_core.deploy.notebook_binding import (
 
 runner = CliRunner()
 
-ENV = "36c2632e-d419-427c-870c-ff6aff34cb42"
-ENV_WS = "abc64232-25a2-499d-90ae-9fe5939ae437"
-LH = "f1b9d1cb-b8cd-421a-ba5e-e17096fcd79d"
+ENV = "00000000-0000-4000-8000-000000000003"
+ENV_WS = "00000000-0000-4000-8000-000000000004"
+LH = "00000000-0000-4000-8000-000000000005"
 
 
 def _b64(obj: dict) -> str:

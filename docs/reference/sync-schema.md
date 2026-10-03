@@ -16,7 +16,7 @@ Three Phase 13 surfaces consume it:
 
 ## 2. Schema version (SemVer commitment, D-05 / D-08)
 
-The first key in every `sync.yml` is `schema_version`. v3.0 ships **`schema_version: "1.0.0"`** (or the equivalent two-component shorthand `"1.0"`). The `SyncManifest` pydantic v2 model accepts:
+The first key in every `sync.yml` is `schema_version`. Sigantry 1.x ships **`schema_version: "1.0.0"`** (or the equivalent two-component shorthand `"1.0"`). The `SyncManifest` pydantic v2 model accepts:
 
 | Value | Behaviour |
 |-------|-----------|
@@ -25,17 +25,17 @@ The first key in every `sync.yml` is `schema_version`. v3.0 ships **`schema_vers
 | `"1.0.1"`, `"1.1.0"`, ... future minor / patch | Accepted (forward-compat: minor versions accepted). |
 | `"2.0.0"` | **Rejected** with `ManifestValidationError` (forward-compat: major version mismatch). |
 
-The schema's keyset is locked by the drift-catcher test in `tests/sync/test_sync_schema_committed.py`: any future addition or removal of a top-level / nested field requires updating the committed `sync-schema.json` AND bumping the schema version. The contract is SemVer-pinned for the whole v3.0 line.
+The schema's keyset is locked by the drift-catcher test in `tests/sync/test_sync_schema_committed.py`: any future addition or removal of a top-level / nested field requires updating the committed `sync-schema.json` AND bumping the schema version. The contract is SemVer-pinned for the whole 1.x line.
 
 ## 3. Top-level fields
 
 ```yaml
 schema_version: "1.0.0"
 items:
-  - local_path: notebooks/00_AIMS_Orchestration.ipynb
+  - local_path: notebooks/00_Orders_Orchestration.ipynb
     type: Notebook
-    target_folder: AIMS/01_NOTEBOOKS_AIMS_2026_V2
-    display_name: 00_AIMS_Orchestration
+    target_folder: Orders/01_Notebooks
+    display_name: 00_Orders_Orchestration
     # logical_id: <uuid>  # optional; minted by the packager when absent
 folders:
   - /raw/UI-Created
@@ -54,11 +54,11 @@ folders:
 
 ```yaml
 items:
-  - local_path: notebooks/00_AIMS_Orchestration.ipynb
+  - local_path: notebooks/00_Orders_Orchestration.ipynb
     type: Notebook
-    target_folder: AIMS/01_NOTEBOOKS_AIMS_2026_V2
-    display_name: 00_AIMS_Orchestration
-    logical_id: 1d2f3e4a-9b6c-4f1a-b0e2-7c8d5a4f1b3e
+    target_folder: Orders/01_Notebooks
+    display_name: 00_Orders_Orchestration
+    logical_id: 00000000-0000-4000-8000-000000000001
 ```
 
 | Field | Type | Required | Validation | Decision |
@@ -92,7 +92,7 @@ schema_version: "1.0.0"
 items:
   - local_path: notebooks/orchestrate.ipynb
     type: Notebook
-    target_folder: AIMS/01_NOTEBOOKS_AIMS_2026_V2
+    target_folder: Orders/01_Notebooks
     display_name: orchestrate
 folders: []
 ```
@@ -139,36 +139,36 @@ items:
 WARNING: Dataflow 'ingest_orders' cannot be assigned a folder; will be placed at workspace root.
 ```
 
-## 7. Worked example -- the AIMS 9-notebook canonical fixture
+## 7. Worked example -- nine notebooks into one folder
 
-The user's primary use case (CONTEXT.md "Specific Ideas") -- 9 raw `.ipynb` files at `/home/sanmi/Documents/HS2/HS2_PROJECTS_2025/1_AIMS_LOCAL_2026/notebooks/` syncing into the `COE_F_ManagedData` workspace at `AIMS/01_NOTEBOOKS_AIMS_2026_V2/`:
+A common first use: 9 raw `.ipynb` files at `~/work/orders-pipeline/notebooks/` syncing into the `Analytics-Dev` workspace at `Orders/01_Notebooks/`:
 
 ```yaml
-# /home/sanmi/Documents/HS2/HS2_PROJECTS_2025/1_AIMS_LOCAL_2026/notebooks/sync.yml
+# ~/work/orders-pipeline/notebooks/sync.yml
 schema_version: "1.0.0"
 items:
-  - {local_path: 00_AIMS_Orchestration.ipynb,            type: Notebook, target_folder: AIMS/01_NOTEBOOKS_AIMS_2026_V2, display_name: 00_AIMS_Orchestration}
-  - {local_path: 01_AIMS_Bronze_Ingest.ipynb,            type: Notebook, target_folder: AIMS/01_NOTEBOOKS_AIMS_2026_V2, display_name: 01_AIMS_Bronze_Ingest}
-  - {local_path: 02_AIMS_Bronze_Validate.ipynb,          type: Notebook, target_folder: AIMS/01_NOTEBOOKS_AIMS_2026_V2, display_name: 02_AIMS_Bronze_Validate}
-  - {local_path: 03_AIMS_Silver_Standardise.ipynb,       type: Notebook, target_folder: AIMS/01_NOTEBOOKS_AIMS_2026_V2, display_name: 03_AIMS_Silver_Standardise}
-  - {local_path: 04_AIMS_Silver_DQ.ipynb,                type: Notebook, target_folder: AIMS/01_NOTEBOOKS_AIMS_2026_V2, display_name: 04_AIMS_Silver_DQ}
-  - {local_path: 05_AIMS_Gold_Conform.ipynb,             type: Notebook, target_folder: AIMS/01_NOTEBOOKS_AIMS_2026_V2, display_name: 05_AIMS_Gold_Conform}
-  - {local_path: 06_AIMS_Gold_Aggregate.ipynb,           type: Notebook, target_folder: AIMS/01_NOTEBOOKS_AIMS_2026_V2, display_name: 06_AIMS_Gold_Aggregate}
-  - {local_path: 07_AIMS_Publish.ipynb,                  type: Notebook, target_folder: AIMS/01_NOTEBOOKS_AIMS_2026_V2, display_name: 07_AIMS_Publish}
-  - {local_path: 08_AIMS_Teardown.ipynb,                 type: Notebook, target_folder: AIMS/01_NOTEBOOKS_AIMS_2026_V2, display_name: 08_AIMS_Teardown}
+  - {local_path: 00_Orders_Orchestration.ipynb,          type: Notebook, target_folder: Orders/01_Notebooks, display_name: 00_Orders_Orchestration}
+  - {local_path: 01_Orders_Bronze_Ingest.ipynb,          type: Notebook, target_folder: Orders/01_Notebooks, display_name: 01_Orders_Bronze_Ingest}
+  - {local_path: 02_Orders_Bronze_Validate.ipynb,        type: Notebook, target_folder: Orders/01_Notebooks, display_name: 02_Orders_Bronze_Validate}
+  - {local_path: 03_Orders_Silver_Standardise.ipynb,     type: Notebook, target_folder: Orders/01_Notebooks, display_name: 03_Orders_Silver_Standardise}
+  - {local_path: 04_Orders_Silver_DQ.ipynb,              type: Notebook, target_folder: Orders/01_Notebooks, display_name: 04_Orders_Silver_DQ}
+  - {local_path: 05_Orders_Gold_Conform.ipynb,           type: Notebook, target_folder: Orders/01_Notebooks, display_name: 05_Orders_Gold_Conform}
+  - {local_path: 06_Orders_Gold_Aggregate.ipynb,         type: Notebook, target_folder: Orders/01_Notebooks, display_name: 06_Orders_Gold_Aggregate}
+  - {local_path: 07_Orders_Publish.ipynb,                type: Notebook, target_folder: Orders/01_Notebooks, display_name: 07_Orders_Publish}
+  - {local_path: 08_Orders_Teardown.ipynb,               type: Notebook, target_folder: Orders/01_Notebooks, display_name: 08_Orders_Teardown}
 folders: []
 ```
 
-After the first `sigantry sync apply --manifest sync.yml --workspace-id <coe-guid>`, the staging tempdir produced by `NotebookPackager` looks like:
+After the first `sigantry sync apply --manifest sync.yml --workspace-id <workspace-guid>`, the staging tempdir produced by `NotebookPackager` looks like:
 
 ```text
 <tempdir>/
-  AIMS/
-    01_NOTEBOOKS_AIMS_2026_V2/
-      00_AIMS_Orchestration.Notebook/
+  Orders/
+    01_Notebooks/
+      00_Orders_Orchestration.Notebook/
         .platform                  # schema 2.0; logicalId UUID4 from sidecar
         notebook-content.ipynb     # LF-normalised raw .ipynb
-      01_AIMS_Bronze_Ingest.Notebook/
+      01_Orders_Bronze_Ingest.Notebook/
         .platform
         notebook-content.ipynb
       ... (7 more)
@@ -178,7 +178,7 @@ The packager persists `logical_id` values in `notebooks/.sigantry/notebook-ids.j
 
 ## 8. Cross-references
 
-- [`apply.md`](../runbooks/sync/apply.md) -- `sigantry sync apply` operator runbook (with the same 9-notebook fixture).
+- [`apply.md`](../runbooks/sync/apply.md) -- `sigantry sync apply` operator runbook (with the same 9-notebook example).
 - [`pull.md`](../runbooks/sync/pull.md) -- `sigantry sync pull` IaC-fication workflow.
 - [`folder-preservation.md`](../runbooks/sync/folder-preservation.md) -- the `folders[]` preservation set + Council D #5.
 - [`snapshot-freshness.md`](../runbooks/sync/snapshot-freshness.md) -- INTROSPECT-03 / D-10 TTL'd cache discipline.

@@ -27,7 +27,7 @@ tested orchestrator.
 flowchart TD
     REL["release: v* tag<br/>wheel -> ADO feed"] --> TRIG["pipeline trigger<br/>(resources: pipelines)"]
     TRIG --> SA["sigantry env sync-all<br/>--manifest environments.yml"]
-    SA --> DEV["managed-data-dev<br/>policy: float -> SYNCED"]
+    SA --> DEV["analytics-dev<br/>policy: float -> SYNCED"]
     SA --> PROD["prod<br/>gated: true -> SKIPPED"]
     DEV --> NB["notebooks pick up<br/>on next session"]
     PROD -.->|only with --include-gated<br/>+ manual approval| NB
@@ -38,7 +38,7 @@ flowchart TD
 ```yaml
 schema_version: "1.0"
 targets:
-  - name: managed-data-dev
+  - name: analytics-dev
     workspace_id: <dev-workspace-guid>
     environment_id: <dev-environment-guid>
     wheels: ["dist/*.whl"]      # float: take whatever the release built
@@ -84,7 +84,7 @@ sigantry env sync-all --manifest environments.yml --dry-run
   },
   "targets": [
     {
-      "name": "managed-data-dev",
+      "name": "analytics-dev",
       "action": "processed",
       "wheels": [
         { "wheel": "data_platform-1.6.0-py3-none-any.whl", "action": "dry-run" },
@@ -155,7 +155,7 @@ steps:
 ```
 
 The result is the goal from the architecture question: **every successful release
-auto-advances the Environments that opted in (DEV/managed-data), and their notebooks
+auto-advances the Environments that opted in (DEV/analytics-dev), and their notebooks
 pick the change up on next session** — while production stays a deliberate act.
 
 ## What to take into production

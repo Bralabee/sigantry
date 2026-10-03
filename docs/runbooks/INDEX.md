@@ -1,6 +1,6 @@
 # Runbooks (template)
 
-The base `sigantry-core` package ships no concrete runbooks.
+The base `sigantry` package registers no runbook registry.
 Plugin packages register a `RunbookRegistry` implementation under the
 `sigantry.runbook_registries` entry-point group and
 expose URL mappings via `.sigantry.toml`:
@@ -13,8 +13,7 @@ registry = "your_registry"
 runbook_map = { pipeline_run_failed = "https://your-runbook-url" }
 ```
 
-See the consumer plugin package shipped alongside this base for a
-production example with an alert catalogue pre-mapped.
+A plugin can ship its own alert catalogue pre-mapped this way.
 
 ## How to write a runbook
 
@@ -52,7 +51,7 @@ seams it owns directly (no plugin required):
 Manifest-driven local <-> Fabric sync engine. Each runbook covers one
 operator-facing surface:
 
-- [Sync -- `sigantry sync apply`](sync/apply.md) -- Phase 13 (SYNC-04 / SYNC-06 / INTROSPECT-01): operator setup, command reference, configuration, the canonical 9-notebook AIMS use case, troubleshooting, known limitations.
+- [Sync -- `sigantry sync apply`](sync/apply.md) -- Phase 13 (SYNC-04 / SYNC-06 / INTROSPECT-01): operator setup, command reference, configuration, a 9-notebook worked example, troubleshooting, known limitations.
 - [Sync -- `sigantry sync pull`](sync/pull.md) -- Phase 13 (SYNC-05): IaC-fy an existing workspace, round-trip preservation invariant (D-22), `--force` semantics.
 - [Sync -- Folder preservation (`folders[]` and `_unpublish_folders`)](sync/folder-preservation.md) -- Phase 13 (Council D #5): how the manifest's `folders[]` set protects operator-created paths from `fabric-cicd`'s auto-cleanup.
 - [Sync -- Snapshot freshness (TTL'd cache discipline)](sync/snapshot-freshness.md) -- Phase 13 (INTROSPECT-03 / D-10): "Native Git Sync + REST writes can change folder GUIDs between snapshots; trust the live API, never a previous snapshot file."

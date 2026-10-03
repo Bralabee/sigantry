@@ -18,7 +18,7 @@ _VALID = {
     "schema_version": "1.0",
     "targets": [
         {
-            "name": "managed-data-dev",
+            "name": "analytics-dev",
             "workspace_id": "ws-dev",
             "environment_id": "env-dev",
             "wheels": ["dist/*.whl"],
@@ -27,7 +27,7 @@ _VALID = {
             "name": "prod",
             "workspace_id": "ws-prod",
             "environment_id": "env-prod",
-            "wheels": ["dist/aims_data_platform-1.6.0-py3-none-any.whl"],
+            "wheels": ["dist/data_platform-1.6.0-py3-none-any.whl"],
             "policy": "pin",
             "gated": True,
         },
@@ -47,7 +47,7 @@ def test_load_from_disk(tmp_path: Path) -> None:
     p = tmp_path / "environments.yml"
     p.write_text(yaml.safe_dump(_VALID), encoding="utf-8")
     m = load_environments_manifest(p)
-    assert m.targets[0].name == "managed-data-dev"
+    assert m.targets[0].name == "analytics-dev"
 
 
 def test_extra_keys_forbidden() -> None:
