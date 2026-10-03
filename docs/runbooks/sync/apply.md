@@ -25,7 +25,7 @@ The greenfield `sigantry workspace bootstrap` (Phase 13.5 / BOOTSTRAP-XX) is a s
 3. For each manifest item, run the type-appropriate packager (Notebook / DataPipeline / SemanticModel / Report / SparkJobDefinition / generic) into a staging tempdir. **The packager writes the item to local staging only -- it does NOT publish to the workspace.** See [§1.1](#11-what-sync-apply-does-not-do).
 4. Pre-flight gate: refuse to apply if the workspace's `gitConnection.sync_state` is anything other than `"Synced"` (D-18 -- Council D constraint #6).
 5. Call `sigantry_core.workspace.reconciler.reconcile_folders_from_repo(...)` against the staging tree -- delegates **folder create/move/delete and item-folder placement only**. No item is created or published in the workspace by this call.
-6. Emit a `DeployRecord` to the audit ledger (`~/.sigantry/audit/deploys.jsonl`) with `provider="sync-engine"` and `release_id="sync-<ISO_TS>"`.
+6. Emit a `DeployRecord` to the audit ledger (`~/.sigantry/audit/deploys.jsonl`) with `approver="sync-engine"`, `release_id="sync-<ISO_TS>"` and the outcome in `test_evidence["sync_engine_outcome"]`.
 7. Cleanup the tempdir on success; on failure preserve it and print the path to stderr for debugging.
 
 `sigantry sync apply` is **idempotent** -- applying the same `sync.yml` twice yields a no-op second run (zero `create_folder` / `move_item` operations). This is the strongest falsifiability gate the engine ships (Round-4-locked SPEC acceptance criterion, asserted by `tests/sync/test_apply.py::test_apply_idempotent_second_run_no_op`).
@@ -58,7 +58,7 @@ Phase 17 ([ADR-0013](../../decisions/ADR-0013-sync-publish-parameters-resolution
 
 #### When NOT to use it
 
-- Pure folder-shuffle runs (no new items) -- the default `sync apply` is faster and emits a lighter `provider="sync-engine"` record.
+- Pure folder-shuffle runs (no new items) -- the default `sync apply` is faster and emits a lighter `sync-engine` record.
 - Multi-env deployment fan-out (DEV -> PREPROD -> PROD) -- use `deploy run` with explicit `--environment` per stage; `--with-publish` is for one-shot first-time publish.
 - Rollback -- `--with-publish` does NOT support `--rollback`; use `sigantry deploy run --rollback --to-release <id>` against the appropriate `R-...` record.
 
@@ -87,7 +87,7 @@ After a successful `--with-publish` invocation, the audit ledger receives ONE `D
 ```json
 {
   "workspace": "00000000-0000-4000-8000-000000000002",
-  "release_id": "sync-publish-2026-05-01T12:34:56Z",
+  "release_id": "sync-publish-2026-05-01T12-34-56Z",
   "work_items": [],
   "fabric_items_changed": ["A.Notebook", "B.DataPipeline", "C.SemanticModel"],
   "test_evidence": {
@@ -269,15 +269,18 @@ Returns one record (newest first):
 ```json
 [
   {
-    "release_id": "sync-2026-04-27T14-30-05Z",
-    "provider": "sync-engine",
     "workspace": "<workspace-guid>",
+    "release_id": "sync-2026-04-27T14-30-05Z",
+    "work_items": [],
     "fabric_items_changed": [
-      {"logical_name": "00_Orders_Orchestration", "item_type": "Notebook", "fabric_item_id": "<id>"},
+      "00_Orders_Orchestration.Notebook",
       ...
     ],
-    "outcome": "succeeded",
-    "audit_hash": "<sha256>"
+    "test_evidence": {"sync_engine_outcome": "succeeded", "items_packaged": "9"},
+    "approver": "sync-engine",
+    "prev_hash": "<audit_hash of the previous record>",
+    "audit_hash": "<sha256>",
+    "created_at": "2026-04-27T14:30:05Z"
   }
 ]
 ```

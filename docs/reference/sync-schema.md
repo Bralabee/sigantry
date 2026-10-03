@@ -22,8 +22,7 @@ The first key in every `sync.yml` is `schema_version`. Sigantry 1.x ships **`sch
 |-------|-----------|
 | `"1.0"` | Accepted (forward-compat alias). |
 | `"1.0.0"` | Accepted (canonical form). |
-| `"1.0.1"`, `"1.1.0"`, ... future minor / patch | Accepted (forward-compat: minor versions accepted). |
-| `"2.0.0"` | **Rejected** with `ManifestValidationError` (forward-compat: major version mismatch). |
+| Any other value, such as `"1.0.1"`, `"1.1.0"` or `"2.0.0"` | **Rejected** with `ManifestValidationError`: only `"1.0"` and `"1.0.0"` are accepted. |
 
 The schema's keyset is locked by the drift-catcher test in `tests/sync/test_sync_schema_committed.py`: any future addition or removal of a top-level / nested field requires updating the committed `sync-schema.json` AND bumping the schema version. The contract is SemVer-pinned for the whole 1.x line.
 
