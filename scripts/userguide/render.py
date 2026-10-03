@@ -30,7 +30,8 @@ Pipeline:
        v   wrap in print HTML template + style.css; insert a
        |   List of Figures block after [TOC]
        |
-       +--> WeasyPrint --> docs/Sigantry-User-Guide.pdf
+       +--> WeasyPrint --> build/docs/Sigantry-User-Guide.pdf
+            (build/ is gitignored: the PDF is a local artefact, never committed)
 
 Why this stack
 --------------
@@ -67,7 +68,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SOURCE = REPO_ROOT / "docs" / "USER-GUIDE.md"
 STYLE = Path(__file__).parent / "style.css"
 COVER_TEMPLATE = Path(__file__).parent / "cover.html"
-OUTPUT = REPO_ROOT / "docs" / "Sigantry-User-Guide.pdf"
+# A local build artefact: build/ is gitignored, so the rendered PDF is never
+# committed. docs/USER-GUIDE.md is the canonical guide.
+OUTPUT = REPO_ROOT / "build" / "docs" / "Sigantry-User-Guide.pdf"
 PUPPETEER_CFG = Path(__file__).parent / "puppeteer-config.json"
 CHROME = "/usr/bin/google-chrome"
 

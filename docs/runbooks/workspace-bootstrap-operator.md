@@ -9,13 +9,13 @@ v3.0 milestone per Council E's idempotency-gap finding.
 
 **Cross-references:**
 
-- Pattern source: [`docs/RELATED-WORK.md`](../RELATED-WORK.md) §6
-  recommendation 5 — modelled on `usf_fabric_cli_cicd`'s
-  `scaffold --brownfield --templatise --as-stage` semantics, validated
-  against live customer workspaces.
-- Numbered medallion folder convention: §4 item 2 of the same doc.
-- Stage-marker regex: §4 item 5.
-- jsonschema validation: §4 item 8.
+- Verb boundary: [ADR-0012](../decisions/ADR-0012-sync-apply-vs-deploy-run-boundary.md)
+  (`sync apply` vs `deploy run`; section 0 below places
+  `workspace bootstrap` beside them).
+- Folder blueprints: `sigantry_core/workspace/blueprints.py` (see
+  [Available blueprints](#available-blueprints)).
+- Stage markers and manifest schema: `sigantry_core/workspace/bootstrap.py`
+  (`_STAGE_MARKERS`, `WORKSPACE_SCHEMA`).
 
 ---
 
@@ -92,7 +92,7 @@ wiring**, no further. Specifically:
   Council E recommendation is to wire it as a CI workflow that calls
   `bootstrap` and `workspace delete` directly.
 - **It does not register pipeline users (Power BI API).** Pipeline user
-  management uses the Power BI API surface (gotcha #7) which bootstrap
+  management uses the Power BI API surface, which bootstrap
   intentionally does not touch. Use the Power BI portal or the
   `pbi-tools` CLI for pipeline user wiring after bootstrap completes.
 
@@ -108,7 +108,7 @@ Minimum viable manifest (fresh workspace, no Git):
 schema_version: "1.0"
 workspace:
   name: my-workspace
-  capacity_id: "0749b635-c51b-46c6-948a-02f05d7fe177"
+  capacity_id: "00000000-0000-4000-8000-000000000001"
 folders:
   blueprint: minimal_starter
 git:
@@ -128,8 +128,8 @@ workspace:
   # Stage marker -- one of DEV / TEST / PREPROD / PROD / FEATURE / NONE.
   # When stage_marker_in_name=true the name is prefixed with [DEV] / [TEST]
   # / etc. FEATURE additionally requires `feature_branch` and produces
-  # "[F] <branch> <name>" per the convention validated in
-  # docs/RELATED-WORK.md §4 item 5.
+  # "[F] <branch> <name>" (see `BootstrapConfig.stage_marked_name` in
+  # sigantry_core/workspace/bootstrap.py).
   stage: DEV
   stage_marker_in_name: false
   feature_branch: my-feature-branch     # required only when stage=FEATURE
@@ -283,7 +283,7 @@ sigantry workspace delete <workspace-guid> --force --runbook-id <ticket>
 ```
 
 Use `--force` per the destructive-op gate. The toolkit's
-`delete_workspace` function accepts `pbi_fallback=True` (gotcha #6 fix —
+`delete_workspace` function accepts `pbi_fallback=True` (a workaround —
 Fabric `DELETE /v1/workspaces/{id}` intermittently returns
 `UnknownError`; the PBI fallback at
 `https://api.powerbi.com/v1.0/myorg/groups/{id}` is more reliable).
@@ -292,10 +292,10 @@ Fabric `DELETE /v1/workspaces/{id}` intermittently returns
 
 ## 6. Live verification (Phase 13.5 closure)
 
-Verified live 2026-04-30 against the JToye Trial capacity:
+Verified live 2026-04-30 in a development workspace on a Fabric trial
+capacity (UK South). The workspace and capacity identifiers are not
+recorded here.
 
-- Workspace `sigantry-jtoye-bootstrap-uat` (id `ab12a30c-1248-4658-a690-9708472421a2`)
-  on capacity `0749b635-c51b-46c6-948a-02f05d7fe177` (UK South).
 - 8-folder `minimal_starter` blueprint materialised in pipeline-flow
   order; `folders_present` matches the catalog exactly.
 - Idempotent re-run reported `workspace=already-converged`,
@@ -313,11 +313,11 @@ Verified live 2026-04-30 against the JToye Trial capacity:
 - Multi-stage Dev+Test+Prod+Pipeline orchestration ("onboard" verb).
 - Branch-isolated `feature-workspace` lifecycle (auto-create on push,
   auto-destroy on PR merge).
-- Pipeline user management (Power BI API surface — gotcha #7).
-- Native deployment-pipeline integration (gotchas #4, #5).
-- Larger blueprint catalog (`medallion` is currently an alias; the full
-  set from `usf_fabric_cli_cicd` — `data_mesh_domain` / `data_science` /
-  `compliance_regulated` / etc. — lands as v3.x.y follow-ups when an
+- Pipeline user management (Power BI API surface).
+- Native deployment-pipeline integration.
+- Larger blueprint catalog (`medallion` is currently an alias; further
+  named layouts — `data_mesh_domain` / `data_science` /
+  `compliance_regulated` / etc. — land as v3.x.y follow-ups when an
   operator asks for one).
 
 ---
