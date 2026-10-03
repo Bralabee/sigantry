@@ -17,8 +17,10 @@
         through an explicit-path import).
 
     No PowerShell module and no *.Tests.ps1 file ship in this repository
-    today, so a run reports that no test files were found. The file is
-    kept because the Azure DevOps pester job (templates/stages/ci.yml,
+    today, so Invoke-Pester stops with "No test files were found" and the
+    run fails. It failed before as well: the bootstrap tests it used to find
+    target a script that is not in this repository. The file is kept
+    because the Azure DevOps pester job (templates/stages/ci.yml,
     templates/jobs/build-powershell.yml) and the contributor docs call it.
 
     Phase 0 (Plan 02, commit 0effb0b) created this file for tests/prereqs.

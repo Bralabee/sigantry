@@ -292,11 +292,10 @@ Fabric `DELETE /v1/workspaces/{id}` intermittently returns
 
 ## 6. Live verification (Phase 13.5 closure)
 
-Verified live 2026-04-30 against a Fabric trial capacity (the identifiers
-below are placeholders, not the tenant's real ones):
+Verified live 2026-04-30 in a development workspace on a Fabric trial
+capacity (UK South). The workspace and capacity identifiers are not
+recorded here.
 
-- Workspace `sigantry-bootstrap-uat` (id `00000000-0000-4000-8000-000000000002`)
-  on capacity `00000000-0000-4000-8000-000000000001` (UK South).
 - 8-folder `minimal_starter` blueprint materialised in pipeline-flow
   order; `folders_present` matches the catalog exactly.
 - Idempotent re-run reported `workspace=already-converged`,
