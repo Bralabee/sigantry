@@ -2,7 +2,8 @@
 
 The markdown files remain canonical -- this script reads them as-is
 (index.md first, then the twelve numbered tutorials) and never modifies
-them. Re-run after editing any tutorial and commit both.
+them. The PDF it writes is a local build artefact under build/ (gitignored)
+and is never committed.
 
 Pipeline (same proven stack as scripts/userguide/render.py):
 
@@ -23,7 +24,7 @@ Pipeline (same proven stack as scripts/userguide/render.py):
        v   markdown -> HTML (markdown lib; toc extension supplies the
        |   heading anchors that the generated Contents page links to)
        |
-       +--> WeasyPrint --> docs/Sigantry-Tutorials.pdf
+       +--> WeasyPrint --> build/docs/Sigantry-Tutorials.pdf
 
 PNG (not SVG) because mermaid 11.x emits <foreignObject>-wrapped HTML
 labels that WeasyPrint cannot rasterise -- see the userguide renderer
@@ -56,7 +57,7 @@ OVERRIDE_STYLE = Path(__file__).parent / "style.css"
 COVER_TEMPLATE = Path(__file__).parent / "cover.html"
 PUPPETEER_CFG = REPO_ROOT / "scripts" / "userguide" / "puppeteer-config.json"
 VERSION_FILE = REPO_ROOT / "sigantry_core" / "_version.py"
-OUTPUT = REPO_ROOT / "docs" / "Sigantry-Tutorials.pdf"
+OUTPUT = REPO_ROOT / "build" / "docs" / "Sigantry-Tutorials.pdf"
 CHROME = "/usr/bin/google-chrome"
 
 # A diagram whose rendered width exceeds this multiple of its height
@@ -362,6 +363,7 @@ def main() -> None:
 """
 
     print(f"rendering HTML -> {OUTPUT.relative_to(REPO_ROOT)} via WeasyPrint")
+    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     weasyprint.HTML(string=html_doc, base_url=str(REPO_ROOT)).write_pdf(str(OUTPUT))
     size_kb = OUTPUT.stat().st_size // 1024
     print(f"done: {OUTPUT.relative_to(REPO_ROOT)}  ({size_kb} KB)")

@@ -15,7 +15,7 @@
 # sigantry-dual-ci-ignore: ado-gh-env-naming
 #
 # Renamed from sigantry-deploy-with-tests.yml on 2026-05-12 as part of
-# OPERATOR-PUNCHLIST G3 closure. Real root cause: the ``releaseId`` and
+# the ghost-runs fix. Real root cause: the ``releaseId`` and
 # ``approver`` input ``default:`` slots carried ``${{ github.run_id }}``
 # / ``${{ github.actor }}`` expressions, which GitHub's parser rejects
 # (defaults are evaluated at parse time, before the github context is
@@ -23,7 +23,7 @@
 # the file PATH as the display ``name``, and (b) a 0-job failed "ghost
 # run" on every push event. Defaults now empty; ``github.*`` fallback
 # moved into the promote job's env block where the context resolves
-# correctly. See OPERATOR-PUNCHLIST G3 for the full closure record.
+# correctly.
 #
 # Sources:
 #   GitHub Docs - Workflow syntax for GitHub Actions
@@ -139,7 +139,7 @@ jobs:
           # `default:` slot. GitHub's workflow parser rejects ${{ github.* }}
           # inside default values (defaults are evaluated at parse time,
           # before the github context is bound) -- that was the real
-          # ghost-runs root cause (PUNCHLIST G3, fix lands 2026-05-12 follow-up).
+          # ghost-runs root cause (fixed in a 2026-05-12 follow-up).
           SIGANTRY_RELEASE_ID: ${{ inputs.releaseId != '' && inputs.releaseId || github.run_id }}
           SIGANTRY_WORKSPACE_ID: ${{ inputs.workspaceId }}
           SIGANTRY_WORK_ITEMS: ${{ inputs.workItems }}

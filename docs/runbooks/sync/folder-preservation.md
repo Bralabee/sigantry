@@ -101,7 +101,7 @@ sigantry sync apply --manifest sync.yml --workspace-id <id> --dry-run --unpublis
 
 If you see a folder you wanted preserved in the deletion list, add it to `folders[]` and re-run the dry-run. Iterate until the deletion plan only contains paths you genuinely want gone.
 
-The plan currently prints to the Rich console only. Structured `--output json` for `sync apply` (deletion-plan inclusive) is not yet implemented; track an enhancement in [`V3.X-ROADMAP.md`](../../operator/V3.X-ROADMAP.md) if you need a CI-gateable JSON shape.
+The plan currently prints to the Rich console only. Structured `--output json` for `sync apply` (deletion-plan inclusive) is not yet implemented; open an issue if you need a CI-gateable JSON shape.
 
 The contract is pinned by these falsifiability tests in `tests/sigantry_core/workspace/test_reconciler.py`:
 

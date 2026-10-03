@@ -1,13 +1,13 @@
 <!-- VERSION: 1.0.0 -->
-<!-- This source is rendered to docs/Sigantry-User-Guide.pdf via
-     scripts/userguide/render.py. Edits should be made here, then
-     re-render. Do not hand-edit the PDF.
+<!-- This markdown is the canonical guide: edit it here, never a
+     rendered PDF.
 
-     PENDING RE-RENDER (2026-09-20): this source was corrected from the
-     pre-open-source 3.4.0 text to the shipped v1.0.0 reality without
-     re-running the renderer, so the committed PDF is older still - its
-     cover says 3.2.1. Treat the PDF as stale until it is re-rendered
-     from the project conda env; this markdown is the current source. -->
+     scripts/userguide/render.py renders it to
+     build/docs/Sigantry-User-Guide.pdf, a local build artefact:
+     build/ is gitignored, so no PDF is committed to this
+     repository.
+
+     Keep the VERSION comment on line 1: render.py reads it. -->
 
 [TOC]
 
