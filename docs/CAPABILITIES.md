@@ -566,6 +566,7 @@ flowchart LR
 | `.github/workflows/publish-pypi.yml` | The only workflow that publishes this package. On a published GitHub Release, or a manual dispatch, it runs the `ci.yml` quality jobs, then builds the sdist and wheel and publishes them to PyPI through trusted publishing. |
 | `.github/workflows/name-gate.yml` | Scans the repository for names from a token list held in a repository secret. Each hit is printed as a location (a file and line, a hashed path, an archive member or a PDF text layer) and a pattern id, never the matched text. It fails closed when the secret is unavailable, as on fork and Dependabot pull requests. Not a required check yet. |
 | `.github/workflows/review-record.yml` | Posts the required `review-record` commit status on each pull request head. |
+| `.github/workflows/review-record-relay.yml` | Takes a submitted pull request review and hands it to `review-record.yml` through `workflow_run`, so the status is recomputed by the default branch's copy of the gate. It has no permissions and runs no pull request code. |
 | `.github/workflows/sigantry-cd.yml` | The 5-stage CD workflow. |
 | `.github/workflows/sigantry-pr-bot.yml` | PR-bot trigger workflow. |
 | `.github/workflows/sigantry-demo-mp4.yml` | Remotion mp4 build for the public demo. |

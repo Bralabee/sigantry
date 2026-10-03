@@ -2,6 +2,9 @@
 # The review-record gate posts a GitHub COMMIT STATUS, which is the mechanism
 # branch protection marks required. There is no Azure DevOps counterpart to
 # pair with, so this file is CI-system-specific tooling by construction.
+# Vendored from the maintainer's canonical copy of this gate. Issue and PR
+# numbers in the comments below (#156, #216, #269, #291, ...) refer to that
+# repository, not to this one.
 # review-record — the SERVER-SIDE backstop for the merge review gate (2026-08-30).
 #
 # The gh() wrapper gates bash-shell merges on this fleet; this workflow closes the
@@ -17,23 +20,80 @@
 # `Review-Record: WAIVED sha=<head12>`, posted by the wrapper): CI stays required —
 # the deliberate alternative to an --admin bypass, which would skip CI too.
 #
-# Chicken-and-egg, expected: comment/review-triggered runs execute THIS file from
-# the DEFAULT branch, so those events only flip the status once this workflow has
-# merged. The PR that introduces it therefore shows a failing (not-yet-required)
-# status on itself; that is the bootstrap, not a defect.
+# WHICH COPY OF THIS FILE RUNS (#269 item 3, #291 review finding 2). This file holds
+# statuses: write, so no event may run a PR's own copy of it. Every trigger below
+# runs the DEFAULT branch's file: pull_request_target (push/open), issue_comment,
+# and workflow_run (reviews). A submitted review is the exception GitHub forces:
+# pull_request_review has no _target variant and would run the PR's copy, so it is
+# NOT a trigger here. review-record-relay.yml takes it with permissions: {} and
+# runs nothing, and its completion fires the workflow_run trigger below — a
+# workflow_run run always executes the default branch's file. Cost: a review now
+# bills two job-minutes (relay + verdict) where it billed one. workflow_dispatch
+# runs the ref it is dispatched on — the default branch unless someone with write
+# access passes --ref.
+# Out of reach of ANY file: a same-repo PR can ADD a workflow of its own that asks
+# for statuses: write on a pull_request event and posts this context. This design
+# stops this workflow being that vector; it cannot stop a new one.
+#
+# Chicken-and-egg, expected: every run executes THIS file from the DEFAULT branch,
+# so the status only posts once this workflow (and the relay, for reviews) has
+# merged. The PR that introduces it therefore shows no status, or a failing
+# (not-yet-required) one, on itself. That is the bootstrap, not a defect.
+#
+# COST (2026-09-20, measured in the private repository this gate comes from, where
+# GitHub rounds EACH JOB up to a whole minute): September 1-20 ran this file 1,447
+# times, ~70% of that account's monthly Actions allowance, and merges were blocked
+# once the allowance ran out. Of the first 1,000
+# runs: 438 pull_request_review, 437 pull_request_review_comment, 78 pull_request,
+# 42 issue_comment. Two trims, neither of which can lose a re-evaluation:
+#   - pull_request_review_comment is GONE. An inline comment posted through the
+#     API (what `/code-review --comment` does) is always wrapped in a single-
+#     comment review, so pull_request_review already fires for it (taken by the
+#     relay since #291, reaching this file via workflow_run) — the 438/437
+#     pair above is the same events counted twice. MEASURED on PR #216 (review
+#     finding 2), not inferred: `POST /pulls/216/comments` → run 35497048304
+#     (pull_request_review); `POST /pulls/216/comments/{id}/replies` → run
+#     35497048450 (pull_request_review); one review carrying six comments
+#     (`POST /pulls/216/reviews`) → ONE run, 35496989719.
+#   - issue_comment is KEPT (the waiver path posts a `Review-Record:` comment and
+#     then polls for the status to flip — see gates/review-record-check.sh
+#     --await-status) but the job SKIPS unless the body carries the marker AND
+#     the author is OWNER or MEMBER — the only comments the brain counts as an
+#     R-3 record (review-record-check.sh, the author_association filter), so
+#     no comment that could change the verdict is skipped, and a drive-by
+#     marker comment no longer buys a runner. A skipped
+#     job never starts one, so PR chatter costs nothing.
+# Concurrency cancel-in-progress does NOT save minutes (a cancelled job still
+# bills its started minute). It exists so the LAST verdict run for a PR is the
+# one that stands — and because the group is resolved BEFORE the job-level
+# `if:`, a chatter run would enter the group, cancel an in-flight verdict run
+# and then skip, leaving that head with no status (#216 review, finding 1).
+# Chatter runs therefore get their own `-chatter` group, keyed by the SAME
+# predicate the `if:` negates, and never touch a verdict run.
 name: review-record
 on:
-  pull_request:
+  # pull_request_target, not pull_request (#269 item 3): a pull_request run executes the PR's
+  # OWN copy of this file with statuses: write, so a PR that edits the job to post
+  # state=success grades itself (observed in another repository using this gate: the
+  # run executed the PR's new YAML while the default branch had none). pull_request_target runs the BASE branch's
+  # file; the job only reads PR metadata through the API and checks out the default
+  # branch, never PR code, so the wider token is never exposed to it.
+  pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
-  pull_request_review:
-    types: [submitted]
-  pull_request_review_comment:
-    types: [created]
+  # A submitted review, via review-record-relay.yml (#291 review, finding 2): NOT
+  # pull_request_review here, which would run the PR's own copy of this file with
+  # statuses: write. workflow_run runs the default branch's file; the relay
+  # contributes only the event, and the verdict below re-reads everything.
+  workflow_run:
+    workflows: [review-record-relay]
+    types: [completed]
   issue_comment:
     types: [created]
   # Manual re-drive (#156 review, finding 8): the waiver dedupe deliberately
   # does not re-post an identical record, so a cancelled/failed run would
-  # otherwise have no event left to re-trigger evaluation.
+  # otherwise have no event left to re-trigger evaluation. This is the ONLY
+  # re-drive: a `Review-Record:` comment is itself an R-3 record and would
+  # turn the status green without a review, and plain comments no longer run.
   workflow_dispatch:
     inputs:
       pr:
@@ -44,12 +104,28 @@ permissions:
   pull-requests: read
   contents: read
 concurrency:
-  group: review-record-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
+  # The `-chatter` suffix is the exact negation of the job `if:` below: keep the
+  # two predicates identical, or a chatter run can cancel a verdict run.
+  group: >-
+    review-record-${{ github.event.pull_request.number || github.event.issue.number || github.event.workflow_run.pull_requests[0].number || inputs.pr || github.event.workflow_run.head_sha }}${{
+      (github.event_name == 'issue_comment'
+       && !(github.event.issue.pull_request
+            && contains(github.event.comment.body, 'Review-Record:')
+            && contains(fromJSON('["OWNER","MEMBER"]'), github.event.comment.author_association)))
+      && '-chatter' || '' }}
   cancel-in-progress: true
 jobs:
   verdict:
-    # issue_comment fires for plain issues too; only PR comments matter here.
-    if: github.event_name != 'issue_comment' || github.event.issue.pull_request
+    # issue_comment fires for plain issues too, and for every line of PR chatter;
+    # only a PR comment carrying the `Review-Record:` marker FROM an OWNER/MEMBER
+    # can change the verdict (record class R-3, waivers included — the brain
+    # ignores every other author), so only that one gets a runner. Everything
+    # else is skipped BEFORE a job starts (0 billed minutes).
+    if: >-
+      github.event_name != 'issue_comment'
+      || (github.event.issue.pull_request
+          && contains(github.event.comment.body, 'Review-Record:')
+          && contains(fromJSON('["OWNER","MEMBER"]'), github.event.comment.author_association))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -63,7 +139,8 @@ jobs:
       - name: resolve head, run the brain, post the status
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PRNUM: ${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
+          PRNUM: ${{ github.event.pull_request.number || github.event.issue.number || github.event.workflow_run.pull_requests[0].number || inputs.pr }}
+          RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           # GitHub's default step shell is `bash -e`: without the explicit +e, a
           # FAILURE verdict (rc 1 — the expected answer for an unreviewed PR)
@@ -73,6 +150,14 @@ jobs:
           # rc values here are data, not errors — every exit is explicit.
           set +e
           set -uo pipefail
+          # workflow_run lists the PR only for same-repo heads; a fork PR's review
+          # arrives with an empty list, so look the PR up by the relayed head sha.
+          if [ -z "$PRNUM" ] && [ -n "$RUN_HEAD_SHA" ]; then
+            PRNUM=$(gh api "repos/$GITHUB_REPOSITORY/commits/$RUN_HEAD_SHA/pulls" -q '[.[] | select(.state == "open")][0].number // empty'); rc=$?
+            if [ "$rc" -ne 0 ] || [ -z "$PRNUM" ]; then
+              echo "no open PR for relayed head $RUN_HEAD_SHA — nothing to evaluate, no status posted"; exit 2
+            fi
+          fi
           HEAD=$(gh pr view "$PRNUM" -R "$GITHUB_REPOSITORY" --json headRefOid -q .headRefOid); rc=$?
           if [ "$rc" -ne 0 ] || [ -z "$HEAD" ]; then
             echo "cannot resolve PR #$PRNUM head — failing WITHOUT a status (fail closed)"; exit 2

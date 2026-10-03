@@ -15,9 +15,11 @@
 #
 # ── WHAT COUNTS AS A REVIEW RECORD (the contract, in precedence order) ───────────────
 #
-#   R-1  a PR REVIEW — anything in pulls/<n>/reviews (a human review, Copilot,
+#   R-1  a PR REVIEW in pulls/<n>/reviews BY A RECORD AUTHOR — the repo OWNER, a MEMBER,
+#        or the Copilot reviewer bot (#279: any account counted before, and on a public
+#        repo a drive-by COMMENTED review turned the required status green). A human
 #        or a review-typed API submission). Any state counts; COMMENTED included.
-#   R-2  an INLINE review comment — anything in pulls/<n>/comments. This is what
+#   R-2  an INLINE review comment in pulls/<n>/comments, same authors. This is what
 #        `/code-review --comment` posts, so the Claude review flow satisfies the
 #        gate with no extra step.
 #   R-3  an ISSUE comment whose body contains a line beginning `Review-Record:` —
@@ -65,6 +67,14 @@ set -uo pipefail
 void() { printf 'VOID: %s\n' "$1" >&2; exit 2; }
 deny() { printf 'STOP: %s\n' "$1" >&2; exit 1; }
 
+# WHO MAY WRITE A RECORD (issues #279, #269 item 2). R-1 and R-2 counted ANY account: on
+# a public repo a drive-by COMMENTED review, or the PR author's own "fixed" reply on a
+# finding thread, turned the required status green. The same filter R-3 always had
+# applies to all three now: the repo OWNER or a MEMBER, plus the Copilot reviewer bot
+# (a login only GitHub's app can carry; Copilot review is on explicit ask since
+# 2026-08-29 and stays a record when asked for). Spelled ONCE, as a jq predicate.
+RECORD_AUTHOR='((.author_association == "OWNER" or .author_association == "MEMBER") or ((.user.login // "") | test("^copilot-pull-request-reviewer(\\[bot\\])?$")))'
+
 # ── selftest ─────────────────────────────────────────────────────────────────────────
 if [ "${1:-}" = "--selftest" ]; then
 	SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
@@ -91,6 +101,7 @@ case "$*" in
 	*"/commits/"*) cat "$GH_FIXTURE_DIR/commit.json" ;;
 	*"headRefOid"*) echo "fixturehead123" ;;
 	*"baseRefName"*) echo "main" ;;
+	*"pr view merge -R "*|*"pr view pr -R "*) echo 43 ;;   # #280: a selector literally named merge / pr
 	*"pr view"*) cat "$GH_FIXTURE_DIR/prnum.txt" ;;
 	*) exit 64 ;;
 esac
@@ -116,8 +127,8 @@ SHIM
 		printf '{"name":"review-record.yml"}' > "$WORK/$1/wf.json"
 	}
 	EMPTY='[]'
-	REV='[{"user":{"login":"copilot-pull-request-reviewer"},"state":"COMMENTED","submitted_at":"2021-06-01T00:00:00Z"}]'
-	INL='[{"user":{"login":"Bralabee"},"body":"finding: off-by-one in the loop bound","created_at":"2021-06-01T00:00:00Z"}]'
+	REV='[{"user":{"login":"copilot-pull-request-reviewer"},"state":"COMMENTED","submitted_at":"2021-06-01T00:00:00Z","commit_id":"fixturehead123"}]'
+	INL='[{"user":{"login":"Bralabee"},"author_association":"OWNER","body":"finding: off-by-one in the loop bound","created_at":"2021-06-01T00:00:00Z","commit_id":"fixturehead123","original_commit_id":"fixturehead123"}]'
 	MRK='[{"user":{"login":"Bralabee"},"author_association":"OWNER","created_at":"2021-06-01T00:00:00Z","body":"Review-Record: /code-review ultra, findings in session link"}]'
 	CHAT='[{"user":{"login":"Bralabee"},"body":"will do the code review tomorrow"}]'
 	WVD='[{"user":{"login":"Bralabee"},"author_association":"OWNER","created_at":"2021-06-01T00:00:00Z","body":"Review-Record: WAIVED sha=fixturehead1 — docs-only (merge waived via DOTFILES_REVIEW_WAIVE; this comment is the durable record)"}]'
@@ -133,7 +144,7 @@ SHIM
 	WVDEXT='[{"user":{"login":"driveby"},"author_association":"CONTRIBUTOR","created_at":"2021-06-01T00:00:00Z","body":"Review-Record: WAIVED sha=fixturehead1 — sneaky (merge waived via DOTFILES_REVIEW_WAIVE; this comment is the durable record)"}]'
 	mkfix waivedext "$EMPTY" "$EMPTY" "$WVDEXT"
 	# a real review whose timestamp PREDATES the head commit (freshness arm)
-	STALEREV='[{"user":{"login":"x"},"state":"COMMENTED","submitted_at":"2019-01-01T00:00:00Z"}]'
+	STALEREV='[{"user":{"login":"Bralabee"},"author_association":"OWNER","state":"COMMENTED","submitted_at":"2019-01-01T00:00:00Z"}]'   # an OWNER review (else it is no record at all, #279), on no head
 	mkfix stale "$STALEREV" "$EMPTY" "$EMPTY"
 	# a marker comment from a NON-owner/member web passer-by (association arm)
 	mkfix markerext "$EMPTY" "$EMPTY" \
@@ -141,6 +152,30 @@ SHIM
 	# a STALE record PLUS a fresh head-scoped waive (the live-probe T4 shape:
 	# reviewed, then pushed, then waived — the waiver must win)
 	mkfix stalewaived "$STALEREV" "$EMPTY" "$WVD"
+	# #279 / #269 items 1-2: records by anyone else are chatter; records are tied to the
+	# head they were made ON. Each fixture is one shape the pre-fix gate passed.
+	REVEXT='[{"user":{"login":"driveby"},"author_association":"CONTRIBUTOR","state":"COMMENTED","submitted_at":"2021-06-01T00:00:00Z","commit_id":"fixturehead123"}]'
+	mkfix revext  "$REVEXT" "$EMPTY" "$EMPTY"                      # a drive-by review on THIS head
+	INLEXT='[{"user":{"login":"driveby"},"author_association":"CONTRIBUTOR","body":"lgtm","created_at":"2021-06-01T00:00:00Z","commit_id":"fixturehead123","original_commit_id":"fixturehead123"}]'
+	mkfix inlext  "$EMPTY" "$INLEXT" "$EMPTY"                      # a drive-by inline comment on THIS head
+	REVOTHER='[{"user":{"login":"Bralabee"},"author_association":"OWNER","state":"COMMENTED","submitted_at":"2021-06-01T00:00:00Z","commit_id":"deadbeefdeadbeef"}]'
+	mkfix revother "$REVOTHER" "$EMPTY" "$EMPTY"                   # an owner review NEWER than the head date, made on ANOTHER head (#269 item 1)
+	INLREPLY='[{"user":{"login":"Bralabee"},"author_association":"OWNER","body":"fixed","created_at":"2021-06-01T00:00:00Z","commit_id":"deadbeefdeadbeef","original_commit_id":"deadbeefdeadbeef"}]'
+	mkfix inlreply "$EMPTY" "$INLREPLY" "$EMPTY"                   # the author's own "fixed" reply, newer than the head, on the OLD head (#269 item 2)
+	# #291 review finding 1: GitHub ADVANCES commit_id to the newest head while the line is
+	# not outdated (measured, dotfiles #281); only original_commit_id stays where it was made.
+	INLADV='[{"user":{"login":"Bralabee"},"author_association":"OWNER","body":"finding: off-by-one in the loop bound","created_at":"2021-06-01T00:00:00Z","commit_id":"fixturehead123","original_commit_id":"deadbeefdeadbeef"}]'
+	mkfix inladv  "$EMPTY" "$INLADV" "$EMPTY"                      # a round-1 finding made on the OLD head, commit_id advanced to THIS head
+	INLORIG='[{"user":{"login":"Bralabee"},"author_association":"OWNER","body":"finding: off-by-one in the loop bound","created_at":"2021-06-01T00:00:00Z","commit_id":"cafef00dcafef00d","original_commit_id":"fixturehead123"}]'
+	mkfix inlorig "$EMPTY" "$INLORIG" "$EMPTY"                     # control: made ON this head, commit_id since advanced past it
+	MRKHEAD='[{"user":{"login":"Bralabee"},"author_association":"OWNER","created_at":"2019-01-01T00:00:00Z","body":"Review-Record: R-3, round 2 (review-verify) on fixturehead123 found zero admissible findings; the series ends and this head merges."}]'
+	mkfix markerhead "$EMPTY" "$EMPTY" "$MRKHEAD"                  # a marker NAMING this head, older than the head date: the name wins
+	MRKOTHER='[{"user":{"login":"Bralabee"},"author_association":"OWNER","created_at":"2021-06-01T00:00:00Z","body":"Review-Record: R-3, round 2 (review-verify) on deadbeefdead found zero admissible findings; the series ends and this head merges."}]'
+	mkfix markerother "$EMPTY" "$EMPTY" "$MRKOTHER"                # a marker naming ANOTHER head, newer than the head date: the name loses
+	BOTREV='[{"user":{"login":"copilot-pull-request-reviewer[bot]"},"author_association":"NONE","state":"COMMENTED","submitted_at":"2021-06-01T00:00:00Z","commit_id":"fixturehead123"}]'
+	mkfix botrev  "$BOTREV" "$EMPTY" "$EMPTY"                      # the Copilot reviewer bot, association NONE
+	PENDREV='[{"user":{"login":"Bralabee"},"author_association":"OWNER","state":"PENDING","commit_id":"fixturehead123"}]'
+	mkfix pendrev "$PENDREV" "$EMPTY" "$EMPTY"                     # the owner's unsubmitted draft on this head
 	# backstop workflow absent (await short-circuit arm)
 	mkfix nowf "$EMPTY" "$EMPTY" "$EMPTY"; rm -f "$WORK/nowf/wf.json"
 	# a STANDING failure status (stale pre-waive verdict: await must wait THROUGH it)
@@ -149,7 +184,7 @@ SHIM
 	# --paginate emits ONE ARRAY PER PAGE, concatenated — 3 inline comments across
 	# two pages must count as 3, not break the integer test (the pre-fix behaviour).
 	mkfix paged "$EMPTY"$'\n'"$EMPTY" \
-		'[{"user":{"login":"a"},"body":"x"}]'$'\n''[{"user":{"login":"b"},"body":"y"},{"user":{"login":"c"},"body":"z"}]' \
+		'[{"user":{"login":"a"},"author_association":"OWNER","body":"x"}]'$'\n''[{"user":{"login":"b"},"author_association":"MEMBER","body":"y"},{"user":{"login":"c"},"author_association":"OWNER","body":"z"}]' \
 		"$EMPTY"
 
 	PASSED=0; FAILED=0
@@ -237,6 +272,26 @@ SHIM
 	fi
 	arm markerext - 1 'STOP: NO review record' 'a passer-by marker comment is NOT a record -> STOP' "${A[@]}"
 	arm review  - 2 'VOID: flag --head requires a value' 'trailing value-flag -> VOID, never a spin' "${V[@]}" --head
+	# #279 / #269: who may write a record, and which head it was made on
+	arm revext    - 1 'STOP: NO review record'  'a CONTRIBUTOR review is NOT a record -> STOP'          "${A[@]}"
+	arm inlext    - 1 'STOP: NO review record'  'a CONTRIBUTOR inline comment is NOT a record -> STOP'  "${A[@]}"
+	arm botrev    - 0 'R-1: PR review'          'the Copilot reviewer bot (association NONE) -> GO'     "${A[@]}"
+	arm revext    - 1 'failure: no review record' 'verdict: drive-by review on THIS head -> failure'    "${V[@]}" --head fixturehead123
+	arm inlext    - 1 'failure: no review record' 'verdict: drive-by inline comment on THIS head -> failure' "${V[@]}" --head fixturehead123
+	arm revother  - 1 'failure: .*predates head' 'verdict: owner review NEWER than the head date but on ANOTHER head -> failure (#269 item 1)' "${V[@]}" --head fixturehead123
+	arm inlreply  - 1 'failure: .*predates head' 'verdict: the author'"'"'s own newer "fixed" reply on the OLD head -> failure (#269 item 2)' "${V[@]}" --head fixturehead123
+	arm inline    - 0 'success: .*1 inline comment' 'verdict: an owner inline comment made ON the head -> success' "${V[@]}" --head fixturehead123
+	arm inladv    - 1 'failure: .*predates head' 'verdict: an inline comment made on the OLD head whose commit_id GitHub advanced to this head -> failure (#291 f1)' "${V[@]}" --head fixturehead123
+	arm inlorig   - 0 'success: .*1 inline comment' 'verdict: original_commit_id names the head, commit_id advanced past it -> success (#291 f1 control)' "${V[@]}" --head fixturehead123
+	arm botrev    - 0 'success: .*1 review'       'verdict: the Copilot reviewer bot on the head -> success' "${V[@]}" --head fixturehead123
+	arm markerhead - 0 'success: .*1 Review-Record comment' 'verdict: a marker NAMING the head, older than its date -> success (the name wins)' "${V[@]}" --head fixturehead123
+	arm markerother - 1 'failure: .*predates head' 'verdict: a marker naming ANOTHER head, newer than the date -> failure' "${V[@]}" --head fixturehead123
+	arm marker    - 0 'success: .*naming no head'  'verdict: a marker naming no head, newer than the head date -> success (documented residue)' "${V[@]}" --head fixturehead123
+	arm pendrev   - 1 'failure: .*predates head'   'verdict: an owner PENDING draft on the head never freshens it -> failure' "${V[@]}" --head fixturehead123
+	# #280: a selector literally named merge / pr survives; the verb pair is stripped once
+	arm absent - 0 '^43$'                 'selector named "merge" resolves THAT branch'    "${R[@]}" pr merge merge
+	arm absent - 0 '^43$'                 'selector named "pr" after a flag resolves it'   "${R[@]}" pr merge --squash pr
+	arm absent - 0 '^151$'                'verb pair after leading flags is still stripped' "${R[@]}" -R o/r pr merge 151
 
 	# ── await-status arms ────────────────────────────────────────────────────────────
 	mkdir -p "$WORK/statgreen"; cp "$WORK/review/"* "$WORK/statgreen/"
@@ -260,7 +315,7 @@ SHIM
 	# review). The canonical run now measures the tail it stands for and fails on a
 	# mismatch; _RR_TAIL_START marks where that tail begins.
 	_RR_TAIL_START=$((PASSED + FAILED))
-	_RR_VENDORED_SKIP=39
+	_RR_VENDORED_SKIP=48
 	if [ ! -f "$GUARD" ] || [ ! -f "$BASHRC" ]; then
 		SKIPPED=$_RR_VENDORED_SKIP
 		printf '  SKIP  %s arms (guard dispatch + ledger + wrapper behavioral + snapshot + slug fallback + list/ledger parity) — vendored context: no sibling pr-merge-guard.sh/.bashrc; canonical dotfiles runs them\n' "$SKIPPED"
@@ -292,11 +347,48 @@ SHIM
 	armg absent  o/r 1 'G-4 ON.*review-gated'   'guard AUTO-requires review for listed repo' "${G[@]}"
 	armg absent  'a/b o/r' 1 'G-4 ON.*review-gated' 'guard auto-on matches ANY list member' "${G[@]}"
 	armg absent  'a/b x/y' 0 'GO:'              'guard control: unlisted repos stay opt-in' "${G[@]}"
-	armg absent  '' 1 'G-4 ON.*review-gated'    'guard DEFAULT list covers the Svcapp slug'   --repo Bralabee/Ownerco_Svcapp_2026 --pr 1
+	armg absent  '' 1 'G-4 ON.*review-gated'    'guard DEFAULT list (canonical-only arm; vendored placeholder)' --repo Example-Org/example-repo --pr 1
 	armg absent  '' 1 'G-4 ON.*review-gated'    'guard DEFAULT list covers the dotfiles slug' --repo Bralabee/dotfiles --pr 1
-	armg absent  '' 1 'G-4 ON.*review-gated'    'guard compare is case-insensitive'         --repo bralabee/ownerco_svcapp_2026 --pr 1
+	armg absent  '' 1 'G-4 ON.*review-gated'    'guard compare is case-insensitive (vendored placeholder)' --repo example-org/example-repo --pr 1
 	armg absent  x/y 1 'G-4 ON.*review-gated'   'guard env ADDS, never drops the built-ins' --repo Bralabee/dotfiles --pr 1
 	armg garbage x/y 2 'VOID:'                  'guard G-4 VOIDs on unevaluable record'     "${G[@]}" --require-review
+
+	# ── G-2 arms (issue #249): a cancelled check-run superseded by a later success ──
+	# review-record.yml cancels each superseded `verdict` run; before this a PR whose
+	# last review round sat on its head with no fix commit after it could never pass
+	# G-2 (observed on #247: 8 "not green", every one a self-cancelled verdict).
+	# Fail direction FIRST: a cancelled run with NO successful successor stays red;
+	# a success followed by a LATER cancelled re-run is not superseded either.
+	CR_SUP='{"check_runs":[{"id":1,"name":"verdict","status":"completed","conclusion":"cancelled","started_at":"2026-09-23T12:08:11Z"},{"id":2,"name":"verdict","status":"completed","conclusion":"success","started_at":"2026-09-23T12:11:20Z"},{"id":3,"name":"verify","status":"completed","conclusion":"success","started_at":"2026-09-23T11:51:55Z"}]}'
+	CR_ALONE='{"check_runs":[{"id":1,"name":"verdict","status":"completed","conclusion":"cancelled","started_at":"2026-09-23T12:08:11Z"},{"id":3,"name":"verify","status":"completed","conclusion":"success","started_at":"2026-09-23T11:51:55Z"}]}'
+	CR_LATER='{"check_runs":[{"id":1,"name":"verdict","status":"completed","conclusion":"success","started_at":"2026-09-23T12:08:11Z"},{"id":2,"name":"verdict","status":"completed","conclusion":"cancelled","started_at":"2026-09-23T12:11:20Z"}]}'
+	CR_OTHER='{"check_runs":[{"id":1,"name":"verify","status":"completed","conclusion":"cancelled","started_at":"2026-09-23T12:08:11Z"},{"id":2,"name":"verdict","status":"completed","conclusion":"success","started_at":"2026-09-23T12:11:20Z"}]}'
+	for f in cansup canalone canlater canother; do mkfix "$f" "$EMPTY" "$EMPTY" "$EMPTY"; done
+	printf '%s' "$CR_SUP"   > "$WORK/cansup/checkruns.json"
+	printf '%s' "$CR_ALONE" > "$WORK/canalone/checkruns.json"
+	printf '%s' "$CR_LATER" > "$WORK/canlater/checkruns.json"
+	printf '%s' "$CR_OTHER" > "$WORK/canother/checkruns.json"
+	armg canalone x/y 1 'STOP: 1 check\(s\) not green' 'guard G-2: cancelled with no successor stays red' "${G[@]}"
+	armg canlater x/y 1 'STOP: 1 check\(s\) not green' 'guard G-2: cancelled AFTER the success is not superseded' "${G[@]}"
+	armg canother x/y 1 'STOP: 1 check\(s\) not green' 'guard G-2: a success of a DIFFERENT check supersedes nothing' "${G[@]}"
+	armg cansup   x/y 0 'superseded  : 1 cancelled run.*\(verdict\)' 'guard G-2: cancelled then later success -> superseded, printed, GO' "${G[@]}"
+	# #257 round 1: a run cancelled while still QUEUED has started_at null; `// ""`
+	# made it the EARLIEST time, so an OLDER success superseded it (false GO).
+	# Null falls back to check-run id order. And the successor may be any GREEN
+	# conclusion (G-2's own set), not success alone.
+	CR_NULLOLD='{"check_runs":[{"id":1,"name":"verdict","status":"completed","conclusion":"success","started_at":"2026-09-20T09:00:00Z"},{"id":2,"name":"verdict","status":"completed","conclusion":"cancelled","started_at":null}]}'
+	CR_NULLSUP='{"check_runs":[{"id":1,"name":"verdict","status":"completed","conclusion":"cancelled","started_at":null},{"id":2,"name":"verdict","status":"completed","conclusion":"success","started_at":"2026-09-23T12:11:20Z"}]}'
+	CR_NEUTRAL='{"check_runs":[{"id":1,"name":"verdict","status":"completed","conclusion":"cancelled","started_at":"2026-09-23T12:08:11Z"},{"id":2,"name":"verdict","status":"completed","conclusion":"neutral","started_at":"2026-09-23T12:11:20Z"}]}'
+	for f in cannullold cannullsup canneutral; do mkfix "$f" "$EMPTY" "$EMPTY" "$EMPTY"; done
+	printf '%s' "$CR_NULLOLD" > "$WORK/cannullold/checkruns.json"
+	printf '%s' "$CR_NULLSUP" > "$WORK/cannullsup/checkruns.json"
+	printf '%s' "$CR_NEUTRAL" > "$WORK/canneutral/checkruns.json"
+	armg cannullold x/y 1 'STOP: 1 check\(s\) not green' 'guard G-2: null started_at cancelled after an OLDER success stays red (no false GO)' "${G[@]}"
+	armg cannullsup x/y 0 'superseded  : 1 cancelled run.*\(verdict\)' 'guard G-2: queued-then-cancelled (null started_at) superseded by a later id -> GO' "${G[@]}"
+	armg canneutral x/y 0 'superseded  : 1 cancelled run.*\(verdict\)' 'guard G-2: a later neutral run supersedes too (the acceptance set, not success alone)' "${G[@]}"
+	# #257 round 1: the header grew and `sed -n '2,66p'` truncated --help mid-USAGE;
+	# the marker range (as this file uses) must print the header to its last section.
+	armg absent x/y 0 'PROVING IT WORKS' 'guard --help prints the whole header (marker range, not a line count)' -h
 
 	# ── ledger arms: review-repos.txt enrolls at call time, additively ───────────────
 	# Fail directions proven at introduction by a guard mutation (dropping
@@ -382,6 +474,27 @@ SHIM
 	# rc 64 is the gh SHIM's signature: the wrapper matched nothing and ran
 	# `command gh` — proof of clean fall-through, with no BLOCK in sight.
 	armw wrap/other 64 '!BLOCKED'                       'wrapper control: unenrolled falls through'
+	# #200: _dotdir resolved by ONE readlink hop regressed a CHAINED ~/.bashrc link. A
+	# scratch HOME whose .bashrc -> mid/.bashrc -> <scratch checkout>/bash/.bashrc; the
+	# scratch checkout carries a ledger enrolling wrap/chained and NO gate script, and
+	# DOTFILES_DIR / DOTFILES_REVIEW_REPOS_FILE are EMPTY, so the ledger is reachable only
+	# through the chain: BLOCK "review gate not found" proves the walk reached the checkout.
+	# The one-hop wrapper resolved $HOME/mid/.. = $HOME, found no ledger, and fell through
+	# to the shim (rc 64 — measured on the pre-fix .bashrc, 2026-10-01).
+	mkdir -p "$WORK/chk/bash" "$WORK/chk/gates" "$WORK/chome/mid"
+	cp "$WSRC" "$WORK/chk/bash/.bashrc"
+	printf 'wrap/chained\n' > "$WORK/chk/gates/review-repos.txt"
+	ln -s "$WORK/chk/bash/.bashrc" "$WORK/chome/mid/.bashrc"
+	ln -s mid/.bashrc "$WORK/chome/.bashrc"          # a RELATIVE target: resolved from the link's own directory
+	out=$(PATH="$WORK/bin:$PATH" bash -c "source '$WSRC' 2>/dev/null
+		HOME='$WORK/chome' DOTFILES_DIR= DOTFILES_REVIEW_REPOS_FILE= DOTFILES_REVIEW_REPOS='' \
+		DOTFILES_REPO_SLUG= DOTFILES_REVIEW_WAIVE= gh pr merge 1 -R wrap/chained" 2>&1); rc=$?
+	if [ "$rc" = 1 ] && grep -Eq 'BLOCKED — review gate not found' <<< "$out"; then
+		printf '  ok    %-44s rc=%s\n' 'wrapper walks a CHAINED ~/.bashrc link to the checkout' "$rc"; PASSED=$((PASSED+1))
+	else
+		printf '  NOT OK %-43s rc=%s (wanted rc=1 + review gate not found)\n' 'wrapper walks a CHAINED ~/.bashrc link to the checkout' "$rc"
+		FAILED=$((FAILED+1)); printf '%s\n' "$out" | sed 's/^/          /' | head -4
+	fi
 	# argv-shaped arms (PR #182 second review round). The target must be read
 	# the way pflag and cobra read it — `-R=x`, -R inside a shorthand bundle
 	# (`-dR x`, `-dRx`), a value-taking flag BEFORE the verb (`gh -t x pr merge`
@@ -636,36 +749,50 @@ if [ "$STATUS_VERDICT" -eq 1 ]; then
 	RECOUT=$(bash "${BASH_SOURCE[0]}" --repo "$REPO" --pr "$PR" 2>&1); rc=$?
 	case "$rc" in
 		0)
-			# FRESHNESS (#156 review, finding 2): a record is only good for the head
-			# it postdates — otherwise one review keeps the required status green
-			# for every later unreviewed push, the exact door this backstop closes.
-			# ISO-8601 strings compare lexically; rebases refresh committer dates.
-			# Reviews and inline comments go through fetch() (VOID, never silently
-			# empty); the marker scan is owner/member-filtered here too, so an
-			# outsider's marker cannot freshen a stale verdict.
-			HEAD_DATE=$(gh api "repos/$REPO/commits/$HEAD" 2>/dev/null | jq -r '.commit.committer.date // empty' 2>/dev/null)
-			[ -n "$HEAD_DATE" ] || void "cannot read head $HEAD's commit date — cannot judge record freshness"
+			# FRESHNESS (#156 review, finding 2; re-based on the HEAD by #269 items 1-2): a
+			# record is good only for the head it was made ON. Comparing timestamps with the
+			# head's COMMITTER date let a review of the previous head, landing between a
+			# local commit and its push, pass as fresh; and any inline comment — the PR
+			# author's own "fixed" reply on a finding thread included — freshened a stale
+			# head. So: an R-1 review counts for the head its commit_id names (a PENDING
+			# draft never), an R-2 inline comment for its original_commit_id ONLY (#291
+			# review finding 1): GitHub ADVANCES a comment's commit_id to the newest head
+			# while its line is not outdated — measured on dotfiles #281, 7 of 9 round-1
+			# comments made on f5a59f8038c4 read commit_id 5554ecfd30aa, the head ten
+			# commits later — so commit_id would let a round-1 finding, or the "fixed"
+			# reply on it, freshen an unreviewed fix head. A review's commit_id is NOT
+			# advanced (the same #281 reviews still name f5a59f8038c4), so R-1 keeps it.
+			# Both from record authors only (RECORD_AUTHOR); an R-3 marker (owner/member,
+			# non-waived) for the head it NAMES as `on <sha12>` — the resolution template's
+			# Review-Record line does. A marker naming NO head keeps the old rule, newer than
+			# the head's committer date, as the documented residue: it is owner-authored,
+			# and the timing it races is the owner's own. Reviews and inline comments go
+			# through fetch() (VOID, never silently empty).
+			H12="${HEAD:0:12}"
 			fetch "reviews" "repos/$REPO/pulls/$PR/reviews"
-			RTS=$(printf '%s' "$OUT" | jq -r '.[].submitted_at // empty')
+			RH=$(printf '%s' "$OUT" | jq --arg h "$HEAD" "[.[] | select($RECORD_AUTHOR) | select(.state != \"PENDING\") | select((.commit_id // \"\") == \$h)] | length" 2>/dev/null) || void "reviews unparseable — cannot judge record freshness"
 			fetch "inline comments" "repos/$REPO/pulls/$PR/comments"
-			ITS=$(printf '%s' "$OUT" | jq -r '.[].created_at // empty')
-			MTS=$(printf '%s' "$ISSUES_JSON" | jq -r \
-				'.[] | select(.author_association == "OWNER" or .author_association == "MEMBER")
-				 | select(.body | test("(^|\n)Review-Record:")) | select(.body | test("(^|\n)Review-Record: WAIVED") | not) | .created_at // empty')
-			NEWEST=$(printf '%s\n%s\n%s\n' "$RTS" "$ITS" "$MTS" | sed '/^$/d' | sort | tail -1)
-			if [ -z "$NEWEST" ]; then
-				# e.g. a PENDING review with no submitted_at (#158 f4): the waive
-				# is the documented recourse, so it must be able to win here too;
-				# without one this stays VOID (fail closed), not failure.
-				[ "$WAIVED_OK" -eq 1 ] && { printf 'success: un-timestamped record superseded by an owner/member WAIVE for head %s\n' "${HEAD:0:12}"; exit 0; }
-				void "records exist but none carries a timestamp — cannot judge freshness (waive this head to proceed)"
+			IH=$(printf '%s' "$OUT" | jq --arg h "$HEAD" "[.[] | select($RECORD_AUTHOR) | select((.original_commit_id // \"\") == \$h)] | length" 2>/dev/null) || void "inline comments unparseable — cannot judge record freshness"
+			MARKERS=$(printf '%s' "$ISSUES_JSON" | jq \
+				'[.[] | select(.author_association == "OWNER" or .author_association == "MEMBER")
+				 | select(.body | test("(^|\n)Review-Record:")) | select(.body | test("(^|\n)Review-Record: WAIVED") | not)]' 2>/dev/null) || void "marker comments unparseable — cannot judge record freshness"
+			MH=$(printf '%s' "$MARKERS" | jq --arg h "$H12" '[.[] | select(.body | test("(^|\n)Review-Record:[^\n]* on " + $h))] | length' 2>/dev/null) || void "marker head match failed"
+			if [ "${RH:-0}" -gt 0 ] || [ "${IH:-0}" -gt 0 ] || [ "${MH:-0}" -gt 0 ]; then
+				printf 'success: %s (made on head %s: %s review(s), %s inline comment(s), %s Review-Record comment(s))\n' "$(printf '%s' "$RECOUT" | tail -1)" "$H12" "${RH:-0}" "${IH:-0}" "${MH:-0}"
+				exit 0
 			fi
-			if [ "$NEWEST" \< "$HEAD_DATE" ]; then
-				fail_unless_waived \
-					"stale record superseded by an owner/member WAIVE for head ${HEAD:0:12} (head-scoped)" \
-					"the review record predates head ${HEAD:0:12} ($NEWEST < $HEAD_DATE) — re-review or waive this head"
+			MTS=$(printf '%s' "$MARKERS" | jq -r '.[] | select(.body | test("(^|\n)Review-Record:[^\n]* on [0-9a-f]{12}") | not) | .created_at // empty' 2>/dev/null | sed '/^$/d' | sort | tail -1)
+			if [ -n "$MTS" ]; then
+				HEAD_DATE=$(gh api "repos/$REPO/commits/$HEAD" 2>/dev/null | jq -r '.commit.committer.date // empty' 2>/dev/null)
+				[ -n "$HEAD_DATE" ] || void "cannot read head $HEAD's commit date — cannot judge the marker's freshness"
+				if [ ! "$MTS" \< "$HEAD_DATE" ]; then
+					printf 'success: %s (a Review-Record: comment naming no head, %s >= head %s — name the head as "on %s" to be exact)\n' "$(printf '%s' "$RECOUT" | tail -1)" "$MTS" "$HEAD_DATE" "$H12"
+					exit 0
+				fi
 			fi
-			printf 'success: %s (record %s >= head %s)\n' "$(printf '%s' "$RECOUT" | tail -1)" "$NEWEST" "$HEAD_DATE"
+			fail_unless_waived \
+				"stale record superseded by an owner/member WAIVE for head $H12 (head-scoped)" \
+				"the review record predates head $H12 — no review, inline comment or Review-Record: comment was made on it (R-1/R-2 by commit id, R-3 by 'on $H12'); re-review or waive this head"
 			exit 0 ;;
 		1)
 			fail_unless_waived \
@@ -720,7 +847,13 @@ fi
 if [ "$RESOLVE" -eq 1 ]; then
 	SEL=""
 	set -- "${MERGE_ARGS[@]:-}"
-	[ "${1:-}" = "pr" ] && [ "${2:-}" = "merge" ] && shift 2
+	# #280: `pr` and `merge` are stripped ONCE each — the leading verb pair, or the same
+	# two words after leading flags (`gh -R o/r pr merge 151`). A LATER `pr` or `merge`
+	# is a selector (a branch literally named so): `gh pr merge merge` used to drop it
+	# and resolve the CWD branch instead — a wrong-PR check is a false GO (reproduced
+	# with a fake gh in a downstream project's review).
+	_seen_pr=0; _seen_merge=0
+	[ "${1:-}" = "pr" ] && [ "${2:-}" = "merge" ] && { shift 2; _seen_pr=1; _seen_merge=1; }
 	while [ $# -gt 0 ]; do
 		case "$1" in
 			-b|--body|-F|--body-file|-t|--subject|-A|--author-email|--match-head-commit|-R|--repo)
@@ -744,7 +877,8 @@ if [ "$RESOLVE" -eq 1 ]; then
 					esac
 				done
 				if [ "$_take" -eq 1 ]; then shift 2 || break; else shift; fi ;;
-			pr|merge) shift ;;                   # stray subcommand words, defensively
+			pr)    if [ "$_seen_pr" -eq 0 ]; then _seen_pr=1; shift; else SEL="$1"; break; fi ;;
+			merge) if [ "$_seen_merge" -eq 0 ]; then _seen_merge=1; shift; else SEL="$1"; break; fi ;;
 			*) SEL="$1"; break ;;
 		esac
 	done
@@ -774,17 +908,17 @@ fi
 printf 'review-record-check  %s#%s\n' "$REPO" "$PR"
 
 fetch "reviews" "repos/$REPO/pulls/$PR/reviews"
-N=$(printf '%s' "$OUT" | jq 'length')
+N=$(printf '%s' "$OUT" | jq "[.[] | select($RECORD_AUTHOR)] | length")   # #279: OWNER/MEMBER or the Copilot bot, never any account
 if [ "$N" -gt 0 ]; then
-	WHO=$(printf '%s' "$OUT" | jq -r '.[0].user.login // "unknown"')
+	WHO=$(printf '%s' "$OUT" | jq -r "[.[] | select($RECORD_AUTHOR)][0].user.login // \"unknown\"")
 	printf 'GO: R-1: PR review present (%s review(s), first by %s)\n' "$N" "$WHO"
 	exit 0
 fi
 
 fetch "inline comments" "repos/$REPO/pulls/$PR/comments"
-N=$(printf '%s' "$OUT" | jq 'length')
+N=$(printf '%s' "$OUT" | jq "[.[] | select($RECORD_AUTHOR)] | length")   # #279 / #269 item 2: a reply from anyone else is chatter
 if [ "$N" -gt 0 ]; then
-	WHO=$(printf '%s' "$OUT" | jq -r '.[0].user.login // "unknown"')
+	WHO=$(printf '%s' "$OUT" | jq -r "[.[] | select($RECORD_AUTHOR)][0].user.login // \"unknown\"")
 	printf 'GO: R-2: inline review comment(s) present (%s, first by %s)\n' "$N" "$WHO"
 	exit 0
 fi
