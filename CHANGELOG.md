@@ -77,8 +77,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   version `mypy>=1.19,<2.0` actually resolves to, so the hook and the CI gate
   cannot disagree about what counts as an error.
 
-- **Config surface renamed to match the product (ADR-0011, V3.X-ROADMAP
-  LEGACY-SURFACE-DROP item 2).** `load_settings()` and
+- **Config surface renamed to match the product (ADR-0011).** `load_settings()` and
   `FabricDataOps.from_config()` now resolve `.sigantry.toml` by default, and
   settings env overrides use the `SIGANTRY_<SECTION>__<KEY>` prefix. Before
   this, the documented `.sigantry.toml` filename was read by nothing: an
@@ -136,6 +135,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   OSV database listed 37 advisories against 8 of its 94 pins. A lock that
   looks like a control but is never installed is worse than none. Python
   dependencies stay declared as ranges in `pyproject.toml`.
+- Internal documents are removed from `docs/`: the operator punch-list,
+  adoption plan and v3.x roadmap (the whole `docs/operator/` folder), the
+  1.x-to-2.0 migration guide, the related-work survey, and one deployment's
+  onboarding runbook. Two tests go with them: the migration guide's own
+  test, and a Pester test whose target script is not in this repository.
+  The committed `docs/Sigantry-User-Guide.pdf` and
+  `docs/Sigantry-Tutorials.pdf` are removed too; both covers read release
+  3.2.1. The Markdown stays the canonical source:
+  `scripts/userguide/render.py` and `scripts/tutorials/render.py` now write
+  to `build/docs/`, which is gitignored.
 
 ### Fixed
 - **`.github/workflows/drift-check.yml` failed every day.** Its `schedule:`

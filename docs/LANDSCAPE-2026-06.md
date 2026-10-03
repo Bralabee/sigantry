@@ -4,8 +4,7 @@
 PyPI, and GitHub; three parallel research passes covering official tooling, community tooling,
 and the raw Fabric API surface).
 **Sigantry version reviewed:** `3.0.0rc1` (master, post-PR-#102).
-**Companion document:** [`RELATED-WORK.md`](RELATED-WORK.md) benchmarks against one proprietary
-sibling tool; this document benchmarks against the official Microsoft and open-source ecosystem.
+**Scope:** this document benchmarks Sigantry against the official Microsoft and open-source ecosystem.
 **Addenda:** §8 re-verification (2026-06-17); §9 re-survey (2026-08-24, sigantry-core 3.4.1 —
 verdict stands, one §8 citation corrected).
 
@@ -223,7 +222,8 @@ All `[VERIFIED]` against Microsoft docs during the survey:
    operator-driven, audited, stateless idempotency. Evaluators will ask.
 6. **Do not expand thin CRUD verbs** — that lane is permanently lost to `fab`.
 7. **Watch items:** branched workspaces (Preview) likely removes the need to build a
-   feature-workspace lifecycle (the gap flagged in [`RELATED-WORK.md`](RELATED-WORK.md) section 2);
+   feature-workspace lifecycle (Sigantry has none today: `workspace bootstrap` will not
+   auto-create or auto-destroy a feature workspace);
    MCP/skills signal automation UX moving toward AI agents, which increases (not decreases)
    the need for an audit layer.
 

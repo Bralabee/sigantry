@@ -4,8 +4,8 @@
 # deploy -> smoke -> integration -> approval -> promote
 #
 # Renamed from sigantry-deploy-with-tests.yml on 2026-05-12 to match the
-# GHA half rename. See .github/workflows/sigantry-cd.yml header + the
-# OPERATOR-PUNCHLIST.md G3 closure record for context.
+# GHA half rename. See the .github/workflows/sigantry-cd.yml header for
+# context.
 #
 # Paired with .github/workflows/sigantry-cd.yml.
 # Parity enforced by scripts/ci/check-dual-ci-parity.py (Plan 10-06).

@@ -67,11 +67,11 @@ auto-update).
 Follows v3.2.0 (2026-06-11; `rbac-audit` workspace scoping and dated
 file output via `--out` / `--out-dir`). Third same-day release:
 follows v3.0.0 (first stable v3 release, shipped by operator directive
-with the remaining live-tenant UAT gates in `OPERATOR-PUNCHLIST.md`
+with the remaining live-tenant UAT gates
 rescoped to post-ship) and v3.1.0 (shim-window close per ADR-0011 --
 the legacy dists, import paths, and first-party legacy entry-point
 tables are gone; the registry's legacy-group dual-read remains as a
-grace window, removal tracked as V3.X-ROADMAP LEGACY-SURFACE-DROP).
+grace window, scheduled for removal).
 Distribution is via GitHub Release wheel assets while PyPI publish
-stays gated on the A-gates. See `docs/migration/2.x-to-3.0.md` for the
+stays gated. See `docs/migration/2.x-to-3.0.md` for the
 upgrade recipe and `CHANGELOG.md` for full release notes.

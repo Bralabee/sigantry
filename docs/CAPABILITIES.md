@@ -12,7 +12,7 @@ Each capability is labelled with one of:
 
 - **VERIFIED** -- confirmed against the live tool output and/or a falsifiability test in `tests/`.
 - **PARTIAL** -- the surface exists but is gated, deferred, or conditionally wired (e.g. requires an opt-in flag or a plugin not in the base distribution).
-- **OPEN** -- documented design that is NOT yet wired in code; tracked in [`../V3.X-ROADMAP.md`](operator/V3.X-ROADMAP.md) or [`../OPERATOR-PUNCHLIST.md`](operator/OPERATOR-PUNCHLIST.md).
+- **OPEN** -- documented design that is NOT yet wired in code; listed in [section 9](#9-what-is-not-yet-available).
 
 When a capability cites a test, you can falsify the claim by deleting the test file and re-running -- if the related code still passes spec, the test was load-bearing and the citation is honest; if not, the gap is real.
 
@@ -290,7 +290,7 @@ Run `sigantry sync apply --manifest sync.yml --workspace-id <id> --dry-run` to p
 - `--no-hint` -- suppress the operator hint trailer (CI-friendly).
 - `--environment` -- recorded in output for log scoping (informational only).
 
-**Behaviour:** D-24 metadata-only -- compares `display_name`, `type`, `folder_path`. Content-level drift is OUT of scope (tracked as a candidate enhancement in [`../V3.X-ROADMAP.md`](operator/V3.X-ROADMAP.md)).
+**Behaviour:** D-24 metadata-only -- compares `display_name`, `type`, `folder_path`. Content-level drift is OUT of scope (a candidate enhancement; see [section 9](#9-what-is-not-yet-available)).
 
 **Shared-workspace caveat:** on a workspace the manifest only partially governs, every ungoverned item counts as `+ added`, so `--fail-on-drift` is permanently red there. Scope it to fully-governed workspaces, or consume the JSON and alert on `removed`/`modified` only ([tutorial 03](tutorials/03-drift-detection.md)).
 
@@ -745,14 +745,14 @@ Honest scope documentation. None of these items block the capabilities listed ab
 
 | Item | Status | Tracked at |
 |---|---|---|
-| `sigantry-core` on PyPI | held | [`OPERATOR-PUNCHLIST.md`](operator/OPERATOR-PUNCHLIST.md) F1; gates on UAT closure + `PYPI_API_TOKEN` secret |
-| Public `sigantry/sigantry-starter` GitHub repo | held | [`OPERATOR-PUNCHLIST.md`](operator/OPERATOR-PUNCHLIST.md) A1, B1 |
-| Public `sigantry/demo-sigantry` GitHub repo | held | [`OPERATOR-PUNCHLIST.md`](operator/OPERATOR-PUNCHLIST.md) B2 |
-| Phase 18 NOTIFICATION-V2 (sinks via SEAM-04 plugin model, not stand-ins) | not started | [`V3.X-ROADMAP.md`](operator/V3.X-ROADMAP.md) Phase 18; soft-blocked on operator-bound Teams webhook E2E (PUNCHLIST C2) |
-| Phase 20 SHIM-DROP (delete `shim/` deprecation layer) | not started | [`V3.X-ROADMAP.md`](operator/V3.X-ROADMAP.md) Phase 20; hard-blocked on v3.0 PyPI publish + 60-day soak (ADR-0011) |
-| `--with-publish` + `manifest.folders[]` interaction (propagate preservation to fabric-cicd `_unpublish_folders`) | candidate | [`V3.X-ROADMAP.md`](operator/V3.X-ROADMAP.md) -- candidate enhancement noted in `docs/runbooks/sync/folder-preservation.md` |
-| Content-level drift in `sigantry diff` | by-design out of scope (D-24 metadata-only) | [`V3.X-ROADMAP.md`](operator/V3.X-ROADMAP.md) candidate |
-| Structured `--output json` for `sigantry sync apply` (deletion-plan inclusive) | candidate | [`V3.X-ROADMAP.md`](operator/V3.X-ROADMAP.md); current output is Rich console only |
+| `sigantry-core` on PyPI | held | maintainer release checklist (not in this repository); gates on UAT closure + `PYPI_API_TOKEN` secret |
+| Public `sigantry/sigantry-starter` GitHub repo | held | maintainer release checklist (not in this repository) |
+| Public `sigantry/demo-sigantry` GitHub repo | held | maintainer release checklist (not in this repository) |
+| Phase 18 NOTIFICATION-V2 (sinks via SEAM-04 plugin model, not stand-ins) | not started | maintainer roadmap (not in this repository); soft-blocked on an operator-run Teams webhook E2E |
+| Phase 20 SHIM-DROP (delete `shim/` deprecation layer) | not started | maintainer roadmap (not in this repository); hard-blocked on v3.0 PyPI publish + 60-day soak (ADR-0011) |
+| `--with-publish` + `manifest.folders[]` interaction (propagate preservation to fabric-cicd `_unpublish_folders`) | candidate | candidate enhancement noted in `docs/runbooks/sync/folder-preservation.md` |
+| Content-level drift in `sigantry diff` | by-design out of scope (D-24 metadata-only) | candidate enhancement |
+| Structured `--output json` for `sigantry sync apply` (deletion-plan inclusive) | candidate | current output is Rich console only |
 | `PrReviewBot` plugin slot (11th seam group) | reserved; no plugin yet | `sigantry_core/registry.py:60` |
 | `sigantry_core/purview/`, `pipelines/`, `utils/`, `monitor/config.py` | acknowledged placeholders | not in current scope; populated when a phase calls for them |
 | `--rename-in-content` on `fabric-item copy` | TODO(v2) -- deferred | `sigantry_core/deploy/item_copy.py` |
@@ -769,8 +769,6 @@ Live-tenant test failures: `tests/integration/{client,workspace}/test_live_*.py`
 - `CLAUDE.md` -- Project contract (env, conventions, gates)
 - [`CONSUMING.md`](CONSUMING.md) -- Consumer (operator) entry-point
 - [`CONTRIBUTING.md`](../CONTRIBUTING.md) -- Contributor entry-point
-- [`OPERATOR-PUNCHLIST.md`](operator/OPERATOR-PUNCHLIST.md) -- Operator-bound v3.0 ship gates
-- [`V3.X-ROADMAP.md`](operator/V3.X-ROADMAP.md) -- Post-v3.0 candidates + committed phases
 
 **Reference docs (`docs/reference/`):**
 
@@ -795,7 +793,6 @@ Live-tenant test failures: `tests/integration/{client,workspace}/test_live_*.py`
 - [`approval-gates/opa-quickstart.md`](runbooks/approval-gates/opa-quickstart.md) -- ApprovalGate via OPA
 - [`work-item-traceability/comment-rendering.md`](runbooks/work-item-traceability/comment-rendering.md) -- Phase 11 cross-provider rendering
 - [`pr-bot-operator.md`](runbooks/pr-bot-operator.md) -- PR-review bot
-- [`jtoye-onboarding-operator.md`](runbooks/jtoye-onboarding-operator.md) -- 2nd-customer onboarding
 - [`demo-tenant-operator.md`](runbooks/demo-tenant-operator.md) -- Public demo tenant
 
 **Architecture Decision Records (`docs/decisions/`):**
@@ -806,7 +803,6 @@ Live-tenant test failures: `tests/integration/{client,workspace}/test_live_*.py`
 
 **Migration recipes:**
 
-- [`migration/1.x-to-2.0.md`](migration/1.x-to-2.0.md) -- Phase 8 platform-base refactor
 - [`migration/2.x-to-3.0.md`](migration/2.x-to-3.0.md) -- v2 -> v3 rename + entry-point migration
 - [`migration/3.x-pr-bot.md`](migration/3.x-pr-bot.md) -- PR-bot adoption
 

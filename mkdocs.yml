@@ -59,7 +59,6 @@ nav:
     - Index: runbooks/INDEX.md
     - PR Bot Operator: runbooks/pr-bot-operator.md
     - OPA Approval Gate Quickstart: runbooks/approval-gates/opa-quickstart.md
-    - JToye Onboarding: runbooks/jtoye-onboarding-operator.md
     - Workspace bootstrap: runbooks/workspace-bootstrap-operator.md
     - Sync - apply: runbooks/sync/apply.md
     - Sync - pull: runbooks/sync/pull.md
@@ -81,7 +80,6 @@ nav:
   - Background:
     - Product brief: PRODUCT-BRIEF.md
     - Consuming Sigantry: CONSUMING.md
-    - Related work: RELATED-WORK.md
     - Ecosystem landscape (2026-06): LANDSCAPE-2026-06.md
   - API Reference:
     - Overview: api/index.md
@@ -95,7 +93,6 @@ nav:
     - sigantry_core.dq: api/dq.md
   - Migration:
     - 2.x -> 3.0: migration/2.x-to-3.0.md
-    - 1.x -> 2.0: migration/1.x-to-2.0.md
     - PR-bot migration: migration/3.x-pr-bot.md
   - Contributing: contributing.md
   - Release Process: release-process.md
