@@ -19,9 +19,9 @@
 `notification_sinks`, `secret_stores`, `approval_gates` (the 5 v3 seams).
 
 A recurring worry is that a customer plugin is "behind" core and must "catch up" by
-implementing the seams it lacks. (The reference customer plugin implements the 6 v2
-seams and none of the v3 seams; the second-customer scaffold implements 2 v3 seams as
-deliberate, forkable stubs.)
+implementing the seams it lacks. (Below, *the reference customer plugin* is the plugin
+whose review prompted this ADR, and *the second-customer scaffold* is a stub plugin
+started for a second tenant.)
 
 The worry rests on a false premise. **The v3 advancements already ship working,
 vendor-generic reference implementations inside `sigantry-core` itself**, verified in
@@ -155,6 +155,17 @@ is the executable half and is deliberately **not** added here, because turning i
 can red `main` and belongs with the rest of the enforcement-chain work. Any future
 change to which seams ship reference implementations must update that expected count
 in the same commit.
+
+**Amended (contract floor).** The floor now exists: `tests/ci/test_contract_floor.py` runs
+`tests/contract/` in a child pytest and fails unless exactly `CONTRACT_FLOOR` tests
+executed. Fewer means a skip, an error (at collection or fixture setup) or a removed
+test lowered the count; more means a contract test was added without raising the
+number. The plugin-distribution contract arms counted in the measurement above were
+removed from this tree in the same change (and the doctor test now uses an in-memory
+registry), so a clean runner executes every collected contract test: 94 of 94. The
+only skip conditions left in `tests/contract/` import the package itself or its
+runtime dependencies, so the count is the same on every CI leg. A change that adds or
+removes a contract test updates `CONTRACT_FLOOR` in the same commit.
 
 ## Related
 

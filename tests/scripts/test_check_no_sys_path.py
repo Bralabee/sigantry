@@ -6,9 +6,9 @@ Tokenize-based scanner MUST:
   * IGNORE matches inside docstrings, comments, and string literals.
   * IGNORE matches inside markdown / raw cells of a notebook.
   * SKIP excluded directories (.venv, build, .planning, etc.).
-  * Exit 0 on the canonical fabric-dataops repo (regression guard).
+  * Exit 0 on this repository (regression guard).
 
-Phase 8 Plan 08-04 sanitised the script's docstring: the AIMS-specific
+Phase 8 Plan 08-04 sanitised the script's docstring: a client-specific
 Pitfall-6 narrative was replaced with a vendor-agnostic description.
 test_docstring_sanitised asserts the narrative is gone while the
 sys.path topic + the scanner's public function signatures are
@@ -142,7 +142,7 @@ def test_py_comment_mention_ignored(tmp_path: Path) -> None:
 
 
 def test_this_repo_is_clean() -> None:
-    """REGRESSION GUARD: the fabric-dataops toolkit repo MUST pass clean.
+    """REGRESSION GUARD: this repository MUST pass clean.
 
     Resolves the repo root via `Path(__file__).parents[2]` -
     tests/scripts/test_check_no_sys_path.py -> parents[2] is the repo root.
@@ -155,19 +155,17 @@ def test_this_repo_is_clean() -> None:
 def test_docstring_sanitised() -> None:
     """PROD-14: scripts/ci/check-no-sys-path.py docstring is vendor-agnostic.
 
-    Phase 8 Plan 08-04 stripped the AIMS-specific Pitfall-6 narrative.
+    Phase 8 Plan 08-04 replaced a client-specific Pitfall-6 narrative.
     Asserts:
-      * Top-of-file docstring (first 30 lines) contains no 'AIMS',
-        'Pitfall', or 'aims_data_platform' literals.
+      * Top-of-file docstring (first 30 lines) carries no 'Pitfall' narrative
+        (organisation names are the repo-wide name gate's job).
       * The 'sys.path' topic is retained (the guardrail's purpose).
       * The module still exposes its scanning API unchanged.
     """
     script_path = Path(__file__).resolve().parents[2] / "scripts" / "ci" / "check-no-sys-path.py"
     header = "\n".join(script_path.read_text(encoding="utf-8").splitlines()[:30])
 
-    assert "AIMS" not in header, "AIMS must not appear in the docstring header"
     assert "Pitfall" not in header, "Pitfall narrative must not appear in docstring"
-    assert "aims_data_platform" not in header, "aims_data_platform must not appear in docstring"
     assert "sys.path" in header, "sys.path topic must be retained in docstring"
 
     # Behaviour-preservation smoke: module still exposes its public

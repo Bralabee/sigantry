@@ -53,6 +53,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   configures is actually invoked by CI, and that the artifact build depends on
   every quality job. A configured-but-unrun tool is worse than an absent one:
   the config advertises a gate that does not exist.
+- `tests/ci/test_contract_floor.py` pins how many seam contract tests run. It
+  runs `tests/contract/` in a child pytest and fails unless exactly
+  `CONTRACT_FLOOR` tests executed, so a skip, a removed test, or a new test
+  added without raising the number turns the suite red (ADR-0016). The
+  contract suite no longer carries arms for plugin distributions that are not
+  part of this repository; on a clean runner they always skipped.
 
 ### Changed
 - `ruff` now covers `scripts/` in CI alongside `sigantry_core/` and `tests/`.
@@ -132,6 +138,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pytest markers that nothing in this repository applies or selects are no
   longer declared, and the root `conftest.py` no longer ignores a smoke test
   file that does not exist.
+- `scripts/live-creds.template` and `scripts/discover_env_live.py` now name
+  the Fabric test-tenant values `SIGANTRY_FABRIC_TEST_TENANT_ID`,
+  `SIGANTRY_FABRIC_TEST_WORKSPACE_ID`, `SIGANTRY_FABRIC_TEST_CAPACITY_ID` and
+  `SIGANTRY_FABRIC_TEST_ENVIRONMENT_ID`, the prefix the template already used
+  for its other Fabric test values. The template now keeps only the service
+  principal values, the Fabric test-tenant values that `discover_env_live.py`
+  prints, and the demo-tenant values `docs/demo/QUICKSTART.md` uses. It drops
+  the variables of live tests that are not in this repository and the
+  `PYTEST_RUN_INTEGRATION` line, which nothing reads.
+  `discover_env_live.py --workspace-name` no longer has a default: without it,
+  no workspace is picked.
 
 ### Deprecated
 - `.fabric-dataops.toml` and the `FDT_` settings env prefix. Both are still

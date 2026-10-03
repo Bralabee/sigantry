@@ -1,6 +1,6 @@
 """Unit tests for :func:`sigantry_core.monitor.emit_telemetry`.
 
-Rewritten for Plan 08-02: direct-DI with ``InMemoryTelemetrySink``; no HS2
+Rewritten for Plan 08-02: direct-DI with ``InMemoryTelemetrySink``; no plugin
 env-var fixtures; no ``stream=`` kwarg.
 """
 
@@ -95,7 +95,7 @@ def test_emit_telemetry_strict_reraises() -> None:
 
 
 def test_emit_telemetry_has_no_stream_kwarg() -> None:
-    """The legacy HS2 ``stream="Custom-Hs2Deploy"`` kwarg is removed."""
+    """The legacy ``stream=`` kwarg (a Log Analytics stream name) is removed."""
     sig = inspect.signature(emit_telemetry)
     assert "stream" not in sig.parameters, (
         "emit_telemetry must not accept a `stream` kwarg; stream routing is "
@@ -103,18 +103,19 @@ def test_emit_telemetry_has_no_stream_kwarg() -> None:
     )
 
 
-def test_emit_module_reads_no_hs2_env_vars() -> None:
-    """``sigantry_core/monitor/emit.py`` contains no ``HS2_`` literal."""
+def test_emit_module_reads_no_env_vars() -> None:
+    """``sigantry_core/monitor/emit.py`` reads no environment variables (PROD-05)."""
     source = Path("sigantry_core/monitor/emit.py").read_text(encoding="utf-8")
-    assert "HS2_" not in source, (
-        "emit.py must not read HS2_* environment variables (PROD-05 HS2 strip)."
-    )
+    for needle in ("os.environ", "getenv("):
+        assert needle not in source, (
+            f"emit.py must not read environment variables; found {needle!r} (PROD-05)."
+        )
 
 
-def test_emit_module_has_no_custom_hs2_literal() -> None:
-    """``sigantry_core/monitor/emit.py`` contains no ``Custom-Hs2`` literal."""
+def test_emit_module_has_no_stream_literal() -> None:
+    """``sigantry_core/monitor/emit.py`` names no Log Analytics ``Custom-`` stream."""
     source = Path("sigantry_core/monitor/emit.py").read_text(encoding="utf-8")
-    assert "Custom-Hs2" not in source
+    assert "Custom-" not in source
 
 
 def test_emit_telemetry_properties_defaults_to_empty_dict() -> None:
