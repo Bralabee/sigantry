@@ -172,6 +172,35 @@ The `folders.blueprint` key references the catalog in
 Numbered prefixes guarantee Fabric UI top-to-bottom ordering matches
 pipeline-flow order.
 
+### Upgrading a workspace bootstrapped by 1.0.0
+
+sigantry 1.0.1 changed the folder names of both blueprints. Bootstrap
+never renames or deletes a folder, so re-running `minimal_starter` or
+`medallion` on a workspace that 1.0.0 bootstrapped creates the new
+folders beside the old ones. To keep the existing layout:
+
+1. List the workspace's top-level folder names (the Fabric portal, or
+   `GET /v1/workspaces/{id}/folders`).
+2. Replace `blueprint:` in `workspace.yml` with those names under
+   `folders.list`.
+3. Dry-run: `step_outcomes.folders` reads `already-converged`, and no
+   warning is printed.
+
+When a workspace already has top-level folders and none of its folders
+has a name from the blueprint, bootstrap warns before it creates the
+layout, in a dry run and in a real run:
+
+- stderr: one line beginning `sigantry: warning:`, giving the number of
+  top-level folders found and pointing at `folders.list`. It names no
+  folder.
+- stdout: the JSON report gains a `warnings` list holding the same text.
+  A run without a warning prints no `warnings` key.
+
+The warning never stops the run, because 1.0.0 allowed a first bootstrap
+into a workspace that already had folders. It compares the workspace only
+with the blueprint's own names, so it also fires for folders made by
+hand: read it, then either pin `folders.list` or carry on.
+
 ---
 
 ## 3. Running it
@@ -201,7 +230,10 @@ sigantry workspace bootstrap workspace.yml \
 
 Reads current tenant state, reports which steps WOULD fire, does NOT
 POST anything, does NOT append to `bootstraps.jsonl`. Output is JSON
-on stdout with `step_outcomes` showing per-step decisions.
+on stdout with `step_outcomes` showing per-step decisions, plus a
+`warnings` list when bootstrap would lay a blueprint out beside a
+workspace's existing folders (see
+[Upgrading a workspace bootstrapped by 1.0.0](#upgrading-a-workspace-bootstrapped-by-100)).
 
 ### 3.3 Real run
 

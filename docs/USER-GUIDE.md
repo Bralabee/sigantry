@@ -594,6 +594,17 @@ Two blueprints ship in the base package:
 Either blueprint can be replaced with an explicit `folders: list:` of
 folder names.
 
+**Upgrading from 1.0.0.** sigantry 1.0.1 changed the folder names of
+both blueprints. Bootstrap never renames or deletes a folder, so
+re-running a blueprint on a workspace that 1.0.0 bootstrapped creates
+the new folders beside the old ones. To keep the existing layout, list
+its folder names under `folders: list:` instead of naming a blueprint,
+then re-run. When a workspace already has top-level folders and none of
+its folders has a name from the blueprint, bootstrap warns before it
+creates the layout: a `sigantry: warning:` line on stderr and a
+`warnings` list in the JSON report. The dry run shows the same warning,
+so run it first.
+
 ### 9.2 Running it
 
 ```bash

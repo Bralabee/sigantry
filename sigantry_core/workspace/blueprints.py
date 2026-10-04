@@ -28,6 +28,12 @@ from typing import Final
 #: keep the Fabric workspace UI listing folders top-to-bottom in
 #: pipeline-flow order (control -> intake -> ... -> reporting), with shared
 #: code and retired items last.
+#:
+#: These names replace the ones sigantry 1.0.0 shipped (changed in 1.0.1).
+#: Bootstrap never renames or deletes a folder, so it warns when it would lay
+#: this layout out beside a workspace's existing folders; an operator keeps
+#: an existing layout by listing it under ``folders.list`` (see
+#: :mod:`sigantry_core.workspace.bootstrap`).
 _MINIMAL_STARTER: Final[tuple[str, ...]] = (
     "00_control",
     "10_intake",

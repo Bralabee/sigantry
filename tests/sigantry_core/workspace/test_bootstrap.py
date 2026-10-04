@@ -10,21 +10,27 @@ Coverage targets:
   every step that found existing state.
 - End-to-end mocked: each of the 5 steps is exercised in the right order.
 - Dry-run: no POSTs fire and no audit-log line is appended.
+- Existing-layout warning: a blueprint laid out beside a workspace's
+  unrelated top-level folders warns (library, stderr, JSON report) and
+  still creates; every other case stays silent.
 - CLI: schema error -> exit 2; runtime error -> exit 1.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from click.testing import Result
 from typer.testing import CliRunner
 
 from sigantry_core.cli import app
 from sigantry_core.workspace.bootstrap import (
     BootstrapConfig,
+    BootstrapResult,
     BootstrapValidationError,
     bootstrap_workspace,
     load_and_validate,
@@ -505,3 +511,280 @@ def test_cli_exit_2_on_schema_error(tmp_path: Path) -> None:
         ["workspace", "bootstrap", str(p)],
     )
     assert result.exit_code == 2
+
+
+# ---------------------------------------------------------------------------
+# Existing-layout warning: sigantry 1.0.1 changed the blueprint folder names
+# ---------------------------------------------------------------------------
+#
+# The folder names below are made up for these tests. The check compares a
+# workspace only with the blueprint's own names, so no test needs a name
+# from an earlier release.
+
+_UNRELATED = ("pre-existing-1", "pre-existing-2", "pre-existing-3")
+_NESTED = "pre-existing-1-child"
+_REPORT_KEYS_1_0_0 = {
+    "workspace_id",
+    "workspace_name",
+    "capacity_id",
+    "stage",
+    "blueprint",
+    "folders_present",
+    "step_outcomes",
+    "audit_hash",
+    "dry_run",
+}
+_BOOTSTRAP_LOGGER = "sigantry_core.workspace.bootstrap"
+
+
+def _folders(names: tuple[str, ...] | list[str], *, parent: str | None = None) -> list[Folder]:
+    return [
+        Folder(id=f"f-{n}", display_name=n, parent_folder_id=parent, workspace_id=_VALID_WORKSPACE)
+        for n in names
+    ]
+
+
+def _unrelated_layout() -> list[Folder]:
+    """Three top-level folders the blueprint does not know, one with a child."""
+    return _folders(_UNRELATED) + _folders([_NESTED], parent=f"f-{_UNRELATED[0]}")
+
+
+def _new_folder(c: object, w: str, *, display_name: str, parent_folder_id: str | None) -> Folder:
+    return Folder(
+        id=f"f-{display_name}", display_name=display_name, parent_folder_id=None, workspace_id=w
+    )
+
+
+def _run_on_existing_workspace(
+    tmp_path: Path,
+    stub_client: MagicMock,
+    cfg: BootstrapConfig,
+    listed: list[Folder],
+    **kwargs: object,
+) -> tuple[BootstrapResult, MagicMock]:
+    with (
+        patch(
+            "sigantry_core.workspace.bootstrap.list_workspaces",
+            return_value=iter([_make_workspace(cfg.workspace_name)]),
+        ),
+        patch(
+            "sigantry_core.workspace.bootstrap.get_workspace",
+            return_value=_make_workspace(cfg.workspace_name),
+        ),
+        patch("sigantry_core.workspace.bootstrap.list_folders", return_value=iter(listed)),
+        patch("sigantry_core.workspace.bootstrap.create_folder", side_effect=_new_folder) as cf,
+    ):
+        result = bootstrap_workspace(
+            cfg,
+            client=stub_client,
+            operator="op",
+            audit_dir=tmp_path,
+            **kwargs,  # type: ignore[arg-type]
+        )
+    return result, cf
+
+
+def _bootstrap_warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.name == _BOOTSTRAP_LOGGER and r.levelno >= logging.WARNING
+    ]
+
+
+def test_blueprint_beside_unrelated_folders_warns_and_still_creates(
+    tmp_path: Path, stub_client: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A blueprint laid out beside folders it does not know warns, never refuses."""
+    cfg = load_and_validate(_write_yaml(tmp_path, _minimal_yaml()))
+    caplog.set_level(logging.WARNING, logger=_BOOTSTRAP_LOGGER)
+
+    result, cf = _run_on_existing_workspace(tmp_path, stub_client, cfg, _unrelated_layout())
+
+    # Warn, not refuse: every blueprint folder is still created.
+    assert cf.call_count == len(cfg.folder_list) == 8
+    assert result.step_outcomes["folders"] == "created"
+    assert len(result.warnings) == 1
+    message = result.warnings[0]
+    assert "already has 3 top-level folders" in message  # the child is not counted
+    assert "blueprint 'minimal_starter'" in message
+    assert "bootstrap creates all 8 of the blueprint's folders" in message
+    assert "sigantry 1.0.1 changed the folder names" in message
+    assert f"folders.list in {cfg.path}" in message
+    # Name-free: the text names no folder, existing or new.
+    for name in (*_UNRELATED, _NESTED, *cfg.folder_list):
+        assert name not in message
+    # The default sink logs it at WARNING level.
+    assert _bootstrap_warnings(caplog) == [message]
+    # The audit record keeps its 1.0.0 shape.
+    assert "warnings" not in result.record.model_dump()
+
+
+def test_warning_reaches_on_warning_before_any_folder_is_created(
+    tmp_path: Path, stub_client: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    cfg = load_and_validate(_write_yaml(tmp_path, _minimal_yaml()))
+    caplog.set_level(logging.WARNING, logger=_BOOTSTRAP_LOGGER)
+    events: list[str] = []
+
+    def creating(c: object, w: str, *, display_name: str, parent_folder_id: str | None) -> Folder:
+        events.append("create")
+        return _new_folder(c, w, display_name=display_name, parent_folder_id=parent_folder_id)
+
+    with (
+        patch(
+            "sigantry_core.workspace.bootstrap.list_workspaces",
+            return_value=iter([_make_workspace("test-ws")]),
+        ),
+        patch(
+            "sigantry_core.workspace.bootstrap.get_workspace",
+            return_value=_make_workspace("test-ws"),
+        ),
+        patch(
+            "sigantry_core.workspace.bootstrap.list_folders",
+            return_value=iter(_unrelated_layout()),
+        ),
+        patch("sigantry_core.workspace.bootstrap.create_folder", side_effect=creating),
+    ):
+        result = bootstrap_workspace(
+            cfg,
+            client=stub_client,
+            operator="op",
+            audit_dir=tmp_path,
+            on_warning=lambda message: events.append(f"warn:{message}"),
+        )
+
+    assert events[0] == f"warn:{result.warnings[0]}"
+    assert events[1:] == ["create"] * 8
+    # A caller's sink replaces the default log line rather than adding to it.
+    assert _bootstrap_warnings(caplog) == []
+
+
+def test_no_warning_when_a_blueprint_folder_already_exists(
+    tmp_path: Path, stub_client: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    """One blueprint name among the folders means the layout is already in use."""
+    cfg = load_and_validate(_write_yaml(tmp_path, _minimal_yaml()))
+    caplog.set_level(logging.WARNING, logger=_BOOTSTRAP_LOGGER)
+    listed = _unrelated_layout() + _folders([cfg.folder_list[0]])
+
+    result, cf = _run_on_existing_workspace(tmp_path, stub_client, cfg, listed)
+
+    assert cf.call_count == 7
+    assert result.warnings == ()
+    assert _bootstrap_warnings(caplog) == []
+
+
+def test_no_warning_on_a_workspace_without_folders(
+    tmp_path: Path, stub_client: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    cfg = load_and_validate(_write_yaml(tmp_path, _minimal_yaml()))
+    caplog.set_level(logging.WARNING, logger=_BOOTSTRAP_LOGGER)
+
+    result, cf = _run_on_existing_workspace(tmp_path, stub_client, cfg, [])
+
+    assert cf.call_count == 8
+    assert result.warnings == ()
+    assert _bootstrap_warnings(caplog) == []
+
+
+def test_no_warning_for_an_explicit_folder_list(
+    tmp_path: Path, stub_client: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    """``folders.list`` names are the operator's own choice: nothing to warn about."""
+    body = f"""
+schema_version: "1.0"
+workspace:
+  name: test-ws
+  capacity_id: "{_VALID_CAPACITY}"
+folders:
+  list:
+    - "listed-a"
+    - "listed-b"
+"""
+    cfg = load_and_validate(_write_yaml(tmp_path, body))
+    caplog.set_level(logging.WARNING, logger=_BOOTSTRAP_LOGGER)
+
+    result, cf = _run_on_existing_workspace(tmp_path, stub_client, cfg, _unrelated_layout())
+
+    assert cf.call_count == 2
+    assert result.warnings == ()
+    assert _bootstrap_warnings(caplog) == []
+
+
+def test_dry_run_reports_the_warning_and_posts_nothing(
+    tmp_path: Path, stub_client: MagicMock
+) -> None:
+    cfg = load_and_validate(_write_yaml(tmp_path, _minimal_yaml()))
+    seen: list[str] = []
+
+    result, cf = _run_on_existing_workspace(
+        tmp_path, stub_client, cfg, _unrelated_layout(), dry_run=True, on_warning=seen.append
+    )
+
+    cf.assert_not_called()
+    assert result.dry_run is True
+    assert len(result.warnings) == 1
+    assert seen == list(result.warnings)
+    assert "bootstrap would create all 8 of the blueprint's folders" in result.warnings[0]
+    assert not (tmp_path / "bootstraps.jsonl").exists()
+
+
+def test_cli_prints_the_warning_on_stderr_and_in_the_report_only_when_it_fires(
+    tmp_path: Path,
+) -> None:
+    cfg_path = _write_yaml(tmp_path, _minimal_yaml())
+    cfg = load_and_validate(cfg_path)
+    client = MagicMock(name="FabricRestClient")
+    client.__enter__ = MagicMock(return_value=client)
+    client.__exit__ = MagicMock(return_value=None)
+
+    def invoke(listed: list[Folder], *extra: str) -> tuple[Result, MagicMock]:
+        with (
+            patch("sigantry_core.workspace.cli._client_factory", return_value=client),
+            patch(
+                "sigantry_core.workspace.bootstrap.list_workspaces",
+                return_value=iter([_make_workspace("test-ws")]),
+            ),
+            patch(
+                "sigantry_core.workspace.bootstrap.get_workspace",
+                return_value=_make_workspace("test-ws"),
+            ),
+            patch("sigantry_core.workspace.bootstrap.list_folders", return_value=iter(listed)),
+            patch("sigantry_core.workspace.bootstrap.create_folder", side_effect=_new_folder) as cf,
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "workspace",
+                    "bootstrap",
+                    str(cfg_path),
+                    "--audit-dir",
+                    str(tmp_path / "audit"),
+                    "--operator",
+                    "op",
+                    *extra,
+                ],
+            )
+        return result, cf
+
+    # The plan (dry run) and a real run both carry the warning, on stderr and
+    # in the JSON report, and the two say the same thing.
+    for extra, action in ((("--dry-run",), "would create"), ((), "creates")):
+        result, cf = invoke(_unrelated_layout(), *extra)
+        assert result.exit_code == 0, result.output
+        assert cf.call_count == (0 if extra else 8)
+        report = json.loads(result.stdout)
+        assert set(report) == _REPORT_KEYS_1_0_0 | {"warnings"}
+        assert len(report["warnings"]) == 1
+        assert f"bootstrap {action} all 8" in report["warnings"][0]
+        assert result.stderr == f"sigantry: warning: {report['warnings'][0]}\n"
+        for name in (*_UNRELATED, _NESTED):
+            assert name not in result.stderr
+
+    # A run that does not warn prints exactly what 1.0.0 printed.
+    result, cf = invoke(_folders(cfg.folder_list))
+    assert result.exit_code == 0, result.output
+    cf.assert_not_called()
+    assert result.stderr == ""
+    assert set(json.loads(result.stdout)) == _REPORT_KEYS_1_0_0

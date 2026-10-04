@@ -68,6 +68,11 @@ for the same layout), or `list:` declares explicit
 folder names. Full schema with every key, including Git wiring and stage markers:
 [workspace-bootstrap-operator.md](../runbooks/workspace-bootstrap-operator.md).
 
+sigantry 1.0.1 changed the blueprint folder names. If you point this tutorial at
+a workspace that sigantry 1.0.0 bootstrapped, list its existing folder names
+under `list:` instead, or bootstrap creates the new folders beside them; the
+dry run in Step 3 warns on stderr when that would happen.
+
 ## Step 3 — Dry-run: see what WOULD happen
 
 ```bash
