@@ -215,7 +215,7 @@ sequenceDiagram
 |---|---|
 | `--manifest` (req) | Path to `sync.yml`. |
 | `--workspace-id` (req) | Target Fabric workspace GUID. |
-| `--environment` | Optional `parameters.yml` environment label (reserved). |
+| `--environment` | The `parameters.yml` environment to publish with `--with-publish`; required there when `parameters.yml` names any environment beyond `_ALL_`. |
 | `--audit-dir` | Override `~/.sigantry/audit/`. |
 | `--dry-run` | Compute the plan; print to console; exit 0 without applying. |
 | `--with-publish` | Compose folder reconcile with `fabric-cicd.publish_all_items` for first-time items (Phase 17, ADR-0012 Option C). Requires `--params`. |

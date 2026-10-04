@@ -78,7 +78,7 @@ Notable gap on the Terraform side (as of 2026-06-11): no Variable Library resour
 
 ## Bug reports + features
 
-File issues and pull requests at <https://github.com/Bralabee/sigantry/issues>. Triage discipline lives in [CONTRIBUTING.md](../CONTRIBUTING.md).
+File issues at <https://github.com/Bralabee/sigantry/issues> and pull requests at <https://github.com/Bralabee/sigantry/pulls>. Triage discipline lives in [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## See also
 

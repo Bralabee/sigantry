@@ -61,7 +61,7 @@ def test_note_has_one_section_per_legacy_surface(guide_text: str) -> None:
         "SIGANTRY_<SECTION>__<KEY>",
         "FDT_",
         "DeprecationWarning",
-        "sed -i 's/fabric_dataops_toolkits/sigantry_core/g'",
+        r"'s/\bfabric_dataops_toolkits\b/sigantry_core/g'",
     ],
 )
 def test_note_names_old_and_new_forms(guide_text: str, token: str) -> None:
@@ -70,10 +70,13 @@ def test_note_names_old_and_new_forms(guide_text: str, token: str) -> None:
 
 def test_note_names_every_legacy_group_the_registry_reads(guide_text: str) -> None:
     """Derived from the registry, so a group added or dropped there fails here."""
-    groups = registry.Registry.known_legacy_groups()
+    groups = set(registry.Registry.known_legacy_groups())
     assert groups, "registry reports no legacy groups; the probe would be vacuous"
-    for group in groups:
-        assert group in guide_text, f"legacy group {group!r} is read but not documented"
+    named = set(re.findall(r"\bfabric_dataops_toolkits\.[a-z_]+\b", guide_text))
+    missing = sorted(groups - named)
+    assert not missing, f"legacy groups read but not documented: {missing}"
+    extra = sorted(named - groups)
+    assert not extra, f"legacy groups documented but no longer read: {extra}"
 
 
 _PIP_INSTALL = re.compile(r"\bpip3? install\b(?P<args>[^\n`]*)")
