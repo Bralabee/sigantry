@@ -1,6 +1,8 @@
 # sigantry-dual-ci-exception: ci-mechanics
 # Companion of review-record.yml (a GitHub commit-status gate with no Azure
-# DevOps counterpart). Its `name:` below must stay exactly as it is.
+# DevOps counterpart). Its `name:` below must stay exactly as it is. These
+# five lines are this repository's only change to the canonical file, and
+# issue numbers below (#291) refer to the canonical repository, not this one.
 # review-record-relay — turns a submitted PR review into a default-branch run of
 # review-record.yml (#291 review, finding 2).
 #
@@ -28,6 +30,6 @@ jobs:
     timeout-minutes: 1
     steps:
       - name: hand the event to review-record (workflow_run, default branch)
-        run: echo "review on PR #${PRNUM} -> review-record re-evaluates via workflow_run"
+        run: 'echo "review on PR #${PRNUM} -> review-record re-evaluates via workflow_run"'
         env:
           PRNUM: ${{ github.event.pull_request.number }}

@@ -39,9 +39,9 @@ def test_accepts_tag_ref(tmp_path: Path) -> None:
         """
         resources:
           repositories:
-            - repository: hs2Templates
+            - repository: sharedTemplates
               type: git
-              name: 'COE Fabric AIMS/fabric-dataops'
+              name: 'Analytics/pipeline-templates'
               ref: refs/tags/v0.5.0
         """,
     )
@@ -54,15 +54,15 @@ def test_rejects_branch_ref(tmp_path: Path) -> None:
         """
         resources:
           repositories:
-            - repository: hs2Templates
+            - repository: sharedTemplates
               type: git
-              name: 'COE Fabric AIMS/fabric-dataops'
+              name: 'Analytics/pipeline-templates'
               ref: refs/heads/master
         """,
     )
     issues = _mod.audit(p)
     assert len(issues) == 1
-    assert "hs2Templates" in issues[0]
+    assert "sharedTemplates" in issues[0]
     assert "refs/tags/" in issues[0]
 
 
@@ -73,14 +73,14 @@ def test_rejects_head_ref_as_default(tmp_path: Path) -> None:
         """
         resources:
           repositories:
-            - repository: hs2Templates
+            - repository: sharedTemplates
               type: git
-              name: 'COE Fabric AIMS/fabric-dataops'
+              name: 'Analytics/pipeline-templates'
         """,
     )
     issues = _mod.audit(p)
     assert len(issues) == 1
-    assert "hs2Templates" in issues[0]
+    assert "sharedTemplates" in issues[0]
     assert "refs/tags/" in issues[0]
 
 
@@ -104,15 +104,15 @@ def test_exempts_self_alongside_violator(tmp_path: Path) -> None:
         resources:
           repositories:
             - repository: self
-            - repository: hs2Templates
+            - repository: sharedTemplates
               type: git
-              name: 'COE Fabric AIMS/fabric-dataops'
+              name: 'Analytics/pipeline-templates'
               ref: refs/heads/master
         """,
     )
     issues = _mod.audit(p)
     assert len(issues) == 1
-    assert "hs2Templates" in issues[0]
+    assert "sharedTemplates" in issues[0]
 
 
 def test_reports_yaml_parse_error(tmp_path: Path) -> None:
@@ -162,9 +162,9 @@ def test_main_exits_zero_on_clean_repo(tmp_path: Path) -> None:
     )
     (tmp_path / "azure-pipelines.yml").write_text(
         "# sample\nresources:\n  repositories:\n"
-        "    - repository: hs2Templates\n"
+        "    - repository: sharedTemplates\n"
         "      type: git\n"
-        "      name: 'COE Fabric AIMS/fabric-dataops'\n"
+        "      name: 'Analytics/pipeline-templates'\n"
         "      ref: refs/tags/v0.5.0\n",
         encoding="utf-8",
     )
@@ -180,9 +180,9 @@ def test_main_exits_zero_on_clean_repo(tmp_path: Path) -> None:
 def test_main_exits_nonzero_on_branch_ref(tmp_path: Path) -> None:
     (tmp_path / "azure-pipelines.yml").write_text(
         "# sample\nresources:\n  repositories:\n"
-        "    - repository: hs2Templates\n"
+        "    - repository: sharedTemplates\n"
         "      type: git\n"
-        "      name: 'COE Fabric AIMS/fabric-dataops'\n"
+        "      name: 'Analytics/pipeline-templates'\n"
         "      ref: refs/heads/master\n",
         encoding="utf-8",
     )
@@ -200,9 +200,9 @@ def test_main_exits_nonzero_on_branch_ref(tmp_path: Path) -> None:
 def test_main_emits_ado_error_prefix(tmp_path: Path) -> None:
     (tmp_path / "azure-pipelines.yml").write_text(
         "# sample\nresources:\n  repositories:\n"
-        "    - repository: hs2Templates\n"
+        "    - repository: sharedTemplates\n"
         "      type: git\n"
-        "      name: 'COE Fabric AIMS/fabric-dataops'\n"
+        "      name: 'Analytics/pipeline-templates'\n"
         "      ref: refs/heads/master\n",
         encoding="utf-8",
     )

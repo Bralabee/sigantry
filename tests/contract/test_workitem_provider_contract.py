@@ -23,7 +23,6 @@ provider impls landing in Plans 11-04 / 11-05) are now fully resolved.
 
 from __future__ import annotations
 
-import importlib.util
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
@@ -72,24 +71,12 @@ def _github_provider() -> WorkItemProvider:
     )
 
 
-def _jtoye_provider() -> WorkItemProvider:
-    """Construct the sigantry-jtoye stub provider for contract battery (Plan 16-04).
-
-    Skipped when sigantry-jtoye is not editable-installed in the active
-    env. SEAM-05 closure proves multi-org plugin authorship works
-    against the Phase 11 WorkItemProvider seam.
-    """
-    pytest.importorskip("sigantry_jtoye.workitems")
-    from sigantry_jtoye.workitems import JtoyeWorkItemProvider
-
-    return JtoyeWorkItemProvider()
-
-
 # ---------------------------------------------------------------------------
 # Parametrised contract battery -- the lock on TRACE-01 / TRACE-02 / TRACE-03.
 # All three providers MUST pass via the shared ``fdt_work_item_provider_contract``
 # fixture. Adding a new provider to the seam means adding one factory above
-# and one entry to the parametrize list -- no other code changes.
+# and one entry to the parametrize list, then raising CONTRACT_FLOOR in
+# tests/ci/test_contract_floor.py by the number of tests added.
 # ---------------------------------------------------------------------------
 
 
@@ -99,14 +86,6 @@ def _jtoye_provider() -> WorkItemProvider:
         pytest.param(_fake_provider, id="fake"),
         pytest.param(_ado_provider, id="ado"),
         pytest.param(_github_provider, id="github"),
-        pytest.param(
-            _jtoye_provider,
-            id="jtoye",
-            marks=pytest.mark.skipif(
-                importlib.util.find_spec("sigantry_jtoye") is None,
-                reason="sigantry-jtoye not editable-installed in this env",
-            ),
-        ),
     ],
 )
 def test_provider_satisfies_contract(factory, fdt_work_item_provider_contract) -> None:
