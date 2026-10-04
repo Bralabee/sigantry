@@ -18,9 +18,8 @@ Locked decisions enforced here:
 * **D-24** (metadata-only modified): drift detection compares
   ``display_name``, ``type``, and ``folder_path`` -- never content
   (notebook bodies, pipeline definitions). Content-level drift is
-  deferred -- tracked as a candidate enhancement in
-  ``V3.X-ROADMAP.md``. Phase 13.5 BOOTSTRAP-XX shipped without
-  including it.
+  deferred as a candidate enhancement. Phase 13.5 BOOTSTRAP-XX shipped
+  without including it.
 * **D-09 / INTROSPECT-03**: a fresh :class:`WorkspaceSnapshot` is built
   on every invocation. No cross-run cache. Plan 13-04's apply engine
   does NOT call snapshot (W9 invariant); plan 13-06's diff engine DOES.

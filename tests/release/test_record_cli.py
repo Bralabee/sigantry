@@ -236,8 +236,8 @@ def test_record_invocation_with_github_token_envvar_falls_back(
 ) -> None:
     """``--github-pat`` resolves from the ``GITHUB_TOKEN`` env var when omitted.
 
-    Operators (and the Phase 16 ownerco live e2e) set ``GITHUB_TOKEN`` in the
-    process environment instead of threading a flag through every call.
+    Operators set ``GITHUB_TOKEN`` in the process environment instead of
+    threading a flag through every call.
     Mirrors the gh CLI / sigantry pr-bot convention.
     """
     captured_kwargs, fake_link_release = patched_github_provider

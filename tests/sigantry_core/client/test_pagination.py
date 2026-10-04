@@ -225,7 +225,7 @@ class TestMaxPages:
 
 
 class TestDuplicateContinuationToken:
-    """Defence-in-depth against a known Fabric API loop bug — same
+    """Defence-in-depth against a known Fabric API loop bug — the same
     continuationToken returned twice in the token-only fallback path.
     """
 

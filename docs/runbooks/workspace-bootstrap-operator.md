@@ -142,8 +142,8 @@ folders:
   blueprint: minimal_starter
   # OR:
   # list:
-  #   - "000_schedule"
-  #   - "100_landing"
+  #   - "00_control"
+  #   - "10_intake"
 
 git:
   enabled: false                         # required key; false = no Git wiring
@@ -166,7 +166,7 @@ The `folders.blueprint` key references the catalog in
 
 | Name | Folders |
 |---|---|
-| `minimal_starter` | `000_schedule / 100_landing / 200_lake / 300_curate / 400_serve / 500_dashboards / 999_packages / zz_parked` |
+| `minimal_starter` | `00_control / 10_intake / 20_storage / 30_transform / 40_semantic / 50_reporting / 90_shared / 99_retired` |
 | `medallion` | (alias for `minimal_starter`) |
 
 Numbered prefixes guarantee Fabric UI top-to-bottom ordering matches
@@ -242,8 +242,8 @@ The last line carries the JSON shape of `BootstrapRecord`:
   "stage": "DEV",
   "capacity_id": "<fabric-capacity-guid>",
   "blueprint": "minimal_starter",
-  "folders_created": ["000_schedule", "100_landing", ...],
-  "folders_present": ["000_schedule", ..., "zz_parked"],
+  "folders_created": ["00_control", "10_intake", ...],
+  "folders_present": ["00_control", ..., "99_retired"],
   "git_target": null,
   "step_outcomes": {
     "workspace": "created",

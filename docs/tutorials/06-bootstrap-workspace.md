@@ -62,8 +62,8 @@ git:
 ```
 
 Two folder strategies exist: `blueprint:` picks a named layout from the catalogue
-(`minimal_starter` = 8 folders in numbered pipeline-flow order, `000_schedule`
-through `500_dashboards` plus `999_packages` and `zz_parked`; `medallion` is an alias
+(`minimal_starter` = 8 folders in numbered pipeline-flow order, `00_control`
+through `50_reporting` plus `90_shared` and `99_retired`; `medallion` is an alias
 for the same layout), or `list:` declares explicit
 folder names. Full schema with every key, including Git wiring and stage markers:
 [workspace-bootstrap-operator.md](../runbooks/workspace-bootstrap-operator.md).

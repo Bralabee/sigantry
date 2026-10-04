@@ -34,8 +34,8 @@ from sigantry_core.workspace.folders import Folder
 
 runner = CliRunner()
 
-_VALID_CAPACITY = "99999999-9999-4999-8999-999999999999"
-_VALID_WORKSPACE = "99999999-9999-4999-8999-999999999999"
+_VALID_CAPACITY = "00000000-0000-4000-8000-000000000001"
+_VALID_WORKSPACE = "00000000-0000-4000-8000-000000000002"
 
 
 def _write_yaml(tmp_path: Path, body: str) -> Path:
@@ -83,7 +83,7 @@ def test_load_minimal_yaml(tmp_path: Path) -> None:
     assert cfg.git_enabled is False
     # minimal_starter has 8 folders.
     assert len(cfg.folder_list) == 8
-    assert cfg.folder_list[0] == "000_schedule"
+    assert cfg.folder_list[0] == "00_control"
 
 
 def test_load_missing_file(tmp_path: Path) -> None:
@@ -136,7 +136,7 @@ workspace:
 folders:
   blueprint: minimal_starter
   list:
-    - 100_landing
+    - 10_intake
 """
     with pytest.raises(BootstrapValidationError, match=r"folders|oneOf"):
         load_and_validate(_write_yaml(tmp_path, body))
@@ -150,12 +150,12 @@ workspace:
   capacity_id: "{_VALID_CAPACITY}"
 folders:
   list:
-    - "000_schedule"
-    - "100_landing"
+    - "00_control"
+    - "10_intake"
 """
     cfg = load_and_validate(_write_yaml(tmp_path, body))
     assert cfg.blueprint is None
-    assert cfg.folder_list == ("000_schedule", "100_landing")
+    assert cfg.folder_list == ("00_control", "10_intake")
 
 
 def test_feature_stage_requires_feature_branch(tmp_path: Path) -> None:

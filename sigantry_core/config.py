@@ -16,8 +16,7 @@ name a real settings section -- see :func:`_apply_env_overrides` for why that
 restriction is load-bearing rather than tidiness.
 
 Legacy surface, honoured for one more minor release with a
-``DeprecationWarning`` and then removed (ADR-0011; V3.X-ROADMAP
-LEGACY-SURFACE-DROP item 2):
+``DeprecationWarning`` and then removed (ADR-0011):
 
 - the config filename ``.fabric-dataops.toml``, read only when no
   ``.sigantry.toml`` is present;
@@ -79,13 +78,30 @@ class _SeamSubSettings(BaseModel):
 
 class CoreSettings(_SeamSubSettings):
     # Optional at the base level -- a greenfield consumer doing telemetry
-    # only does not need a tenant_id. Plugins that require it (AuthProvider,
-    # NimbusDeployProfile, etc.) validate it themselves at resolve time.
+    # only does not need a tenant_id. Plugins that require it (an AuthProvider,
+    # a DeployProfile, etc.) validate it themselves at resolve time.
     tenant_id: str | None = None
 
 
 class AuthSettings(_SeamSubSettings):
+    """Settings for the ``AuthProvider`` seam and the ``diagnose-auth`` doctor.
+
+    TOML namespace: ``[auth]``.
+
+    Fields
+    ------
+    provider : str | None
+        Registered ``AuthProvider`` plugin name (resolved by
+        ``FabricDataOps.from_config``).
+    expected_group : str | None
+        Expected Entra group display name for the ``diagnose-auth`` group
+        check (e.g. ``"fabric-deployers"``). ``None`` (the default) means the
+        check is reported as ``skipped``. Env:
+        ``SIGANTRY_AUTH__EXPECTED_GROUP``; the ``--expected-group`` flag wins.
+    """
+
     provider: str | None = None
+    expected_group: str | None = None
 
 
 class TelemetrySettings(_SeamSubSettings):

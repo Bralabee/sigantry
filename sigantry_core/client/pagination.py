@@ -9,8 +9,8 @@ because the server pre-applies any required query-string escaping.
 Power BI REST uses the OData convention ``@odata.nextLink`` on the response
 body. The link is an absolute URL that callers GET as-is.
 
-This module unifies both shapes behind a single generator so Plan 02-03's
-Fabric and Power BI subclasses share one implementation. Preference order
+This module unifies both shapes behind a single generator so the Fabric and
+Power BI client subclasses share one implementation. Preference order
 for the next page URL is:
 
 1. ``continuationUri`` (Fabric, pre-formatted)
@@ -29,7 +29,6 @@ Hard caps:
 Spec references:
 - learn.microsoft.com/en-us/rest/api/fabric/articles/pagination
 - learn.microsoft.com/en-us/rest/api/power-bi/ (search "@odata.nextLink")
-- .planning/phases/02-rest-api-client-layer/02-RESEARCH.md Pattern 4
 """
 
 from __future__ import annotations
@@ -144,7 +143,7 @@ def paginate(
 
         if fabric_token:
             # Defence in depth against a known Fabric API loop bug: if the
-            # service hands us the same continuationToken twice in a row,
+            # service hands back a continuationToken it has already issued,
             # we'd otherwise spin until MAX_PAGES (~50K items) trips.
             if fabric_token in seen_tokens:
                 raise PaginationError(

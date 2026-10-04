@@ -13,33 +13,34 @@ never error or drift.
 
 Design notes:
 
-- Numbered medallion folder convention (000_schedule /
-  100_landing / ... / 999_packages / zz_parked). Shipped as the
-  ``minimal_starter`` blueprint in :mod:`.blueprints`.
-- Stage-marker regex (``[DEV]`` / ``[TEST]`` / ``[PROD]`` /
-  ``[F] [FEATURE-branch]``). Workspace display names are stage-marked at
-  bootstrap time when the operator opts in.
-- jsonschema validation at parse time. Schema is shipped
-  as a Python literal here (operator-readable error messages, no runtime
-  filesystem dependency on a separate ``schemas/workspace.json``).
+- Folder layouts come from a named blueprint in :mod:`.blueprints`
+  (``minimal_starter``: ``00_control`` / ``10_intake`` / ... /
+  ``99_retired``) or from an explicit ``folders.list``.
+- Stage markers (``[DEV]`` / ``[TEST]`` / ``[PREPROD]`` / ``[PROD]`` /
+  ``[F] <branch>``) prefix the workspace display name at bootstrap time
+  when the operator opts in.
+- ``workspace.yml`` is validated with jsonschema at parse time. The schema
+  is shipped as a Python literal here (operator-readable error messages, no
+  runtime filesystem dependency on a separate ``schemas/workspace.json``).
 
-Prerequisites already on master (verified 2026-04-30):
+Related primitives:
 
 - :func:`sigantry_core.workspace.core.delete_workspace` accepts
-  ``pbi_fallback=True`` for safe rollback (gotcha #6 fix, commit e73c015).
+  ``pbi_fallback=True``: when the Fabric DELETE fails with the transient
+  ``UnknownError``, it retries through the Power BI API.
 - :func:`sigantry_core.deploy.git_integration.connect_or_reconnect` handles
-  disconnect-before-reconnect on Git binding mismatch (gotcha #12 fix,
-  commit 4bef215). Used unchanged for step 4.
-- :func:`sigantry_core.client.pagination.paginate` detects duplicate
-  ``continuationToken`` (gotcha #10 fix, commit ba6fc15). Used implicitly
-  by ``list_folders`` for the probe step.
+  disconnect-before-reconnect on Git binding mismatch. Used unchanged for
+  step 4.
+- :func:`sigantry_core.client.pagination.paginate` refuses to follow a
+  ``continuationToken`` it has already followed. Used implicitly by
+  ``list_folders`` for the probe step.
 
 Out of scope (deferred):
 
 - Multi-stage Dev/Test/Prod/Pipeline orchestration ("onboard" verb).
 - Branch-isolated ``feature-workspace`` lifecycle (auto-create/auto-destroy).
-- Pipeline user management (Power BI API surface, gotcha #7).
-- Native deployment-pipeline integration (gotchas #4 + #5).
+- Pipeline user management (Power BI API surface).
+- Native deployment-pipeline integration.
 """
 
 from __future__ import annotations
@@ -84,8 +85,8 @@ logger = logging.getLogger("sigantry_core.workspace.bootstrap")
 #:   "Additional properties not allowed" rather than silently passing.
 #: - ``schema_version`` is required + literal ``"1.0"`` -- gives us a
 #:   forward-compat hook when v2 lands.
-#: - ``workspace.stage`` is the conventional set + free-form fallback
-#:   ``FEATURE`` (the ``[F]`` branch-isolated case Marker for §4 item 5).
+#: - ``workspace.stage`` is the conventional set plus ``FEATURE``
+#:   (the ``[F]`` branch-isolated case).
 #: - ``folders.blueprint`` and ``folders.list`` are mutually-exclusive
 #:   (``oneOf``); if both supplied, validation fails.
 #: - ``git.enabled`` is required at the ``git`` block level. When ``true``,
@@ -178,7 +179,7 @@ WORKSPACE_SCHEMA: Final[dict[str, Any]] = {
     },
 }
 
-#: Stage-marker prefixes.
+#: Stage-marker prefixes, applied when ``stage_marker_in_name`` is true.
 _STAGE_MARKERS: Final[dict[str, str]] = {
     "DEV": "[DEV]",
     "TEST": "[TEST]",
@@ -442,7 +443,7 @@ def _ensure_git(
     client: FabricRestClient, workspace: Workspace, config: BootstrapConfig
 ) -> StepOutcome:
     """Step 4: Git binding matches manifest. ``connect_or_reconnect`` is
-    already idempotent (gotcha #12 fix); we just translate its return
+    already idempotent; we just translate its return
     value to a :data:`StepOutcome`."""
     if not config.git_enabled or config.git_target is None:
         return "skipped"

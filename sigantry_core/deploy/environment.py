@@ -203,7 +203,7 @@ def sync_wheel(
 def _wheel_pkg_name(filename: str) -> str:
     """Normalised distribution name from a wheel filename.
 
-    ``quality_suite-2.2.0-py3-none-any.whl`` -> ``fabric-data-quality``.
+    ``quality_gate-2.2.0-py3-none-any.whl`` -> ``quality-gate``.
     The name is everything before the first ``-`` segment that starts with a
     digit (the version), lowercased with underscores normalised to hyphens so
     ``2.1.2`` and ``2.2.0`` of the same package compare equal.

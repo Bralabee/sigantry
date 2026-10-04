@@ -47,10 +47,6 @@ azure-credentials.json
 service-principal.json
 local.settings.json
 
-# Syncclient
-.syncclientdl/
-*.syncclientdl
-
 # Phase 0 — committed sample attestations (redacted)
 !docs/00-prerequisites/evidence/samples/
 !docs/00-prerequisites/evidence/samples/**

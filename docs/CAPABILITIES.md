@@ -189,7 +189,7 @@ sequenceDiagram
 
 **Available blueprints** (verified in `sigantry_core/workspace/blueprints.py`):
 
-- `minimal_starter` -- 8 folders in numbered pipeline-flow order: `000_schedule`, `100_landing`, `200_lake`, `300_curate`, `400_serve`, `500_dashboards`, `999_packages`, `zz_parked`.
+- `minimal_starter` -- 8 folders in numbered pipeline-flow order: `00_control`, `10_intake`, `20_storage`, `30_transform`, `40_semantic`, `50_reporting`, `90_shared`, `99_retired`.
 - `medallion` -- alias for the identical `minimal_starter` layout (for operators who prefer the medallion framing; there are no bronze/silver/gold folders). [VERIFIED 2026-06-11]
 
 **Test pinning:** 40 unit tests across `tests/sigantry_core/workspace/test_bootstrap.py` (23 -- step probe logic), `tests/sigantry_core/workspace/test_records.py` (12 -- `BootstrapRecord` shape + audit-hash invariant), `tests/sigantry_core/workspace/test_blueprints.py` (5 -- blueprint catalog). [VERIFIED 2026-05-12]

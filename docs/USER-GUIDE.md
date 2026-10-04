@@ -259,8 +259,8 @@ before installing.
 ### 4.1 Python runtime
 
 You need **Python 3.11 or newer**: `requires-python` is `>=3.11` with no
-upper bound, and 3.11, 3.12 and 3.13 are all declared supported. Python
-3.10 will refuse the install (`requires-python` mismatch).
+upper bound, and CI tests 3.11 and 3.12. Python 3.10 will refuse the
+install (`requires-python` mismatch).
 
 The recommended path is a dedicated Conda environment, mirroring how
 the development team works:
@@ -601,8 +601,8 @@ git:
 Two blueprints ship in the base package:
 
 - **`minimal_starter`** -- 8 folders in numbered pipeline-flow order:
-  `000_schedule`, `100_landing`, `200_lake`, `300_curate`,
-  `400_serve`, `500_dashboards`, `999_packages`, `zz_parked`. The
+  `00_control`, `10_intake`, `20_storage`, `30_transform`,
+  `40_semantic`, `50_reporting`, `90_shared`, `99_retired`. The
   numbering keeps the Fabric UI listing folders in flow order.
 - **`medallion`** -- an alias for the identical `minimal_starter`
   layout, for operators who prefer that framing. There are no

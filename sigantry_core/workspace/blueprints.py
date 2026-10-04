@@ -4,9 +4,8 @@ A blueprint is a named folder layout an operator can reference by string
 in ``workspace.yml`` instead of enumerating folders by hand.
 
 Each blueprint is a list of top-level folder display-names. Sub-folders
-are not yet first-class -- the medallion convention is one-level-deep by
-design (operator-friendly default; deeper nesting is opt-out via explicit
-``folders:`` lists).
+are not first-class: bootstrap creates every folder, from a blueprint or
+from an explicit ``folders.list``, at the workspace root.
 
 Adding a blueprint:
 
@@ -17,7 +16,7 @@ Adding a blueprint:
 
 Blueprints are intentionally small + readable here rather than loaded from
 YAML on disk -- the catalog is part of the toolkit's documented surface.
-Per-customer override is via the explicit ``folders:`` list in
+Per-workspace override is via an explicit ``folders.list`` in
 ``workspace.yml`` (see :mod:`sigantry_core.workspace.bootstrap`).
 """
 
@@ -25,18 +24,19 @@ from __future__ import annotations
 
 from typing import Final
 
-#: Numbered-medallion default.
-#: Order is preserved so the Fabric workspace UI lists folders top-to-bottom
-#: in pipeline-flow order (orchestrate -> ingest -> ... -> visualise).
+#: Numbered default layout. Order is preserved, and the two-digit prefixes
+#: keep the Fabric workspace UI listing folders top-to-bottom in
+#: pipeline-flow order (control -> intake -> ... -> reporting), with shared
+#: code and retired items last.
 _MINIMAL_STARTER: Final[tuple[str, ...]] = (
-    "000_schedule",
-    "100_landing",
-    "200_lake",
-    "300_curate",
-    "400_serve",
-    "500_dashboards",
-    "999_packages",
-    "zz_parked",
+    "00_control",
+    "10_intake",
+    "20_storage",
+    "30_transform",
+    "40_semantic",
+    "50_reporting",
+    "90_shared",
+    "99_retired",
 )
 
 #: Light alias for operators who prefer the "medallion" framing literal.

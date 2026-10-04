@@ -126,7 +126,7 @@ sigantry workspace bootstrap workspace.yml
 ## Documentation
 
 Full documentation, architecture guides, and step-by-step tutorials are available at:
-👉 **[https://bralabee.github.io/sigantry](https://bralabee.github.io/sigantry)**
+👉 **[https://github.com/Bralabee/sigantry/tree/main/docs](https://github.com/Bralabee/sigantry/tree/main/docs)**
 
 ---
 

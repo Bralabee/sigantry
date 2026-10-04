@@ -226,7 +226,7 @@ class TestStatusConnection:
 
 
 class TestConnectOrReconnect:
-    """Gotcha #12 — disconnect-before-reconnect when desired target differs from
+    """Disconnect-before-reconnect when the desired target differs from the
     current binding.
     """
 
