@@ -263,7 +263,30 @@ class TestExpectedGroup:
         assert result.exit_code == 0, result.output
         assert json.loads(result.stdout)["entra_groups"]["expected"] == _GROUP
 
-    def test_unreadable_settings_file_warns_and_skips(
+    def test_unreadable_settings_file_reports_error_not_skipped(
+        self,
+        runner: CliRunner,
+        respx_router: respx.MockRouter,
+        fake_jwt: str,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        # The env value is lost when the file fails to parse, so the group is
+        # unknown, not unset: a configured check must not turn into a skip.
+        monkeypatch.setenv("SIGANTRY_AUTH__EXPECTED_GROUP", _GROUP)
+        (tmp_path / ".sigantry.toml").write_text("[auth\n", encoding="utf-8")
+        route = _member_of(respx_router, [_GROUP])
+        with caplog.at_level(logging.WARNING, logger="sigantry_core.auth.cli"):
+            result = _invoke_live(runner, fake_jwt, ["--output", "json"])
+        assert result.exit_code == 2, result.output
+        groups = json.loads(result.stdout)["entra_groups"]
+        assert groups["status"] == "error"
+        assert groups["detail"].startswith("not checked: settings could not be loaded")
+        assert not route.called
+        assert "Could not load Sigantry settings" in caplog.text
+
+    def test_flag_needs_no_settings_file(
         self,
         runner: CliRunner,
         respx_router: respx.MockRouter,
@@ -274,11 +297,46 @@ class TestExpectedGroup:
         (tmp_path / ".sigantry.toml").write_text("[auth\n", encoding="utf-8")
         route = _member_of(respx_router, [_GROUP])
         with caplog.at_level(logging.WARNING, logger="sigantry_core.auth.cli"):
-            result = _invoke_live(runner, fake_jwt, ["--output", "json"])
+            result = _invoke_live(
+                runner, fake_jwt, ["--output", "json", "--expected-group", _GROUP]
+            )
         assert result.exit_code == 0, result.output
-        assert json.loads(result.stdout)["entra_groups"]["status"] == "skipped"
-        assert not route.called
-        assert "Could not load Sigantry settings" in caplog.text
+        assert json.loads(result.stdout)["entra_groups"]["status"] == "ok"
+        assert route.called
+        assert "Could not load Sigantry settings" not in caplog.text
+
+    @pytest.mark.parametrize(
+        "name",
+        ["[prod] deployers", "team[/old]", "g" * 120],
+        ids=["markup-tag", "closing-tag", "long"],
+    )
+    def test_group_name_survives_json_output_exactly(
+        self,
+        runner: CliRunner,
+        respx_router: respx.MockRouter,
+        fake_jwt: str,
+        name: str,
+    ) -> None:
+        _member_of(respx_router, [name])
+        result = _invoke_live(runner, fake_jwt, ["--output", "json", "--expected-group", name])
+        assert result.exit_code == 0, result.output
+        groups = json.loads(result.stdout)["entra_groups"]
+        assert groups["expected"] == name
+        assert groups["status"] == "ok"
+
+    @pytest.mark.parametrize("name", ["[prod] deployers", "team[/old]"])
+    def test_group_name_survives_table_output(
+        self,
+        runner: CliRunner,
+        respx_router: respx.MockRouter,
+        fake_jwt: str,
+        name: str,
+    ) -> None:
+        _member_of(respx_router, ["someone-else"])
+        result = _invoke_live(runner, fake_jwt, ["--output", "table", "--expected-group", name])
+        assert result.exit_code == 2, result.output
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+        assert name in result.stdout
 
     def test_settings_are_not_read_outside_the_fabric_scope(
         self,

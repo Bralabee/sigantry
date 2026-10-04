@@ -106,9 +106,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hard-coded name. Set it with `--expected-group`, `[auth] expected_group` in
   `.sigantry.toml`, or `SIGANTRY_AUTH__EXPECTED_GROUP` (the flag wins). With
   none set, the group check is reported as `skipped`, sends no Graph request
-  and does not change the exit code; an unreadable settings file is logged as
-  a warning and treated as unset. `check_entra_group()` no longer has a
-  default group, and the `ExpectedEntraGroup` constant is gone.
+  and does not change the exit code. If the settings cannot be loaded and no
+  `--expected-group` is given, the check is reported as `error` (exit code 2)
+  rather than skipped, because a group set in the environment is lost when the
+  file fails to parse. The command also prints values literally: a group name
+  containing square brackets no longer loses text or crashes the output, and
+  `--output json` no longer wraps long lines inside JSON strings.
 - **Workspace bootstrap creates new folder names for the `minimal_starter`
   and `medallion` blueprints:** `00_control`, `10_intake`, `20_storage`,
   `30_transform`, `40_semantic`, `50_reporting`, `90_shared` and
@@ -171,6 +174,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   3.2.1. The Markdown stays the canonical source:
   `scripts/userguide/render.py` and `scripts/tutorials/render.py` now write
   to `build/docs/`, which is gitignored.
+- `sigantry_core.auth.diagnose.ExpectedEntraGroup`, and the default group of
+  `check_entra_group()`. Both carried one deployment's group name; pass
+  `expected_group=`, or configure the group as described under Changed.
 
 ### Fixed
 - **`.github/workflows/drift-check.yml` failed every day.** Its `schedule:`
