@@ -449,6 +449,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for that commit. A pull request from this repository can still add a new
   workflow of its own that asks for `statuses: write`; no file here can
   prevent that.
+- **A record comment that named no commit could still pass `review-record`.**
+  The vendored `scripts/gates/review-record-check.sh` accepted a
+  `Review-Record:` comment that did not name the head as `on <12-hex SHA>`
+  (including one naming another commit by a 7-character SHA) whenever the
+  comment was newer than the head commit's committer date. That date is set by
+  whoever makes the commit, so a contributor could push a back-dated,
+  unreviewed commit after any such comment and the status would pass. Such a
+  comment now counts for nothing: only a review or inline comment made on the
+  head, or a record comment naming it as `on <12-hex SHA>`, counts. Copilot
+  reviews now count only from the `copilot-pull-request-reviewer[bot]` account
+  of type `Bot`; the plain `copilot-pull-request-reviewer` login belongs to a
+  separate organization account and no longer counts.
 
 ### Known remaining
 - Among the `pip install` and dependency lines under `docs/`, the dependency
