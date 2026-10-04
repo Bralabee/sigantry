@@ -25,7 +25,8 @@ Three kinds of fixtures are exposed:
   the three standard protocol assertions for that seam.
 * **Settings TOML fixture** (``fdt_settings_toml``) stages a tmp-path
   ``.fabric-dataops.toml`` with configurable plugin sections for tests
-  that exercise ``FabricDataOps.from_config`` end-to-end.
+  that exercise ``FabricDataOps.from_config`` end-to-end, plus a
+  byte-identical ``.sigantry.toml`` beside it.
 """
 
 from __future__ import annotations
@@ -37,6 +38,7 @@ from typing import Any
 
 import pytest
 
+from sigantry_core.config import _CONFIG_FILENAME, _LEGACY_CONFIG_FILENAME
 from sigantry_core.protocols import (
     AuthProvider,
     CapacityAction,
@@ -132,7 +134,14 @@ def fdt_fake_work_item_provider() -> FakeWorkItemProvider:
 
 @pytest.fixture
 def fdt_settings_toml(tmp_path: Path) -> Callable[..., Path]:
-    """Factory fixture: write a ``.fabric-dataops.toml`` at ``tmp_path``.
+    """Factory fixture: write the legacy config file at ``tmp_path``.
+
+    It also writes ``.sigantry.toml`` with the same bytes, and returns the
+    legacy file's path, as it did in 1.0.0. A test that changes into
+    ``tmp_path`` and loads settings with no path then finds two identical
+    files, which the loader reads without a warning. With the legacy file
+    alone it would raise a ``DeprecationWarning``, and fail a suite run with
+    ``-W error::DeprecationWarning`` that passed on 1.0.0.
 
     Usage::
 
@@ -165,8 +174,10 @@ def fdt_settings_toml(tmp_path: Path) -> Callable[..., Path]:
                     for sub_k, sub_v in v.items():
                         lines.append(f'{sub_k} = "{sub_v}"')
 
-        path = tmp_path / ".fabric-dataops.toml"
-        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        content = ("\n".join(lines) + "\n").encode("utf-8")
+        path = tmp_path / _LEGACY_CONFIG_FILENAME
+        path.write_bytes(content)
+        (tmp_path / _CONFIG_FILENAME).write_bytes(content)
         # Round-trip validates the produced TOML parses cleanly.
         tomllib.loads(path.read_text(encoding="utf-8"))
         return path

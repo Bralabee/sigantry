@@ -90,8 +90,10 @@ examples).
 > - When you upgrade past 1.0.0, rename the file to `.sigantry.toml` and keep only that
 >   one, change any path you pass explicitly, such as `from_config(".fabric-dataops.toml")`,
 >   to the new name, and rename the overrides to `SIGANTRY_`. Later releases still read the
->   old names during a deprecation period, and the CLI and `from_config()` report that only
->   through a `DeprecationWarning`, which Python does not show by default.
+>   old names during a deprecation period, and through 1.0.x an old name still wins over a
+>   new one. `from_config()` reports an old name through a `DeprecationWarning`, which
+>   Python shows by default only when the script being run made the call; the `sigantry`
+>   commands do not print it. The migration guide's Verify step checks for old names.
 
 Create the config file in the directory you run `sigantry` or your Python code from,
 normally the repo root (or the consumer repo's root); parent directories are not searched.
