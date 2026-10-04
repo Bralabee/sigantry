@@ -12,7 +12,7 @@ Sigantry ships under **Apache-2.0** as a pure open-source project.
 
 - The base package (`sigantry-core` at the time; published as `sigantry`, see [ADR-0017](ADR-0017-distribution-name-sigantry.md)) is Apache-2.0.
 - There is no "core" / "enterprise" split. Every capability built in v3.0 is in the OSS repo.
-- Copyright is held jointly by contributors; no CLA is required at v3.0 open. (See the *Contributor licence* section below.)
+- Copyright in each contribution stays with its owner (the contributor, or their employer where it owns the work): the project takes no assignment and requires no CLA. The cover templates of the PDF guides (`scripts/userguide/cover.html`, `scripts/tutorials/cover.html`; the PDFs are built locally and not published) carry a copyright notice naming the maintainer and the contributors. (See the *Contributor licence* section below.)
 - Any future commercial layer (support subscription, managed control plane, premium plugins) is explicitly **out of scope for v3.0** and would require revisiting this ADR.
 
 ## Alternatives considered
@@ -40,14 +40,15 @@ Sigantry ships under **Apache-2.0** as a pure open-source project.
 - All Sigantry features — including traceability, audit plane and drift detection — live in public GitHub under Apache-2.0.
 - The base package's `LICENSE` file carries Apache-2.0.
 - Revenue, if any, comes from **services around** Sigantry (support, consulting, managed hosting), not from **restrictions on** Sigantry.
-- Contributors outside the platform team contribute under Apache-2.0. See *Contributor licence* below.
+- How contributions are licensed, with the conditions of section 5, is set out in *Contributor licence* below.
 - Future premium plugins (if ever) would ship as separate, non-core packages with their own licence, and would not touch `sigantry-core`. This ADR does not authorise any such package.
 
 ## Contributor licence
 
-- v3.0 uses **Developer Certificate of Origin (DCO)** via `Signed-off-by` in commits. No CLA.
-- Rationale: CLA friction slows contribution and DCO is sufficient for Apache-2.0 project governance. GitHub's DCO app enforces automatically.
-- If a specific enterprise contributor requires a CLA for their internal process, handle per-contributor rather than project-wide.
+- Contributions are accepted under section 5 of Apache-2.0: unless the contributor explicitly states otherwise, a contribution submitted for inclusion is licensed under Apache-2.0, with no additional terms, and a separate signed agreement about it takes precedence. The project requires no CLA.
+- Rationale: CLA friction slows contribution, and Apache-2.0's own contribution clause is sufficient for this project's governance.
+- The Developer Certificate of Origin (`Signed-off-by` in commits) was planned at v3.0 but has not been adopted: no check enforces it and commits do not carry it. Adopting it would be a change to this ADR.
+- If an enterprise contributor's own process requires a CLA, it is handled for that contributor alone; the project's terms stay as above.
 - **Revisit trigger:** if a corporate contributor requires relicensing (unlikely under Apache-2.0) or if we adopt an Open-Core boundary in the future.
 
 ## Trademark
@@ -78,3 +79,5 @@ This ADR should be revisited if **any** of the following occur:
 ---
 
 *Decision captured: 2026-04-24 (milestone v3.0 Phase 10, BRIEF-02).*
+
+*Amended 2026-10-04: the copyright and contributor-licence bullets now describe what the project does. They had said copyright was held jointly and that a DCO check was enforced; neither was the case.*
