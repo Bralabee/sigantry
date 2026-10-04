@@ -150,6 +150,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `PYTEST_RUN_INTEGRATION` line, which nothing reads.
   `discover_env_live.py --workspace-name` no longer has a default: without it,
   no workspace is picked.
+- The documentation no longer tells readers to install plugin distributions
+  this project does not publish. `docs/migration/2.x-to-3.0.md` is now a
+  short note on the pre-rename names: what replaces each one, which of them
+  the code still reads, and what the 1.0.0 release reads instead.
 
 ### Deprecated
 - `.fabric-dataops.toml` and the `FDT_` settings env prefix. Both are still
@@ -422,11 +426,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   prevent that.
 
 ### Known remaining
-- 15 `pip install` / dependency lines across 9 files under `docs/` still name
-  the dead distribution. They are prose rather than shipped artefacts and are
-  tangled with a separate version-scheme inconsistency (docs say `>=3.0`, the
-  shipped line is 1.0.x), so they are deliberately left for their own change
-  rather than half-corrected here. Two of them must survive any such change:
+- Among the `pip install` and dependency lines under `docs/`, the dependency
+  instructions in `docs/migration/3.x-pr-bot.md` and one pinning step in
+  `docs/reference/api-stability.md` still name the dead distribution, and
+  ADR-0011 and ADR-0017 name it too. They are prose rather
+  than shipped artefacts and are tangled with a separate version-scheme
+  inconsistency (docs say `>=3.0`, the shipped line is 1.0.x), so they are
+  deliberately left for their own change rather than half-corrected here.
+  Two of them must survive any such change:
   ADR-0017 quotes the dead name to explain the defect, and ADR-0011 records it
   as history.
 - The guard scans `templates/`, `.github/workflows/`, `scripts/` and the

@@ -1,8 +1,8 @@
 # Sigantry
 
-> **Renamed to Sigantry in v3.0.** This project (formerly `fabric-dataops-toolkits`) is renamed to `sigantry-core` per [ADR-0011](decisions/ADR-0011-rename-to-sigantry.md). Legacy distribution names shipped as deprecation shims through v3.0 and dropped in v3.1. See [migration/2.x-to-3.0.md](migration/2.x-to-3.0.md) for the consumer upgrade recipe.
+> **Renamed to Sigantry in v3.0.** This project (formerly `fabric-dataops-toolkits`) was renamed per [ADR-0011](decisions/ADR-0011-rename-to-sigantry.md) and is published on PyPI as `sigantry` ([ADR-0017](decisions/ADR-0017-distribution-name-sigantry.md)). Legacy distribution names shipped as deprecation shims through v3.0 and dropped in v3.1. See [migration/2.x-to-3.0.md](migration/2.x-to-3.0.md) for the old names, what replaces each one, and which of them the code still reads.
 
-Sigantry (formerly fabric-dataops-toolkits) is an Apache-2.0 **governance, audit, and rollback layer on top of Microsoft's official Fabric tooling** (`fabric-cicd`, the `fab` CLI, Fabric REST) for organisations on Azure DevOps or GitHub CI — it wraps that tooling rather than replacing it. See the [PRODUCT-BRIEF](PRODUCT-BRIEF.md) for the product story, the [landscape survey](LANDSCAPE-2026-06.md) for how it sits beside Microsoft's GA tooling, and the [migration guide](migration/2.x-to-3.0.md) for the v2.x -> v3.0 upgrade path.
+Sigantry (formerly fabric-dataops-toolkits) is an Apache-2.0 **governance, audit, and rollback layer on top of Microsoft's official Fabric tooling** (`fabric-cicd`, the `fab` CLI, Fabric REST) for organisations on Azure DevOps or GitHub CI — it wraps that tooling rather than replacing it. See the [PRODUCT-BRIEF](PRODUCT-BRIEF.md) for the product story, the [landscape survey](LANDSCAPE-2026-06.md) for how it sits beside Microsoft's GA tooling, and the [legacy-names note](migration/2.x-to-3.0.md) for the pre-rename names the code still reads.
 
 Vendor-agnostic base platform. Ships the 11 protocol
 seams, plugin registry, typed config loader, and the `FabricDataOps`
@@ -72,6 +72,5 @@ rescoped to post-ship) and v3.1.0 (shim-window close per ADR-0011 --
 the legacy dists, import paths, and first-party legacy entry-point
 tables are gone; the registry's legacy-group dual-read remains as a
 grace window, scheduled for removal).
-Distribution is via GitHub Release wheel assets while PyPI publish
-stays gated. See `docs/migration/2.x-to-3.0.md` for the
-upgrade recipe and `CHANGELOG.md` for full release notes.
+See `docs/migration/2.x-to-3.0.md` for the legacy names the code
+still reads and `CHANGELOG.md` for full release notes.

@@ -4,13 +4,13 @@
 - **Date:** 2026-04-24
 - **Milestone:** v3.0 (Productization — Sigantry)
 - **Deciders:** platform team + product owner
-- **Context:** The HS2 internal toolkit is becoming Sigantry, an open-source product targeting any Microsoft Fabric organisation. The commercial model shapes every downstream decision — licensing, package structure, plugin ecosystem, contributor governance, pricing, and support. It must be locked before code moves.
+- **Context:** Sigantry began as an internal toolkit on a client engagement and is becoming an open-source product targeting any Microsoft Fabric organisation. The commercial model shapes every downstream decision — licensing, package structure, plugin ecosystem, contributor governance, pricing, and support. It must be locked before code moves.
 
 ## Decision
 
 Sigantry ships under **Apache-2.0** as a pure open-source project.
 
-- All three packages — `sigantry-core`, `sigantry-hs2`, `sigantry-jtoye` — are Apache-2.0.
+- The base package (`sigantry-core` at the time; published as `sigantry`, see [ADR-0017](ADR-0017-distribution-name-sigantry.md)) is Apache-2.0.
 - There is no "core" / "enterprise" split. Every capability built in v3.0 is in the OSS repo.
 - Copyright is held jointly by contributors; no CLA is required at v3.0 open. (See the *Contributor licence* section below.)
 - Any future commercial layer (support subscription, managed control plane, premium plugins) is explicitly **out of scope for v3.0** and would require revisiting this ADR.
@@ -30,15 +30,15 @@ Sigantry ships under **Apache-2.0** as a pure open-source project.
 
 1. **The ICP wants OSS.** Platform leads in Fabric-running orgs overwhelmingly self-host their CI/CD stack. A commercial-only product is filtered out before evaluation. Apache-2.0 is the default enterprise-friendly permissive licence.
 2. **The wedge (work-item traceability + audit plane) is a process differentiator, not a secret algorithm.** The value is in the end-to-end experience and the `WorkItemProvider` seam contract, not in any specific line of code. There is no lock-in moat to protect via closed source.
-3. **The HS2 legacy is already effectively open.** v1.0 and v2.0 were built without revenue intent. Flipping to commercial now would betray the spirit of the work and break continuity with the HS2 → Sigantry migration.
+3. **The toolkit's origins carry no commercial intent.** It began as an internal toolkit on a client engagement, and its v1.0 and v2.0 lines were built without revenue intent. Flipping to commercial now would betray the spirit of the work and break continuity with that history.
 4. **Apache-2.0's patent grant is load-bearing.** Sigantry integrates ADO REST, Fabric REST, GitHub REST, Purview, Key Vault, and five more vendor/OSS libraries. Enterprise legal teams flag MIT-only projects for lack of patent safety. Apache-2.0 is table-stakes for adoption at regulated shops.
 5. **Open Core would fork the contributor experience.** Every PR reviewer would have to police the boundary. At v3.0 team size (small) this is a net drain. Revisit when revenue justifies the overhead.
 
 ## Consequences
 
 - Sigantry contributes upstream to `fabric-cicd`, `ms-fabric-cli`, `msfabricpysdkcore` freely. No "enterprise-only extensions" to gate those upstream integrations.
-- All Sigantry features — including traceability, audit plane, drift detection, and the JToye plugin — live in public GitHub under Apache-2.0.
-- The `sigantry-core`, `sigantry-hs2`, and `sigantry-jtoye` package `LICENSE` files all carry Apache-2.0.
+- All Sigantry features — including traceability, audit plane and drift detection — live in public GitHub under Apache-2.0.
+- The base package's `LICENSE` file carries Apache-2.0.
 - Revenue, if any, comes from **services around** Sigantry (support, consulting, managed hosting), not from **restrictions on** Sigantry.
 - Contributors outside the platform team contribute under Apache-2.0. See *Contributor licence* below.
 - Future premium plugins (if ever) would ship as separate, non-core packages with their own licence, and would not touch `sigantry-core`. This ADR does not authorise any such package.

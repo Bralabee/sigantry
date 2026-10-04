@@ -3,6 +3,9 @@
 - **Status:** Proposed -- **partially implemented; the shipped CLI surface differs.**
   See *What actually shipped* below before quoting any command from this ADR.
 - **Date:** 2026-06-15 (implementation note added 2026-09-20)
+- **Amended:** 2026-10-04 -- the config-file references now name
+  `.sigantry.toml`, and *What actually shipped* corrects the `--strict`
+  row. The status is unchanged.
 - **Milestone:** v3.x (post-`set-binding`/`--republish-existing`)
 - **Deciders:** platform team (TBD — review gate before implementation)
 - **Provenance:** distilled from a real consumer's Fabric notebook prod deploy +
@@ -54,15 +57,19 @@ scenario (sandbox vs prod; SPN-auth vs user-auth; same-workspace vs cross-worksp
 environment). That variability is exactly what configuration is for.
 
 The toolkit already has the config substrate: `ToolkitSettings`
-(`sigantry_core/config.py`) is loaded from `.fabric-dataops.toml` via
-`load_settings()`, is `FDT_`-prefixed with `__` nesting, and is declared
+(`sigantry_core/config.py`) is loaded by `load_settings()` from `.sigantry.toml`
+(or, when that file is absent, from the legacy `.fabric-dataops.toml` with a
+`DeprecationWarning`), takes `SIGANTRY_<SECTION>__<KEY>` env overrides (the legacy
+`FDT_` prefix is still read and is outranked), and is declared
 `extra="allow"` — so a **new top-level section can be added without changing the model**.
+The 1.0.0 release differs: its loader defaults to `.fabric-dataops.toml` and reads
+only `FDT_` overrides.
 
 ## Decision (proposed)
 
 Add a **config-driven pre-flight** with three parts:
 
-### 1. A declarative `[preflight]` config block (in `.fabric-dataops.toml`)
+### 1. A declarative `[preflight]` config block (in `.sigantry.toml`)
 
 Operators declare **scenarios** (named target topologies + expectations) and which
 checks apply. Sketch (GUIDs/names are placeholders the consumer fills in):
@@ -150,7 +157,7 @@ command. Kept **opt-in** to preserve the ADR-0012 deploy/run boundary.
 |---|---|
 | `--scenario <name>` | **absent** -- `preflight --scenario prod` exits 2, `No such option` |
 | `--stage <pre_deploy\|post_deploy>` | **absent** |
-| `--strict` | shipped as specified |
+| `--strict` | shipped with different semantics: any `FAIL` exits 1 with or without the flag; `--strict` also turns a `WARN` into exit 1 (`sigantry_core/preflight/engine.py`) |
 | `--json` | shipped as specified |
 | *(not proposed)* | `--manifest` / `-m` (default `sync.yml`) |
 | *(not proposed)* | `--params` / `-p` |
@@ -171,9 +178,11 @@ design**, not a description of the product. A future decision either ratifies th
 shipped manifest-driven surface or supersedes this ADR outright; until then, treat
 the CLI's own `--help` as the source of truth.
 
-The `.fabric-dataops.toml` references in this ADR are **left as written**: that is
-still the filename the loader defaults to (`sigantry_core/config.py`). Changing them
-would make this ADR describe a config surface that does not exist either.
+This proposal originally named `.fabric-dataops.toml`, the loader's default when it
+was written. The loader after the 1.0.0 release reads `.sigantry.toml` first and falls
+back to `.fabric-dataops.toml` with a `DeprecationWarning` (`sigantry_core/config.py`),
+so the proposal now names `.sigantry.toml`. Nothing reads a `[preflight]` block today:
+the shipped `preflight` reads no config section.
 
 ## Alternatives considered
 
@@ -183,7 +192,7 @@ would make this ADR describe a config surface that does not exist either.
 - **Hardcode checks in `sync apply`.** Rejected: pre-conditions are environment-specific
   (GUIDs, auth mode, required artifacts/wheels), and baking them in violates the
   vendor-agnostic posture. Config-driven keeps sigantry generic and the topology in the
-  consumer's `.fabric-dataops.toml`.
+  consumer's `.sigantry.toml`.
 - **Extend `doctor` instead of a new subapp.** `doctor` is plugin/trust-scoped and takes
   no scenario. A sibling `preflight` subapp reuses the table/`--strict` machinery without
   overloading `doctor`'s meaning. (Could alias as `doctor preflight` if preferred.)

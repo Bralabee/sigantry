@@ -1,6 +1,6 @@
 # Dual-CI Strategy — GitHub Actions + Azure DevOps Parity
 
-**Status:** v3.0 working draft (2026-04-24, milestone v3.0 Phase 10, BRIEF-06)
+**Status:** design record, written 2026-04-24.
 **Audience:** Sigantry contributors and plugin authors shipping pipeline / workflow templates.
 **Rule:** Every user-facing feature ships in both Azure DevOps YAML AND GitHub Actions workflow variants, or blocks the PR.
 
@@ -81,7 +81,7 @@ Adding a third exception requires an ADR. The rule is deliberately sticky.
 
 ## Runner strategy
 
-- **ADO.** Microsoft-hosted `ubuntu-latest` pool, plus an optional `hs2-fabric-agents` self-hosted pool for HS2-specific live-tenant tests. The `agentPool` parameter is first-class on every ADO stage template.
+- **ADO.** Microsoft-hosted `ubuntu-latest` pool by default, or a self-hosted pool the consumer names (for example, for live-tenant tests) through the `agentPool` parameter of `templates/extends/secure-pipeline.yml`.
 - **GHA.** GitHub-hosted `ubuntu-latest` runners by default. Self-hosted runners are supported for customers with private Fabric tenants; `runs-on` is parameterised in every workflow.
 
 Both CI systems support **OIDC workload-identity federation** to Azure — no long-lived secrets in either environment. See [ADR-0011](../decisions/ADR-0011-rename-to-sigantry.md) for the `SIGANTRY_DEMO_*` env-var pattern used for the public demo.
@@ -103,7 +103,3 @@ BRIEF-06 completion requires:
 - [PRODUCT-BRIEF.md](../PRODUCT-BRIEF.md) — the why.
 - [Seam Map](seam-map.md) — seams that ship CI-adjacent reference implementations (approval gate, PR bot, notification sink).
 - [ADR-0011 — Rename to Sigantry](../decisions/ADR-0011-rename-to-sigantry.md) — env-var prefix and package-name migration.
-
----
-
-*Updated: 2026-04-24 (milestone v3.0 Phase 10, BRIEF-06).*

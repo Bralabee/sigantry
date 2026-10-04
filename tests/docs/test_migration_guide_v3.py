@@ -1,152 +1,150 @@
-"""Smoke test for the v2.x -> v3.0 migration guide (BRIEF-05).
+"""Smoke test for the legacy-names note at ``docs/migration/2.x-to-3.0.md``.
 
-Locks the structural invariants of ``docs/migration/2.x-to-3.0.md`` so
-future PRs cannot silently delete one of the six migration-axis sections,
-weaken the search-and-replace recipes, or accidentally re-introduce a
-live ``sigantry.dev`` link before domain clearance lands.
+The registry's DeprecationWarning for a plugin registered under a legacy
+entry-point group points readers at this path
+(``sigantry_core.registry._LEGACY_WARNING_TEMPLATE``), so the note must exist
+there and must describe every legacy name the code still reads.
 
-The guide itself is authored in Phase 10 Plan 07 (BRIEF-05). Every
-runtime DeprecationWarning emitted by the v3.0 deprecation shims (Plan
-10-05) routes consumers here.
-
-Living under ``tests/docs/`` (not ``docs/migration/``) keeps the guide
-free of negative-assertion preamble while still failing CI if the guide
-drifts from its published contract.
+Living under ``tests/docs/`` (not ``docs/migration/``) keeps the note free of
+negative-assertion preamble while still failing CI if it drifts from the code.
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
 
-_GUIDE_PATH = Path(__file__).resolve().parents[2] / "docs" / "migration" / "2.x-to-3.0.md"
+from sigantry_core import registry
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_GUIDE_REL = "docs/migration/2.x-to-3.0.md"
+_GUIDE_PATH = _REPO_ROOT / _GUIDE_REL
 
 
 @pytest.fixture(scope="module")
 def guide_text() -> str:
-    assert _GUIDE_PATH.is_file(), f"migration guide missing at {_GUIDE_PATH}"
+    assert _GUIDE_PATH.is_file(), f"migration note missing at {_GUIDE_PATH}"
     return _GUIDE_PATH.read_text(encoding="utf-8")
 
 
-def test_migration_guide_exists() -> None:
-    """The v2.x -> v3.0 migration guide ships at the canonical path the
-    deprecation shims point at."""
-    assert _GUIDE_PATH.is_file(), f"migration guide missing at {_GUIDE_PATH}"
+def test_registry_warning_points_at_this_note() -> None:
+    """The legacy-group DeprecationWarning names this file, and the file exists."""
+    assert _GUIDE_REL in registry._LEGACY_WARNING_TEMPLATE
+    assert _GUIDE_PATH.is_file(), f"migration note missing at {_GUIDE_PATH}"
 
 
-def test_migration_guide_has_six_section_headings(guide_text: str) -> None:
-    """All six migration axes from ADR-0011 are present as level-2
-    headings, in the order ADR-0011 enumerates them."""
+def test_note_has_one_section_per_legacy_surface(guide_text: str) -> None:
+    """Each legacy surface the code still handles has its own level-2 section."""
     expected_in_order = [
-        "## Migration axis 1 -- Python imports",
-        "## Migration axis 2 -- Config file",
-        "## Migration axis 3 -- Environment variables",
-        "## Migration axis 4 -- Entry-point groups",
-        "## Migration axis 5 -- PowerShell modules",
-        "## Migration axis 6 -- CLI",
+        "## TL;DR",
+        "## Python imports",
+        "## Config file",
+        "## Environment variables",
+        "## Entry-point groups",
+        "## CLI",
     ]
-
     last_index = -1
     for heading in expected_in_order:
-        assert heading in guide_text, (
-            f"migration guide missing heading: {heading!r} -- ADR-0011 "
-            f"enumerates six migration axes; the docs smoke test asserts "
-            f"each one is documented as its own level-2 section."
-        )
+        assert heading in guide_text, f"migration note missing heading: {heading!r}"
         index = guide_text.index(heading)
-        assert index > last_index, (
-            f"migration guide heading {heading!r} appears out of order "
-            f"relative to ADR-0011's enumeration."
-        )
+        assert index > last_index, f"migration note heading {heading!r} is out of order"
         last_index = index
 
 
-def test_migration_guide_has_tldr_block(guide_text: str) -> None:
-    """The guide opens with a TL;DR block so consumers can see the full
-    six-step migration recipe in under a screen-height."""
-    assert "## TL;DR" in guide_text, (
-        "migration guide missing '## TL;DR' section -- the TL;DR block is the "
-        "first thing a consumer sees after landing from a deprecation warning."
+@pytest.mark.parametrize(
+    "token",
+    [
+        ".sigantry.toml",
+        ".fabric-dataops.toml",
+        "SIGANTRY_<SECTION>__<KEY>",
+        "FDT_",
+        "DeprecationWarning",
+        "sed -i 's/fabric_dataops_toolkits/sigantry_core/g'",
+    ],
+)
+def test_note_names_old_and_new_forms(guide_text: str, token: str) -> None:
+    assert token in guide_text, f"migration note does not mention {token!r}"
+
+
+def test_note_names_every_legacy_group_the_registry_reads(guide_text: str) -> None:
+    """Derived from the registry, so a group added or dropped there fails here."""
+    groups = registry.Registry.known_legacy_groups()
+    assert groups, "registry reports no legacy groups; the probe would be vacuous"
+    for group in groups:
+        assert group in guide_text, f"legacy group {group!r} is read but not documented"
+
+
+_PIP_INSTALL = re.compile(r"\bpip3? install\b(?P<args>[^\n`]*)")
+_SPEC_END = re.compile(r"[<>=!~\[;@\s]")
+
+
+def _install_targets(text: str) -> list[str]:
+    """Every distribution named after ``pip install``, normalised (PEP 503).
+
+    Options (``-U``, ``--upgrade``, ...) are skipped; quotes, version
+    specifiers, extras and trailing punctuation are stripped. Every remaining
+    word on the line counts, so a second target cannot hide behind the first.
+    """
+    names = []
+    for match in _PIP_INSTALL.finditer(text):
+        for arg in match.group("args").split("#", 1)[0].split():
+            if arg.startswith("-"):
+                continue
+            spec = _SPEC_END.split(arg.strip("\"'"), maxsplit=1)[0].strip("\"'.,:()")
+            if spec:
+                names.append(re.sub(r"[-_.]+", "-", spec).lower())
+    return names
+
+
+def test_note_installs_only_the_published_distribution(guide_text: str) -> None:
+    """The only distribution the note tells readers to install is ``sigantry``.
+
+    A ``pip install`` of any other name, quoted or not, names a distribution
+    this project does not publish: the dependency-confusion shape.
+    """
+    names = _install_targets(guide_text)
+    assert names, "note must show the published install line"
+    offenders = [name for name in names if name != "sigantry"]
+    assert offenders == [], (
+        f"note installs a distribution this project does not publish: {offenders}"
+    )
+    assert re.search(r"^pip install sigantry$", guide_text, re.MULTILINE), (
+        "note must show the published install line"
     )
 
 
-def test_migration_guide_has_runnable_sed_recipes(guide_text: str) -> None:
-    """Both sed substitutions are present (plugin-first, then base) so a
-    consumer who copy-pastes the recipes does not corrupt their repo via
-    the substring-superset hazard documented in ADR-0011."""
-    plugin_first = "sed -i 's/fabric_dataops_toolkits_hs2/sigantry_hs2/g'"
-    base_second = "sed -i 's/fabric_dataops_toolkits/sigantry_core/g'"
-    assert plugin_first in guide_text, (
-        "migration guide missing plugin-first sed recipe "
-        f"({plugin_first!r}). The fabric_dataops_toolkits_hs2 substring is "
-        "a superset of the base substring; the plugin pattern MUST run "
-        "first or the second pass corrupts already-renamed identifiers."
-    )
-    assert base_second in guide_text, f"migration guide missing base sed recipe ({base_second!r})."
+def test_verify_section_is_scoped_past_1_0_0(guide_text: str) -> None:
+    """1.0.0 reads only the old names and warns about neither.
 
-    plugin_pos = guide_text.index(plugin_first)
-    base_pos = guide_text.index(base_second)
-    assert plugin_pos < base_pos, (
-        "migration guide sed recipes are in the wrong order -- the plugin "
-        "sed (superset substring fabric_dataops_toolkits_hs2) must appear "
-        "BEFORE the base sed or the second pass partially rewrites "
-        "already-renamed identifiers to 'sigantry_core_hs2'."
-    )
+    The Verify command passes on 1.0.0 whatever the config file is called, so
+    the section must say which releases it applies to and what 1.0.0 reads.
+    """
+    assert "## Verify" in guide_text, "migration note missing heading: '## Verify'"
+    verify = guide_text.split("## Verify", 1)[1].split("\n## ", 1)[0]
+    for token in ("after 1.0.0", "On 1.0.0", ".fabric-dataops.toml", "FDT_"):
+        assert token in verify, f"Verify section does not mention {token!r}"
 
 
-def test_migration_guide_references_adr_0011_and_0010(guide_text: str) -> None:
-    """The guide cross-references both v3.0 ADRs (the rename plan and
-    the commercial-model decision) so consumers can navigate to the
-    decision records from the migration guide directly."""
-    assert "ADR-0011" in guide_text, (
-        "migration guide must reference ADR-0011 (the rename-cutover decision)."
-    )
-    assert "ADR-0010" in guide_text, (
-        "migration guide must reference ADR-0010 (Apache-2.0 commercial model)."
-    )
-    assert "ADR-0010-commercial-model.md" in guide_text, (
-        "migration guide must link to ADR-0010 by filename."
-    )
+def test_note_references_adr_0011(guide_text: str) -> None:
     assert "ADR-0011-rename-to-sigantry.md" in guide_text, (
-        "migration guide must link to ADR-0011 by filename."
+        "migration note must link ADR-0011 (the rename decision) by filename."
     )
 
 
-def test_migration_guide_links_to_product_brief(guide_text: str) -> None:
-    """Consumers reading the migration guide should be one click away
-    from the product brief that explains the rename's business motivation."""
-    assert "PRODUCT-BRIEF.md" in guide_text, (
-        "migration guide must link to PRODUCT-BRIEF.md for the productisation "
-        "rationale behind the rename."
-    )
-
-
-def test_migration_guide_does_not_link_sigantry_dev(guide_text: str) -> None:
-    """sigantry.dev domain clearance is deferred (per 10-CONTEXT.md and
-    ADR-0011 V3-RISK-1). The migration guide must not advertise the
-    domain as a live URL until clearance lands -- otherwise we ship a
-    dead link to every v2.x consumer who upgrades."""
-    forbidden_patterns = [
+def test_note_does_not_link_sigantry_dev(guide_text: str) -> None:
+    """The sigantry.dev domain is not cleared (ADR-0011 V3-RISK-1)."""
+    for pattern in (
         "https://sigantry.dev",
         "http://sigantry.dev",
         "(sigantry.dev)",
         "://sigantry.dev",
-    ]
-    for pattern in forbidden_patterns:
-        assert pattern not in guide_text, (
-            f"migration guide must NOT contain a live sigantry.dev link "
-            f"({pattern!r}). Domain clearance is still deferred per ADR-0011 "
-            f"V3-RISK-1; a live link strands every v2.x consumer who upgrades."
-        )
+    ):
+        assert pattern not in guide_text, f"migration note links sigantry.dev ({pattern!r})"
 
 
-def test_migration_guide_references_canonical_repo(guide_text: str) -> None:
-    """ADR-0011 records the GitHub canonical-home decision. The migration
-    guide must surface the canonical issue-filing URL so consumers landing
-    here from a DeprecationWarning know where to file regressions."""
-    assert "https://github.com/Bralabee/fabric_dataops" in guide_text, (
-        "migration guide must reference the canonical GitHub repo "
-        "(https://github.com/Bralabee/fabric_dataops) so consumers can file "
-        "issues. ADR-0011 records GitHub as the canonical home for v3.0+."
+def test_note_points_issues_at_the_public_repository(guide_text: str) -> None:
+    assert "https://github.com/Bralabee/sigantry/issues" in guide_text, (
+        "migration note must tell readers where to file issues."
     )
