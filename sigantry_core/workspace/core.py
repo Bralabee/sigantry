@@ -105,10 +105,13 @@ def delete_workspace(
     ``resource_id`` is read by the decorator for the audit record; when absent
     the workspace_id argument itself identifies the resource.
 
-    With ``pbi_fallback=True``, when the Fabric DELETE returns the intermittent
-    ``UnknownError`` (a transient 400), this transparently falls back to
-    ``DELETE https://api.powerbi.com/v1.0/myorg/groups/{id}`` as a second
-    path for this single operation. Default ``False`` preserves the strict
+    With ``pbi_fallback=True``, when the Fabric DELETE raises an ``HttpError``
+    whose body carries ``UnknownError`` (the status code is not checked), the
+    delete is tried again once through
+    ``DELETE https://api.powerbi.com/v1.0/myorg/groups/{id}``. That retry
+    authenticates with the process default credential for ``tenant_id``, not
+    with ``token_provider`` or the Fabric client's credential, and the audit
+    record does not show that it ran. Default ``False`` preserves the strict
     single-API behaviour.
     """
     try:
@@ -125,11 +128,12 @@ def delete_workspace(
 
 
 def _is_unknown_error(exc: HttpError) -> bool:
-    """Detect Fabric's intermittent ``UnknownError`` 400 in a structured body.
+    """Detect Fabric's ``UnknownError`` in an error body, whatever the status.
 
     Fabric returns ``{"errorCode": "UnknownError", "message": "..."}`` on the
-    transient delete failure. Some error paths flatten the body to a plain
-    string before it reaches us, so we accept either shape.
+    delete failure this fallback is for. Some error paths flatten the body to
+    a plain string before it reaches us, so we accept either shape. The status
+    code is not checked.
     """
     body = exc.body
     if isinstance(body, dict):
