@@ -1,12 +1,14 @@
-"""Smoke-deploy matrix for Success Criterion 5.
+"""Smoke-deploy matrix for ``fabric-cicd`` upgrades.
 
 Usage:
     python -m scripts.smoke.deploy_matrix \\
         --workspace-id <WS> --source <DIR> --junit-xml smoke.xml
 
-Invoked on every ``fabric-cicd`` version bump. Gated by
-``PYTEST_RUN_SMOKE=1`` in CI; emits a per-item-type JUnit XML that Phase 5
-pipeline templates consume.
+Deploys each canonical item type (Lakehouse, Environment, Notebook,
+DataPipeline) from ``--source`` into the workspace on its own, writes one
+JUnit XML test case per type, and exits 1 if any type failed. Run it by
+hand against a test workspace after a ``fabric-cicd`` version bump;
+nothing in CI invokes it.
 """
 
 from __future__ import annotations
