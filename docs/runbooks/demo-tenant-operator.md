@@ -1,6 +1,7 @@
 # Demo tenant -- operator runbook
 
-> Phase 15 / DEMO-02 + DEMO-03 closure. This runbook is for the
+> Phase 15 / DEMO-02 closure (DEMO-03, the walkthrough video build, is
+> retired). This runbook is for the
 > operator who provisions the demo Fabric tenant, rotates demo
 > secrets, and maintains the public `demo-sigantry` repo. Outside reviewers do
 > NOT need this runbook -- send them to

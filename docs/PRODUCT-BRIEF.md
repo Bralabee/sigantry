@@ -84,7 +84,7 @@ All three of these are involved in the buying decision. The brief addresses each
 | 12 | Pipeline test orchestration + rollback | PIPELINE-01..05 | ADO + GHA 5-stage template pair, deploy ledger, `sigantry deploy run --rollback` |
 | 13 | Drift detection | DRIFT-01..03 | `sigantry diff -e <env>`, scheduled drift pipelines (ADO + GHA); see [ADR-0012](decisions/ADR-0012-sync-apply-vs-deploy-run-boundary.md) for the apply-vs-deploy-run boundary. |
 | 14 | Starter repo + PR-review bot | STARTER-01..07 | `sigantry-starter`, TMDL + Lakehouse diff bot (dual-CI), branching + PR-review docs |
-| 15 | Public demo environment | DEMO-01..04 | Public `demo-sigantry` repos, demo Fabric tenant |
+| 15 | Public demo environment | DEMO-01, -02, -04 (DEMO-03, the walkthrough video, retired) | Public `demo-sigantry` repos, demo Fabric tenant |
 | 16 | Seam expansion | SEAM-01..06 | `NotificationSink`, `SecretStore`, `ApprovalGate` seams with in-base reference implementations |
 
 **v3.1+ deferred:** managed/hosted control plane (SaaS), non-Microsoft data platforms, per-seat licensing, customer SSO, localisation, backwards-compat shim lifetime > one minor.
