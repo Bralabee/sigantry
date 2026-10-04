@@ -91,6 +91,13 @@ a fork does not receive repository secrets, so on a fork the check fails
 closed rather than passing unchecked. A maintainer carries such a change
 through a branch of this repository, where the check can run.
 
+## Licence of contributions
+
+Sigantry is licensed under Apache-2.0. Under section 5 of that licence, a
+contribution you submit for inclusion (a pull request, a patch, a suggested
+change) is licensed under Apache-2.0 with no additional terms. You keep the
+copyright in your contribution; there is no contributor licence agreement.
+
 ## Code of Conduct
 
 Please note that this project is released with a Contributor Code of Conduct. By participating in this project you agree to abide by its terms.

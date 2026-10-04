@@ -12,7 +12,7 @@ Sigantry ships under **Apache-2.0** as a pure open-source project.
 
 - The base package (`sigantry-core` at the time; published as `sigantry`, see [ADR-0017](ADR-0017-distribution-name-sigantry.md)) is Apache-2.0.
 - There is no "core" / "enterprise" split. Every capability built in v3.0 is in the OSS repo.
-- Copyright is held jointly by contributors; no CLA is required at v3.0 open. (See the *Contributor licence* section below.)
+- Each contributor keeps the copyright in their own contributions: nothing is assigned and no CLA is required. The copyright notice on published material names the maintainer and the contributors. (See the *Contributor licence* section below.)
 - Any future commercial layer (support subscription, managed control plane, premium plugins) is explicitly **out of scope for v3.0** and would require revisiting this ADR.
 
 ## Alternatives considered
@@ -45,8 +45,9 @@ Sigantry ships under **Apache-2.0** as a pure open-source project.
 
 ## Contributor licence
 
-- v3.0 uses **Developer Certificate of Origin (DCO)** via `Signed-off-by` in commits. No CLA.
-- Rationale: CLA friction slows contribution and DCO is sufficient for Apache-2.0 project governance. GitHub's DCO app enforces automatically.
+- Contributions are accepted under section 5 of Apache-2.0: a contribution submitted for inclusion is licensed under Apache-2.0, with no additional terms. No CLA.
+- Rationale: CLA friction slows contribution, and Apache-2.0's own contribution clause is sufficient for this project's governance.
+- The Developer Certificate of Origin (`Signed-off-by` in commits) was planned at v3.0 but has not been adopted: no check enforces it and commits do not carry it. Adopting it would be a change to this ADR.
 - If a specific enterprise contributor requires a CLA for their internal process, handle per-contributor rather than project-wide.
 - **Revisit trigger:** if a corporate contributor requires relicensing (unlikely under Apache-2.0) or if we adopt an Open-Core boundary in the future.
 
@@ -78,3 +79,5 @@ This ADR should be revisited if **any** of the following occur:
 ---
 
 *Decision captured: 2026-04-24 (milestone v3.0 Phase 10, BRIEF-02).*
+
+*Amended 2026-10-04: the copyright and contributor-licence bullets now describe what the project does. They had said copyright was held jointly and that a DCO check was enforced; neither was the case.*

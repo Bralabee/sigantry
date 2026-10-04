@@ -61,6 +61,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   part of this repository; on a clean runner they always skipped.
 
 ### Changed
+- **One copyright statement.** ADR-0010 said copyright was held jointly by
+  contributors and that a DCO sign-off check was enforced, while the guide
+  cover pages named a single holder. ADR-0010 now says each contributor
+  keeps the copyright in their own contributions, that contributions come
+  in under section 5 of Apache-2.0, and that DCO sign-off was never adopted;
+  the covers name the maintainer and the contributors; CONTRIBUTING.md
+  states the licence of contributions.
 - `ruff` now covers `scripts/` in CI alongside `sigantry_core/` and `tests/`.
   The CI guard scripts — the files whose whole job is policing the repo — were
   themselves unlinted. They were already clean; this stops that drifting.
