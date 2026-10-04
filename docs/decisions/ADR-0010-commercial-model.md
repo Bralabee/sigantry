@@ -12,7 +12,7 @@ Sigantry ships under **Apache-2.0** as a pure open-source project.
 
 - The base package (`sigantry-core` at the time; published as `sigantry`, see [ADR-0017](ADR-0017-distribution-name-sigantry.md)) is Apache-2.0.
 - There is no "core" / "enterprise" split. Every capability built in v3.0 is in the OSS repo.
-- Copyright in each contribution stays with its owner (the contributor, or their employer where it owns the work): the project takes no assignment and requires no CLA. The cover pages of the published guides name the maintainer and the contributors. (See the *Contributor licence* section below.)
+- Copyright in each contribution stays with its owner (the contributor, or their employer where it owns the work): the project takes no assignment and requires no CLA. The cover templates of the PDF guides (`scripts/userguide/cover.html`, `scripts/tutorials/cover.html`; the PDFs are built locally and not published) carry a copyright notice naming the maintainer and the contributors. (See the *Contributor licence* section below.)
 - Any future commercial layer (support subscription, managed control plane, premium plugins) is explicitly **out of scope for v3.0** and would require revisiting this ADR.
 
 ## Alternatives considered
@@ -40,7 +40,7 @@ Sigantry ships under **Apache-2.0** as a pure open-source project.
 - All Sigantry features — including traceability, audit plane and drift detection — live in public GitHub under Apache-2.0.
 - The base package's `LICENSE` file carries Apache-2.0.
 - Revenue, if any, comes from **services around** Sigantry (support, consulting, managed hosting), not from **restrictions on** Sigantry.
-- Every contributor contributes under Apache-2.0. See *Contributor licence* below.
+- How contributions are licensed, with the conditions of section 5, is set out in *Contributor licence* below.
 - Future premium plugins (if ever) would ship as separate, non-core packages with their own licence, and would not touch `sigantry-core`. This ADR does not authorise any such package.
 
 ## Contributor licence
