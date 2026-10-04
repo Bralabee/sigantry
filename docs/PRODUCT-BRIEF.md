@@ -84,7 +84,7 @@ All three of these are involved in the buying decision. The brief addresses each
 | 12 | Pipeline test orchestration + rollback | PIPELINE-01..05 | ADO + GHA 5-stage template pair, deploy ledger, `sigantry deploy run --rollback` |
 | 13 | Drift detection | DRIFT-01..03 | `sigantry diff -e <env>`, scheduled drift pipelines (ADO + GHA); see [ADR-0012](decisions/ADR-0012-sync-apply-vs-deploy-run-boundary.md) for the apply-vs-deploy-run boundary. |
 | 14 | Starter repo + PR-review bot | STARTER-01..07 | `sigantry-starter`, TMDL + Lakehouse diff bot (dual-CI), branching + PR-review docs |
-| 15 | Public demo environment | DEMO-01..04 | Public `demo-sigantry` repos, demo Fabric tenant, Remotion-recorded walkthrough |
+| 15 | Public demo environment | DEMO-01, -02, -04 (DEMO-03, the walkthrough video, retired) | Public `demo-sigantry` repos, demo Fabric tenant |
 | 16 | Seam expansion | SEAM-01..06 | `NotificationSink`, `SecretStore`, `ApprovalGate` seams with in-base reference implementations |
 
 **v3.1+ deferred:** managed/hosted control plane (SaaS), non-Microsoft data platforms, per-seat licensing, customer SSO, localisation, backwards-compat shim lifetime > one minor.
@@ -107,12 +107,6 @@ The demo IS Sigantry dogfooded in public:
 - Demo CI runs `sigantry deploy` + `sigantry release record` +
   `sigantry diff --fail-on-drift` on every push -- the same
   three-command loop the wedge promises adopters.
-- A 90-second mp4 walkthrough produced reproducibly by
-  `scripts/remotion/`:
-  [Watch the 90-second walkthrough](https://github.com/sigantry/demo-sigantry/releases/latest)
-  (the link resolves once the operator publishes the first release per
-  `<DEMO-URL>` Test 3 -- see also `docs/demo/walkthrough-script.md`
-  for the on-page narrative).
 
 ### Try it yourself
 
@@ -124,8 +118,7 @@ tenant.
 
 See [docs/runbooks/demo-tenant-operator.md](runbooks/demo-tenant-operator.md)
 for tenant provisioning, secret rotation, the Lakehouse Git
-limitation, dedicated-SPN scope discipline, and mp4 re-recording
-cadence.
+limitation, and dedicated-SPN scope discipline.
 
 ## Pricing + support sketch (forward-looking, not binding)
 

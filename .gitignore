@@ -56,8 +56,10 @@ docs/tutorial/
 deploy-artefacts/
 site/
 
-# Remotion video-tutorial scratch project — unrelated side-project for
-# authoring internal walkthrough videos; not part of the toolkit.
+# Left behind in checkouts by the retired demo-video build: its render
+# output and node_modules under scripts/remotion/, and the old scratch
+# project at the root. None of it belongs to the toolkit.
+scripts/remotion/
 remotion-tutorial/
 
 # QA council run artifacts (findings, probes, evidence) - local only
