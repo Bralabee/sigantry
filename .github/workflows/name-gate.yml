@@ -9,8 +9,12 @@
 # change is carried in a branch of this repository instead.
 #
 # It is a separate workflow, not a job in ci.yml, because publish-pypi.yml
-# calls ci.yml: the gate's own failures must not hold a release until it is
-# made a required check.
+# calls ci.yml without this secret, so a job there would fail closed on
+# every release. The check run takes the job's `name:`, the name branch
+# protection matches: renaming the job or adding a matrix would rename the
+# check, an `if:` on the job or a step would let it pass without a scan,
+# and narrowing the scan's --root would scan less
+# (tests/ci/test_name_gate.py pins these).
 name: Name gate
 
 on:

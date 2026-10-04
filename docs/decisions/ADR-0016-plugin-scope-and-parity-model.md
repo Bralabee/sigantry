@@ -106,9 +106,8 @@ plugin's own changelog per the vendor-neutral boundary.
 - A lightweight CI/lint check could enforce the placement rule (flag new module-level
   customer-identifying constants — org URLs, tenant ids, closed name enums — in plugin
   packages). Proposed as a follow-up, not part of this ADR's acceptance. Note this would
-  complement the existing vendor-neutral grep gate
-  (`tests/prereqs/test_phase8_banned_apis.py`), which already keeps customer branding out
-  of the base tree.
+  complement the repository's name gate (`scripts/ci/check-name-gate.py`), which fails
+  CI when the repository carries a name from a list held outside it.
 - Plugin authors get a checklist (below).
 
 ### Plugin author checklist (the placement rule, operationalised)
@@ -123,8 +122,8 @@ plugin's own changelog per the vendor-neutral boundary.
 4. Register only under the canonical `sigantry.<seam>` entry-point group.
 5. Accept config via the `_dispatch` contract: either `**cfg` kwargs on `__init__` or a
    `from_settings(cls, settings: dict)` classmethod.
-6. Keep customer branding out of the base tree (the grep gate enforces this); plugin
-   specifics live in the plugin package and its own changelog/docs.
+6. Keep customer branding out of the base tree (the name gate checks for the names on
+   its list); plugin specifics live in the plugin package and its own changelog/docs.
 
 ### Contract-suite skip policy (added 2026-09-20)
 

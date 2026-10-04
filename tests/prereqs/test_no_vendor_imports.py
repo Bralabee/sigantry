@@ -13,7 +13,7 @@ logic modules must not start importing ``azure.identity`` or
 
 The allowlist is the fence. Adding an entry should require reviewer
 attention -- the rationale string documents *why* the exemption is
-justified, the same shape as the phase8 file-allowlist.
+justified.
 
 Vendor roots scanned (top-level dotted prefix):
 

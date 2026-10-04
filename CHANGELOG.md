@@ -27,8 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `<file>:<line> <pattern id>` and never the matched text; a path that itself
   matches is printed as a hash. An exception register in the same secret
   excuses exact lines, and an entry that no longer matches fails the run.
-  Without the list, as on a fork's pull request, it fails closed. It is not a
-  required check yet.
+  Without the list, as on a fork's pull request, it fails closed.
 - `tests/ci/test_distribution_name.py` keeps the shipped surface — templates,
   workflows, scripts and the package — free of the dead distribution name, so
   it cannot creep back. It reads `pyproject.toml` as a *precondition* — the
@@ -154,6 +153,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   this project does not publish. `docs/migration/2.x-to-3.0.md` is now a
   short note on the pre-rename names: what replaces each one, which of them
   the code still reads, and what the 1.0.0 release reads instead.
+- `tests/prereqs/test_phase7_banned_apis.py` no longer lists the packages
+  `sigantry_core` must not import; it permits a reviewed set and fails on
+  anything else. An import statement outside function bodies in any of the
+  package's modules may name only the standard library, `sigantry_core`
+  itself, or a third-party root the test permits or a module inside one,
+  each root declared in `pyproject.toml` or required by a dependency
+  declared there. The check now also covers imports inside module-level
+  `try`, `if` (`if TYPE_CHECKING:` included), `with` and class bodies, which
+  the old line-start match could not see. Imports inside function bodies
+  stay allowed. Its two `httpx` checks keep their scope, now read import
+  statements rather than line starts, and fail if their directory holds no
+  Python file.
+- The name gate (see Added) takes over the name checks of the older
+  banned-string test (see Removed). It runs on every pull request to `main`
+  and on every push to `main`, and must pass before merge. The release
+  workflow also runs it on the released tree, before building the
+  distributions it uploads to PyPI.
 
 ### Deprecated
 - `.fabric-dataops.toml` and the `FDT_` settings env prefix. Both are still
@@ -162,6 +178,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   wins.
 
 ### Removed
+- The older banned-string test (`tests/prereqs/test_phase8_banned_apis.py`),
+  its path allowlist (`tests/prereqs/banned_api_allowlist.yaml`, 91 entries,
+  38 of them naming files this repository did not have) and the
+  allowlist's own schema test
+  (`tests/prereqs/test_banned_api_allowlist_yaml.py`). The name gate replaces
+  their name checks; their checks that a few moved files stay deleted, and
+  the `site_name` check on `mkdocs.yml`, are dropped. One of the removed
+  tests scanned a `bicep/` directory that this repository does not have, so
+  it could not fail.
 - `.github/workflows/release-alpha.yml` and `scripts/release/publish-v3-alpha.sh`
   are removed, with the dated `_PUBLISH_GATE_EXEMPT` carve-out that excused
   the workflow's ungated publish job (#13). The workflow served a retired

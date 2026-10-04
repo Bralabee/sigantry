@@ -36,6 +36,7 @@
 - [ ] New public functions carry Google-style docstrings (Args: / Returns: / Raises:).
 - [ ] New CLI commands have `--help` that resolves via `CliRunner` in a test.
 - [ ] `httpx` is imported only where Ruff `TID251` allows it (the `banned-api` and `per-file-ignores` tables in `pyproject.toml`).
+- [ ] Dependency direction: outside function bodies, `sigantry_core` imports only the standard library, itself and the third-party packages `tests/prereqs/test_phase7_banned_apis.py` permits. Plugins depend on the core, never the reverse.
 - [ ] Destructive operations require `force=True` and log an audit entry.
 - [ ] No tag pushed (tags are maintainer-only; see the release process).
 

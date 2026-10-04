@@ -45,6 +45,19 @@ jobs:
           python-version: '3.11'
           cache: pip
 
+      # The name gate on the tree being released. `quality` runs ci.yml,
+      # which does not receive the token list, so without these two steps a
+      # release from a ref that never passed the pull-request check, or a
+      # manual run on any branch, would be uploaded unchecked. The steps are
+      # the ones name-gate.yml runs; tests/ci/test_name_gate.py pins this job.
+      - name: Install the PDF text extractor
+        run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends poppler-utils
+
+      - name: Scan the tree for names
+        env:
+          NAME_GATE_TOKENS: ${{ secrets.NAME_GATE_TOKENS }}
+        run: python scripts/ci/check-name-gate.py --root .
+
       - name: Install packaging tools
         run: python -m pip install --upgrade pip build twine
 

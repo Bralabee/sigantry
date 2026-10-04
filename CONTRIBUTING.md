@@ -84,11 +84,12 @@ use the conda environment above.
 4. Ensure all unit and contract tests pass (`pytest tests/`).
 5. Open a Pull Request on GitHub against `main`. Ensure all automated CI checks pass.
 
-The **Name gate** check scans every file for names from a list held outside
-the repository, as a repository secret. A pull request from a fork does not
-receive repository secrets, so on a fork the check fails closed rather than
-passing unchecked. A maintainer carries such a change through a branch of this
-repository, where the check can run.
+The **Name gate** check runs on every pull request to `main` and on every push
+to `main`, and must pass before merge. It scans every file for names from a
+list held outside the repository, as a repository secret. A pull request from
+a fork does not receive repository secrets, so on a fork the check fails
+closed rather than passing unchecked. A maintainer carries such a change
+through a branch of this repository, where the check can run.
 
 ## Code of Conduct
 

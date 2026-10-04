@@ -45,6 +45,7 @@ Expanded:
 
 - The `--with-publish` flag's CLI surface is two-arg-minimum: `--with-publish --params <path>` is the smallest valid invocation. Documented in [`docs/runbooks/sync/apply.md`](../runbooks/sync/apply.md) §1.3.
 - The new error messages do NOT contain customer / tenant / project literals; the banned-API gate at `tests/prereqs/test_phase8_banned_apis.py` stays green.
+  *Note (2026-10-04):* that test has since been removed from the repository. The name gate (`scripts/ci/check-name-gate.py`) now fails CI when the repository carries a name from a list held outside it.
 - Operators upgrading from a v3.0 workflow that ran `sync apply` followed by `deploy run` see no behavioural change unless they opt into `--with-publish`. The pair-of-commands workflow remains valid and supported.
 - The hard-fail rule is locked: `--with-publish` requires `--params`, full stop. Future ADR amendments to widen this rule (e.g. permitting sibling-file inference under a feature flag) require a new ADR; this one is the locked rule.
 - The multi-env requirement is locked: multi-env `parameters.yml` requires `--environment` whenever `environments_seen` is non-empty. `_ALL_`-only parameters.yml continues to work without `--environment`.
