@@ -38,7 +38,6 @@ nav:
     - 12 Config-driven auto-update: tutorials/12-config-driven-autoupdate.md
   - Demo:
     - Quickstart: demo/QUICKSTART.md
-    - Walkthrough Script: demo/walkthrough-script.md
     - Operator Runbook: runbooks/demo-tenant-operator.md
   - Operator Manual: USER-GUIDE.md
   - Reference:

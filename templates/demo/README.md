@@ -9,11 +9,9 @@
 A reproducible, end-to-end demo of Sigantry -- Apache-2.0 open-source
 Fabric DataOps. A prospect or evaluator can:
 
-1. **Watch** the 90-second walkthrough mp4 (link below -- published
-   to GitHub Releases on first operator capture).
-2. **Try** Sigantry on their own laptop in 15 minutes via
+1. **Try** Sigantry on their own laptop in 15 minutes via
    `docs/demo/QUICKSTART.md`.
-3. **Inspect** the audit ledger, drift detection, rollback, and
+2. **Inspect** the audit ledger, drift detection, rollback, and
    PR-bot output produced by THIS repo's own CI runs against a
    dedicated demo Fabric tenant.
 
@@ -41,17 +39,10 @@ See `docs/demo/QUICKSTART.md` (15-minute walkthrough; Plan 15-04
 ships the canonical content; this template's `docs/QUICKSTART.md`
 is a stub pointing back to the canonical location).
 
-## Walkthrough mp4
-
-A 90-second mp4 walkthrough produced by the Remotion pipeline at
-`scripts/remotion/` is published to this repo's GitHub Releases
-after operator capture (15-HUMAN-UAT Test 3). Initial placeholder
-URL: `<DEMO-URL>` -- operator updates after Test 1 mirror succeeds.
-
 ## Operator runbook
 
 `docs/runbooks/demo-tenant-operator.md` (Plan 15-04) covers tenant
-provisioning, secret rotation, mp4 re-recording cadence, and the
+provisioning, secret rotation, and the
 Lakehouse Git limitation (table data lives in OneLake, not Git --
 expect `sigantry diff` to report metadata-only changes).
 

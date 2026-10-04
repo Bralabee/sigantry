@@ -34,6 +34,4 @@ See the canonical version: <DOCS-URL-DEMO-QUICKSTART>
 ## What's next
 
 Open the demo workspace in the Fabric portal and inspect the four
-deployed items. Watch the walkthrough mp4 (link in the README) for
-the full WI -> deploy -> test -> approve -> audit -> rollback
-round-trip narrative.
+deployed items.

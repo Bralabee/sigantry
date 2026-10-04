@@ -2,8 +2,7 @@
 
 > Phase 15 / DEMO-02 + DEMO-03 closure. This runbook is for the
 > operator who provisions the demo Fabric tenant, rotates demo
-> secrets, captures screenshots for the walkthrough mp4, and
-> maintains the public `demo-sigantry` repo. Outside reviewers do
+> secrets, and maintains the public `demo-sigantry` repo. Outside reviewers do
 > NOT need this runbook -- send them to
 > [docs/demo/QUICKSTART.md](../demo/QUICKSTART.md).
 
@@ -17,7 +16,7 @@
 ## 1. Tenant provisioning (one-time)
 
 Provision a dedicated Fabric tenant for the demo. Do NOT reuse a
-production adopter tenant -- see Section 7 (dedicated SPN scope)
+production adopter tenant -- see Section 6 (dedicated SPN scope)
 for why.
 
 1. Create a Microsoft 365 dev tenant (or sub-tenant) with Fabric
@@ -30,7 +29,7 @@ for why.
    `SIGANTRY_DEMO_TENANT_ID`.
 4. Register a service principal named `sigantry-demo-spn` in Entra
    ID. Grant it Workspace Admin on the demo workspace ONLY (see
-   Section 7). Generate a secret -- this becomes
+   Section 6). Generate a secret -- this becomes
    `SIGANTRY_DEMO_FABRIC_TOKEN` (or wire workload-identity-federation
    if you prefer no long-lived secrets; the demo CI workflows accept
    either).
@@ -101,46 +100,7 @@ Implications for the demo:
 
 Reference: [Microsoft Learn -- Lakehouse Git deployment limitations](https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-git-deployment-pipelines).
 
-## 4. mp4 re-recording cadence (RESEARCH §Pitfall 5)
-
-The walkthrough mp4 captures specific Sigantry CLI surface (e.g.
-`sigantry release record --release-id ...`). When the CLI surface
-changes, re-render the mp4. Cadence:
-
-- **Quarterly review:** check `sigantry --help` against
-  `scripts/remotion/script.md`. If any command/flag has changed,
-  re-render.
-- **On any breaking-change CLI bump:** re-render BEFORE the
-  breaking-change release ships, so the demo never lags the docs.
-
-Re-render procedure:
-
-1. Capture 5 fresh PNG screenshots from the demo tenant UI:
-   `scene1-workitem.png` through `scene5-rollback.png`. Recommended
-   size: 1920x1080 (matches the Remotion composition).
-2. Drop them into `scripts/remotion/assets/demo/` (overwriting any
-   prior demo-flavoured PNGs). The `assetSelector.ts` auto-prefers
-   `assets/demo/` over `assets/placeholder/`.
-3. Run `scripts/build-walkthrough.sh` (the determinism wrapper around
-   `npm ci && npm run render`).
-4. Inspect `scripts/remotion/out/walkthrough.mp4` locally to confirm
-   the 5 scenes render with the new screenshots.
-5. Push the asset commit to a feature branch. The
-   `.github/workflows/sigantry-demo-mp4.yml` GHA workflow re-renders
-   the mp4 in CI and uploads the artefact.
-6. Open a GitHub Release on the public `demo-sigantry` repo and
-   attach the mp4:
-   ```bash
-   gh release create v0.X.0 --repo sigantry/demo-sigantry \
-     --title "Demo walkthrough vX.0" \
-     --notes "Refreshed walkthrough; sigantry $(python -c 'import sigantry_core; print(sigantry_core.__version__)')" \
-     scripts/remotion/out/walkthrough.mp4
-   ```
-7. Update the PRODUCT-BRIEF `## Demo` section's `<DEMO-URL>`
-   placeholder if the URL has shifted (e.g. on first publish or
-   on a domain switch).
-
-## 5. Public-repo mirror procedure (Test 1)
+## 4. Public-repo mirror procedure (Test 1)
 
 The full procedure lives in the maintainer's phase-15 operator checklist
 (Test 1), which is not part of the open-source tree. Summary:
@@ -160,7 +120,7 @@ az devops project create --name demo-sigantry --org "$ADO_ORG" --visibility publ
 Wire the four `SIGANTRY_DEMO_*` GitHub Actions secrets and the
 `sigantry-demo-secrets` ADO variable group per Section 2.
 
-## 6. Recovery -- when the demo CI goes red
+## 5. Recovery -- when the demo CI goes red
 
 Common failure modes:
 
@@ -180,7 +140,7 @@ Common failure modes:
   `templates/demo/.azuredevops/sigantry-demo-ci.yml` together
   (dual-CI parity rule).
 
-## 7. Dedicated SPN scope (RESEARCH §Pitfall 6)
+## 6. Dedicated SPN scope (RESEARCH §Pitfall 6)
 
 The demo SPN MUST hold permissions ONLY on the demo tenant. NEVER
 grant role assignments outside the demo tenant.
@@ -203,9 +163,9 @@ az ad sp show --id "$DEMO_SPN_OBJECT_ID" \
 ```
 
 Run this verification at SPN creation, after every secret rotation,
-and quarterly during the mp4-cadence review (Section 4).
+and quarterly.
 
-## 8. Trademark / clearance -- V3-RISK-1
+## 7. Trademark / clearance -- V3-RISK-1
 
 Per the phase-15 reviewed-todos record (maintainer-side, not in the
 open-source tree): trademark + domain + PyPI clearance for `Sigantry` / `demo-sigantry`
@@ -221,8 +181,6 @@ URL. Treat the placeholder as a feature, not a bug, until then.
 
 - [docs/demo/QUICKSTART.md](../demo/QUICKSTART.md) -- adopter-facing
   15-min walkthrough.
-- [docs/demo/walkthrough-script.md](../demo/walkthrough-script.md) --
-  mp4 narrative source.
-- The maintainer's phase-15 operator checklist -- the 5 operator gates
-  (trademark + mirror + tenant + mp4 + fresh-laptop reviewer). Held
+- The maintainer's phase-15 operator checklist -- its operator gates
+  (trademark, mirror, tenant and fresh-laptop reviewer). Held
   outside this repository; ask the maintainer.

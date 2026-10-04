@@ -178,6 +178,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   wins.
 
 ### Removed
+- The demo walkthrough video build: `scripts/remotion/` (a Node project),
+  `scripts/build-walkthrough.sh`, `.github/workflows/sigantry-demo-mp4.yml`,
+  `docs/demo/walkthrough-script.md` and their tests. The video was never
+  published, so the pages that linked to it now say nothing about it, and
+  the demo-tenant runbook loses its re-recording section (later sections
+  are renumbered). The repository no longer carries an npm manifest.
 - The older banned-string test (`tests/prereqs/test_phase8_banned_apis.py`),
   its path allowlist (`tests/prereqs/banned_api_allowlist.yaml`, 91 entries,
   38 of them naming files this repository did not have) and the

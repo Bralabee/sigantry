@@ -521,7 +521,7 @@ No PowerShell module ships in this repository. The `templates/jobs/build-powersh
 
 ## 5. CI/CD pipeline templates
 
-[VERIFIED]. Templates in [`templates/`](../templates/) are imported by consumer pipelines via ADO `template:` or GHA `uses:`. The dual-CI parity lint `scripts/ci/check-dual-ci-parity.py` pairs the ADO templates under `templates/stages/`, `templates/schedules/` and `templates/pr-review/` with the GitHub Actions workflows of the same basename and compares their stage graphs and parameters (`pairs=3 exceptions=12 errors=0` on 2026-10-04; run the script for the current state). It does not read `jobs/`, `steps/`, `extends/` or `environments/`.
+[VERIFIED]. Templates in [`templates/`](../templates/) are imported by consumer pipelines via ADO `template:` or GHA `uses:`. The dual-CI parity lint `scripts/ci/check-dual-ci-parity.py` pairs the ADO templates under `templates/stages/`, `templates/schedules/` and `templates/pr-review/` with the GitHub Actions workflows of the same basename and compares their stage graphs and parameters (`pairs=3 exceptions=11 errors=0` on 2026-10-04; run the script for the current state). It does not read `jobs/`, `steps/`, `extends/` or `environments/`.
 
 **Template subdirectory map:**
 
@@ -566,7 +566,6 @@ Stage 5 deploys nothing. It runs `sigantry release record`, so the approval gate
 | `.github/workflows/review-record-relay.yml` | Takes a submitted pull request review and hands it to `review-record.yml` through `workflow_run`, so the status is recomputed by the default branch's copy of the gate. It has no permissions and runs no pull request code. |
 | `.github/workflows/sigantry-cd.yml` | The 5-stage CD workflow. |
 | `.github/workflows/sigantry-pr-bot.yml` | PR-bot trigger workflow. |
-| `.github/workflows/sigantry-demo-mp4.yml` | Remotion mp4 build for the public demo. |
 
 ---
 
