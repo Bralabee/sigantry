@@ -54,7 +54,10 @@ Run before opening the release PR:
    nothing looks identical to a passing one.
 4. `python -m pytest tests/prereqs/` - green. Names are not checked here:
    the `Name gate` check covers each pull request, and the release
-   workflow runs the same gate on the released tree before it builds.
+   workflow runs the same gate on the released tree before it builds. It
+   uses the same exception register as the pull-request check, so a
+   release of a ref whose registered lines have moved fails until the
+   register fits that ref.
 5. `pwsh -c "Invoke-Pester -Configuration ./tests/Pester.config.ps1"`.
 6. Update `CHANGELOG.md`: move `[Unreleased]` to a dated heading.
 7. Bump `sigantry_core/_version.py`.

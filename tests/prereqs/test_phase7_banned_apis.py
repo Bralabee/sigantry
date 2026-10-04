@@ -198,7 +198,11 @@ def test_import_time_imports_are_stdlib_self_or_declared() -> None:
 
 
 def _required_by(parent: str) -> set[str]:
-    """The distributions an installed ``parent`` requires, extras excluded."""
+    """The distributions an installed ``parent`` lists as requirements.
+
+    Requirements under an ``extra ==`` marker are left out; other markers
+    (platform, Python version) are not evaluated.
+    """
     names: set[str] = set()
     for requirement in metadata.requires(parent) or []:
         if re.search(r"\bextra\s*==", requirement):
@@ -213,7 +217,8 @@ def test_permitted_roots_are_declared_dependencies() -> None:
     """Each permitted root is backed by a dependency pyproject.toml declares.
 
     A root whose distribution is not declared names the declared parent that
-    brings it in, and the parent's installed metadata must require it.
+    brings it in, and the parent's installed metadata must list it as a
+    requirement (see ``_required_by``).
     """
     declared = _declared_distributions()
     undeclared = []
@@ -274,6 +279,8 @@ def test_import_walker_sees_import_time_imports_and_skips_deferred_ones() -> Non
         "import os\n"
         "import example_dq_lib\n"
         "from sigantry_core import config\n"
+        "from azure.keyvault import secrets\n"
+        "from azure import identity, core\n"
         "from . import sibling\n"
         "try:\n"
         "    import sigantry_example\n"
@@ -294,6 +301,9 @@ def test_import_walker_sees_import_time_imports_and_skips_deferred_ones() -> Non
         "os",
         "example_dq_lib",
         "sigantry_core",
+        "azure.keyvault.secrets",
+        "azure.identity",
+        "azure.core",
         "sigantry_example",
         "sigantry_example_fallback",
         "example_types",

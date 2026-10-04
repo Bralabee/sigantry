@@ -26,6 +26,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from .test_quality_gates_run import _publish_jobs
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GATE = REPO_ROOT / "scripts" / "ci" / "check-name-gate.py"
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "name-gate.yml"
@@ -1001,14 +1003,17 @@ def _without_action_refs(job: dict) -> dict:
 
 
 def test_the_gate_job_is_pinned_whole() -> None:
-    """Every key of the gate job, and of the workflow around it, is pinned.
+    """The gate job is pinned whole, with the workflow's top-level keys and permissions.
 
     Naming the keys that can neuter the scan one at a time never ends: a
     step's ``shell:``, an ``env:`` entry such as ``PYTHONPATH`` or
     ``BASH_ENV``, a ``container:``, another runner, or a workflow-level
     ``env:`` or ``defaults:`` can each let the check pass without reading the
     tree. So the whole job is compared. A change to the job updates
-    ``_EXPECTED_GATE_JOB`` in the same commit, where review sees it.
+    ``_EXPECTED_GATE_JOB`` in the same commit, where review sees it. The
+    triggers are checked by the tests above, and the action refs by
+    ``tests/prereqs/test_workflow_sha_pinning.py``, which requires a commit
+    SHA but does not say which.
     """
     wf = _workflow()
     assert set(wf) == {"name", True, "permissions", "concurrency", "jobs"}, (
@@ -1038,15 +1043,26 @@ def test_no_other_job_reports_under_the_gate_check_name() -> None:
 
 
 def test_the_release_path_runs_the_gate() -> None:
-    """The job that uploads to PyPI scans the released tree before it builds.
+    """The one job that uploads to PyPI scans the released tree before it builds.
 
     ``quality`` runs ci.yml, which does not receive the token list, so
     without this a release from a ref that never passed the pull-request
     check, or a manual run on any branch, would upload unchecked. The job is
     compared whole, for the reasons ``test_the_gate_job_is_pinned_whole``
     gives: a step that changed the tree after the scan, or one that skipped
-    or neutered it, would otherwise pass.
+    or neutered it, would otherwise pass. Every publish job the quality-gate
+    tests detect (``_publish_jobs``, with its pinned gaps) must be this one,
+    so a second upload job cannot go round the scan.
     """
+    publish_jobs = sorted(
+        f"{path.name}::{job_id}"
+        for path in sorted((REPO_ROOT / ".github" / "workflows").glob("*.y*ml"))
+        for job_id in _publish_jobs(yaml.safe_load(path.read_text(encoding="utf-8")) or {})
+    )
+    assert publish_jobs == ["publish-pypi.yml::build-and-publish"], (
+        "every job that publishes must run the name gate first; give a new "
+        f"publish job the scan and pin it here: {publish_jobs}"
+    )
     wf = yaml.safe_load(PUBLISH_WORKFLOW.read_text(encoding="utf-8"))
     assert "env" not in wf and "defaults" not in wf, (
         "workflow-level env or defaults reach the scan step"
