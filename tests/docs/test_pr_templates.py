@@ -40,6 +40,10 @@ def test_pr_template_enforces_phase7_invariants() -> None:
     text = GITHUB_TEMPLATE.read_text(encoding="utf-8")
     # httpx invariant
     assert "httpx" in text
+    # Dependency direction, and the test that enforces it
+    assert "Dependency direction" in text
+    assert "tests/prereqs/test_phase7_banned_apis.py" in text
+    assert (REPO_ROOT / "tests" / "prereqs" / "test_phase7_banned_apis.py").is_file()
     # No tag push rule
     assert "tag" in text.lower()
     # Conventional commits

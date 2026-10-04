@@ -58,8 +58,9 @@ pwsh -c "Invoke-Pester -Configuration ./tests/Pester.config.ps1"
    imperative mood. Reference the requirement id if relevant.
 4. Open a PR against `main`. Fill in the template, link the issue,
    and call out any user-facing changes.
-5. CI must be green before merge (lint, tests, banned-API grep gate,
-   PSScriptAnalyzer, pre-commit hooks).
+5. CI must be green before merge: lint and format (ruff), the type check
+   (mypy), the test matrix, the artifact build, the name gate and the
+   review-record status.
 6. Merge once review is complete and every automated CI check is green.
 
 ## Testing expectations
@@ -80,9 +81,14 @@ pwsh -c "Invoke-Pester -Configuration ./tests/Pester.config.ps1"
   bypass conftest.)
 - **Unit tests:** pytest with HTTP calls mocked. Target 85%+ coverage
   on any file you touch.
-- **Banned-API invariants:** `tests/prereqs/test_phase8_banned_apis.py`
-  asserts that no tenant-specific branding re-enters the base. Do not
-  attempt to bypass the guard; fix your change instead.
+- **Dependency direction and names:** `tests/prereqs/test_phase7_banned_apis.py`
+  fails if `sigantry_core` imports, outside function bodies, anything beyond
+  the standard library, itself and the third-party roots the test permits
+  (or a module inside one), each root declared in `pyproject.toml` or
+  required by a dependency declared there. The **Name gate** check fails
+  when the repository carries a name from its list (see the root
+  `CONTRIBUTING.md`). Do not attempt to bypass either; fix your change
+  instead.
 - **Pester:** PowerShell parity for any PS cmdlet under `Sigantry/`
   (renamed from `Fabric/` in v3.0 per ADR-0011) or plugin PS modules.
 
