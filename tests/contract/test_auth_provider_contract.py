@@ -1,9 +1,7 @@
 """AuthProvider contract tests.
 
-The plugin's ``AcmeEntraGroupAuth.get_token`` cannot run without a real
-Entra token endpoint; we assert only protocol conformance + ``name`` +
-a tokenless init for the plugin. The double's ``get_token`` returns a
-static ``Secret`` and fully exercises the contract.
+Runs the contract against the ``FakeAuth`` double, whose ``get_token``
+returns a static ``Secret`` and fully exercises the contract.
 """
 
 from __future__ import annotations
@@ -12,13 +10,6 @@ import pytest
 
 from sigantry_core.protocols import AuthProvider, Secret
 from sigantry_core.testing.doubles import FakeAuth
-
-
-def _plugin_auth_or_skip():
-    pytest.importorskip("sigantry_acme")
-    from sigantry_acme.auth.acme_entra_group import AcmeEntraGroupAuth
-
-    return AcmeEntraGroupAuth()
 
 
 @pytest.mark.contract
@@ -43,13 +34,3 @@ def test_auth_provider_double_secret_value_is_string() -> None:
 @pytest.mark.contract
 def test_auth_provider_double_satisfies_runtime_protocol() -> None:
     assert isinstance(FakeAuth(), AuthProvider)
-
-
-@pytest.mark.contract
-def test_auth_provider_plugin_has_name(fdt_auth_provider_contract) -> None:
-    fdt_auth_provider_contract(_plugin_auth_or_skip())
-
-
-@pytest.mark.contract
-def test_auth_provider_plugin_satisfies_runtime_protocol() -> None:
-    assert isinstance(_plugin_auth_or_skip(), AuthProvider)

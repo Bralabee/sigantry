@@ -1,8 +1,7 @@
 """TelemetrySink contract tests.
 
-Covers both the in-memory double and the ACME ``LogAnalyticsSink`` plugin.
-The plugin's ``emit`` path is NOT exercised here (it requires real Azure
-credentials); protocol conformance, ``name``, and ``flush`` safety are.
+Runs the contract against the ``InMemoryTelemetrySink`` double: protocol
+conformance, ``name``, and that ``emit`` and ``flush`` return ``None``.
 """
 
 from __future__ import annotations
@@ -14,18 +13,6 @@ from sigantry_core.protocols import (
     TelemetrySink,
 )
 from sigantry_core.testing.doubles import InMemoryTelemetrySink
-
-
-def _plugin_sink_or_skip():
-    pytest.importorskip("sigantry_acme")
-    from sigantry_acme.telemetry.log_analytics_sink import (
-        LogAnalyticsSink,
-    )
-
-    return LogAnalyticsSink(
-        dce_uri="https://contract.example.invalid",
-        dcr_immutable_id="dcr-contract-immutable-id",
-    )
 
 
 @pytest.mark.contract
@@ -51,15 +38,3 @@ def test_telemetry_sink_double_flush_returns_none() -> None:
 @pytest.mark.contract
 def test_telemetry_sink_double_satisfies_runtime_protocol() -> None:
     assert isinstance(InMemoryTelemetrySink(), TelemetrySink)
-
-
-@pytest.mark.contract
-def test_telemetry_sink_plugin_has_name(fdt_telemetry_sink_contract) -> None:
-    fdt_telemetry_sink_contract(_plugin_sink_or_skip())
-
-
-@pytest.mark.contract
-def test_telemetry_sink_plugin_flush_is_safe() -> None:
-    """Plugin's ``flush`` is a no-op and never raises — protocol invariant."""
-    sink = _plugin_sink_or_skip()
-    assert sink.flush() is None

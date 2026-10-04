@@ -4,7 +4,7 @@ Covers the minimum-viable doctor contract per PRODUCTIZATION.md Section 10.2
 row 1:
 
 - Exit 0 when no plugins are registered (doctor is a diagnostic, not a gate).
-- Lists ACME plugins when the plugin package is installed.
+- Lists every registered plugin, across seams.
 - Surfaces per-plugin import errors in the table without aborting the process.
 - ``--strict`` flips the exit code to 1 when any plugin failed to import.
 - ``doctor --help`` exits 0.
@@ -77,16 +77,30 @@ def test_doctor_exits_zero_with_no_plugins(empty_registry: Registry) -> None:
     assert "0 plugin(s) discovered" in result.stdout
 
 
-def test_doctor_lists_acme_plugins_after_install() -> None:
-    """With the ACME plugin installed (editable), doctor lists all six seams."""
-    # This test intentionally uses the LIVE default registry: the plugin is
-    # expected to be installed in the dev venv per the plan's setup. Renamed
-    # from fabric_dataops_toolkits_acme in v3.0 per ADR-0011.
-    pytest.importorskip("sigantry_acme")
+@pytest.fixture
+def registry_with_plugins() -> Registry:
+    """Registry with one healthy plugin in each of four seams (no discovery)."""
+    r = Registry()
+    r._discovered = True
+    for group, name in (
+        ("sigantry.deploy_profiles", "example_profile"),
+        ("sigantry.dq_gates", "example_dq_lib"),
+        ("sigantry.telemetry_sinks", "example_sink"),
+        ("sigantry.auth_providers", "example_auth"),
+    ):
+        r._info[group][name] = PluginInfo(
+            group=group, name=name, module=f"sigantry_example.{name}", version="0.0.1"
+        )
+    return r
+
+
+def test_doctor_lists_registered_plugins(registry_with_plugins: Registry) -> None:
+    """Every registered plugin appears in the table, across seams."""
+    doctor_module._set_registry_override(registry_with_plugins)
     result = _invoke_doctor()
     assert result.exit_code == 0
     out = result.stdout
-    for plugin_name in ("nimbus", "qualitykit", "log_analytics", "acme_entra_group"):
+    for plugin_name in ("example_profile", "example_dq_lib", "example_sink", "example_auth"):
         assert plugin_name in out, f"doctor output missing plugin {plugin_name!r}; got:\n{out}"
 
 

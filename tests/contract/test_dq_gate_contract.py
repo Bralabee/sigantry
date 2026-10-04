@@ -1,9 +1,7 @@
 """DataQualityGate contract tests.
 
-Parametrises over (double, plugin) pairs. The plugin's
-``DqFrameworkGate.run`` is not invoked here — it late-imports the peer
-``qualitykit`` package at call-time and needs credentials for a real
-suite — but its protocol conformance and ``name`` field are asserted.
+Runs the contract against the ``NoopGate`` double: protocol conformance,
+the ``name`` field, and the ``GateResult`` returned by ``run``.
 """
 
 from __future__ import annotations
@@ -16,13 +14,6 @@ from sigantry_core.protocols import (
     GateResult,
 )
 from sigantry_core.testing.doubles import NoopGate
-
-
-def _plugin_gate_or_skip():
-    pytest.importorskip("sigantry_acme")
-    from sigantry_acme.dq.qualitykit_gate import DqFrameworkGate
-
-    return DqFrameworkGate()
 
 
 @pytest.mark.contract
@@ -42,20 +33,3 @@ def test_dq_gate_double_run_returns_gate_result() -> None:
 @pytest.mark.contract
 def test_dq_gate_double_satisfies_runtime_protocol() -> None:
     assert isinstance(NoopGate(), DataQualityGate)
-
-
-@pytest.mark.contract
-def test_dq_gate_plugin_has_name(fdt_dq_gate_contract) -> None:
-    fdt_dq_gate_contract(_plugin_gate_or_skip())
-
-
-@pytest.mark.contract
-def test_dq_gate_plugin_satisfies_runtime_protocol() -> None:
-    assert isinstance(_plugin_gate_or_skip(), DataQualityGate)
-
-
-@pytest.mark.contract
-def test_dq_gate_plugin_name_is_qualitykit() -> None:
-    """Plugin's canonical registered name is the ``qualitykit`` entry point."""
-    gate = _plugin_gate_or_skip()
-    assert gate.name == "qualitykit"

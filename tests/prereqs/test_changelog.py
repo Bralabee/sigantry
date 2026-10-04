@@ -1,4 +1,4 @@
-"""CHANGELOG.md integrity - Keep a Changelog 1.1.0 shape plus ACME Phase 0 content."""
+"""CHANGELOG.md integrity - Keep a Changelog 1.1.0 shape."""
 
 from __future__ import annotations
 

@@ -1,21 +1,21 @@
-"""Discover ACME_FABRIC_TEST_* candidate values from the live Fabric tenant.
+"""Discover SIGANTRY_FABRIC_TEST_* candidate values from the live Fabric tenant.
 
-Reads AZURE_* auth from ``.env.live`` (same loader as ``tests/integration/conftest.py``),
+Reads AZURE_* auth from ``.env.live`` (see ``scripts/live-creds.template``),
 then calls the Fabric REST API via the toolkit's own client to enumerate:
 
   * capacities visible to the SP (``/v1/capacities``)
   * workspaces visible to the SP (``/v1/workspaces?roles=Admin,Contributor,Member``)
   * Environment items inside a chosen workspace (``/v1/workspaces/{id}/items?type=Environment``)
 
-Prints a paste-ready block for the ``ACME_FABRIC_TEST_*`` section of ``.env.live``.
+Prints a paste-ready block for the ``SIGANTRY_FABRIC_TEST_*`` section of ``.env.live``.
 No secret is ever printed. No state is mutated.
 
 Usage
 -----
     conda activate sigantry-dev
-    python scripts/discover_env_live.py                 # matches workspace name containing 'nimbus'
-    python scripts/discover_env_live.py --workspace-name NIMBUS-DEV
-    python scripts/discover_env_live.py --list-only     # list only; do not pick a workspace
+    python scripts/discover_env_live.py --workspace-name analytics-dev  # pick the workspace whose name contains it
+    python scripts/discover_env_live.py                                 # no workspace picked; block carries the tenant (and a sole capacity)
+    python scripts/discover_env_live.py --list-only                     # list only; do not pick a workspace
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from pathlib import Path
 
 
 def _load_env_file(path: Path) -> int:
-    """Mirror of tests/integration/conftest.py::_load_env_file.
+    """Load ``KEY=value`` lines from a dotenv-style file into ``os.environ``.
 
     Existing env vars always win so an exported override stays in effect.
     """
@@ -61,8 +61,12 @@ def main() -> int:
     )
     parser.add_argument(
         "--workspace-name",
-        default="nimbus",
-        help="Case-insensitive substring for picking the workspace (default: 'nimbus').",
+        default=None,
+        help=(
+            "Case-insensitive substring for picking the workspace. Without it no "
+            "workspace is picked, and the paste-ready block carries only the tenant "
+            "(and the capacity, when exactly one is visible)."
+        ),
     )
     parser.add_argument(
         "--list-only",
@@ -124,14 +128,19 @@ def main() -> int:
             cap_id = ws.capacity_id or "-"
             _print_stderr(f"#   {ws.id}  {ws.display_name!r}  type={ws.type}  capacity={cap_id}")
 
-        env_candidates: dict[str, str] = {"ACME_FABRIC_TEST_TENANT_ID": tenant_id}
+        env_candidates: dict[str, str] = {"SIGANTRY_FABRIC_TEST_TENANT_ID": tenant_id}
 
         if not args.list_only:
-            needle = args.workspace_name.lower()
-            matches = [ws for ws in workspaces if needle in (ws.display_name or "").lower()]
+            needle = (args.workspace_name or "").lower()
+            matches = [
+                ws for ws in workspaces if needle and needle in (ws.display_name or "").lower()
+            ]
 
             if not matches:
-                _print_stderr(f"\n# WARNING: no workspace name contained {args.workspace_name!r}.")
+                if args.workspace_name:
+                    _print_stderr(
+                        f"\n# WARNING: no workspace name contained {args.workspace_name!r}."
+                    )
                 _print_stderr(
                     "#          pass --workspace-name <substring> with a value from the list above."
                 )
@@ -144,9 +153,9 @@ def main() -> int:
                     _print_stderr(f"#          {ws.id}  {ws.display_name!r}")
             else:
                 ws = matches[0]
-                env_candidates["ACME_FABRIC_TEST_WORKSPACE_ID"] = ws.id
+                env_candidates["SIGANTRY_FABRIC_TEST_WORKSPACE_ID"] = ws.id
                 if ws.capacity_id:
-                    env_candidates["ACME_FABRIC_TEST_CAPACITY_ID"] = ws.capacity_id
+                    env_candidates["SIGANTRY_FABRIC_TEST_CAPACITY_ID"] = ws.capacity_id
 
                 _print_stderr(
                     f"\n# --- Environment items in workspace {ws.display_name!r} ({ws.id}) ---"
@@ -154,10 +163,10 @@ def main() -> int:
                 envs = list(list_items(client, ws.id, item_type="Environment"))
                 if not envs:
                     _print_stderr(
-                        "#   (no Environment items — leaving ACME_FABRIC_TEST_ENVIRONMENT_ID blank)"
+                        "#   (no Environment items — leaving SIGANTRY_FABRIC_TEST_ENVIRONMENT_ID blank)"
                     )
                 elif len(envs) == 1:
-                    env_candidates["ACME_FABRIC_TEST_ENVIRONMENT_ID"] = envs[0].id
+                    env_candidates["SIGANTRY_FABRIC_TEST_ENVIRONMENT_ID"] = envs[0].id
                     _print_stderr(f"#   {envs[0].id}  {envs[0].display_name!r}")
                 else:
                     _print_stderr(
@@ -168,19 +177,12 @@ def main() -> int:
 
             # If the workspace didn't expose a capacity and there's exactly one
             # visible capacity, it's almost certainly the right one — surface it.
-            if "ACME_FABRIC_TEST_CAPACITY_ID" not in env_candidates and len(capacities) == 1:
-                env_candidates["ACME_FABRIC_TEST_CAPACITY_ID"] = capacities[0].id
+            if "SIGANTRY_FABRIC_TEST_CAPACITY_ID" not in env_candidates and len(capacities) == 1:
+                env_candidates["SIGANTRY_FABRIC_TEST_CAPACITY_ID"] = capacities[0].id
 
         _print_stderr("\n# --- paste-ready block for .env.live (stdout) ---")
         for k, v in env_candidates.items():
             print(f"{k}={v}")
-        _print_stderr("")
-        _print_stderr(
-            "# Telemetry (ACME_FABRIC_TEST_DCE_URI / DCR_IMMUTABLE_ID) is not API-discoverable"
-        )
-        _print_stderr(
-            "# here — it comes from the bicep/modules/dcr-telemetry.bicep outputs in your subscription."
-        )
     finally:
         client.close()
     return 0

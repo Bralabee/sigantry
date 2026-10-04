@@ -109,7 +109,7 @@ def test_at_least_one_markdown_file_scanned() -> None:
     """Regression guard: if docs/ ever empties, the link test trivially passes -
     this test keeps that from happening.
 
-    Plan 08-05 moved ACME pages out of base docs; the floor is lower now.
+    Plan 08-05 moved plugin-specific pages out of base docs; the floor is lower now.
     """
     count = sum(1 for _ in DOCS_ROOT.rglob("*.md"))
     # Base floor (Plan 08-05): index + 2 getting-started + reference/protocols
@@ -123,7 +123,7 @@ def test_at_least_one_markdown_file_scanned() -> None:
 def test_docs_index_references_all_top_level_sections() -> None:
     """docs/index.md MUST link to each top-level wiki section.
 
-    Plan 08-05 stripped ACME-specific nav from base docs; the remaining
+    Plan 08-05 stripped plugin-specific nav from base docs; the remaining
     required targets are the generic base-platform sections.
     """
     index = (DOCS_ROOT / "index.md").read_text(encoding="utf-8")
@@ -178,9 +178,8 @@ def test_dot_order_entries_have_no_extensions_or_paths() -> None:
 def test_docs_tree_covers_base_platform_pages() -> None:
     """Regression guard: the base-platform generic pages exist.
 
-    Plan 08-05 moved ACME-specific pages (00-prerequisites/, decisions/,
-    ACME reference pages) to the plugin docs tree; this test now only
-    tracks the vendor-agnostic base docs contract.
+    Plan 08-05 moved plugin-specific pages out of the base docs tree; this
+    test now only tracks the vendor-agnostic base docs contract.
     """
     required = [
         "index.md",

@@ -1,9 +1,8 @@
-"""NotificationSink Protocol contract tests (Phase 16 / SEAM-01 + SEAM-05).
+"""NotificationSink Protocol contract tests (Phase 16 / SEAM-01).
 
 Eighth contract test in tests/contract/. Wave 0 (Plan 16-00) shipped
 xfail stubs; Plan 16-01 lands real assertions parametrised over Fake +
-Teams + Slack + Email factories. Plan 16-04 will extend the parametrise
-list to include the Ownerco reference impl.
+Teams + Slack + Email factories.
 
 Per RESEARCH §3 Open-Q-3 + Phase 11 ADR-0004: NotificationSink Protocol
 instances do NOT carry an ``api_version`` class var. Cross-seam widening
@@ -13,7 +12,6 @@ updating all ten is a contract break.
 
 from __future__ import annotations
 
-import importlib.util
 import inspect
 
 import pytest
@@ -58,38 +56,16 @@ def _email_sink() -> NotificationSink:
     )
 
 
-def _ownerco_sink() -> NotificationSink:
-    """Construct the sigantry-ownerco stub sink for contract battery (Plan 16-04).
-
-    Skipped when sigantry-ownerco is not editable-installed in the active
-    env. The stub satisfies the same NotificationSink contract as the
-    three reference impls; SEAM-05 closure proves multi-org plugin
-    authorship works.
-    """
-    pytest.importorskip("sigantry_ownerco.notifications")
-    from sigantry_ownerco.notifications import OwnercoNotificationSink
-
-    return OwnercoNotificationSink()
-
-
 _FACTORIES = [
     pytest.param(_fake_sink, id="fake"),
     pytest.param(_teams_sink, id="teams"),
     pytest.param(_slack_sink, id="slack"),
     pytest.param(_email_sink, id="email"),
-    pytest.param(
-        _ownerco_sink,
-        id="ownerco",
-        marks=pytest.mark.skipif(
-            importlib.util.find_spec("sigantry_ownerco") is None,
-            reason="sigantry-ownerco not editable-installed in this env",
-        ),
-    ),
 ]
 
 
 # ---------------------------------------------------------------------------
-# Contract battery -- the lock on SEAM-01 + SEAM-05.
+# Contract battery -- the lock on SEAM-01.
 # ---------------------------------------------------------------------------
 
 

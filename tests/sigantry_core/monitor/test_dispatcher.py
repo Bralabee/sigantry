@@ -1,7 +1,7 @@
 """Unit tests for :mod:`sigantry_core.monitor.dispatcher`.
 
 PROD-05 invariant: ``resolve_sink`` is a thin registry lookup returning the
-named :class:`TelemetrySink` — nothing more. No ACME strings, no env reads.
+named :class:`TelemetrySink` — nothing more. No vendor strings, no env reads.
 """
 
 from __future__ import annotations

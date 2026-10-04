@@ -38,9 +38,6 @@ def test_pr_templates_are_byte_identical() -> None:
 
 def test_pr_template_enforces_phase7_invariants() -> None:
     text = GITHUB_TEMPLATE.read_text(encoding="utf-8")
-    # Dependency direction
-    assert "nimbus_data_platform" in text
-    assert "qualitykit" in text
     # httpx invariant
     assert "httpx" in text
     # No tag push rule
