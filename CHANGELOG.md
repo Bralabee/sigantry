@@ -54,9 +54,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every quality job. A configured-but-unrun tool is worse than an absent one:
   the config advertises a gate that does not exist.
 - `tests/ci/test_contract_floor.py` pins how many seam contract tests run. It
-  runs `tests/contract/` in a child pytest and fails unless exactly
-  `CONTRACT_FLOOR` tests executed, so a skip, a removed test, or a new test
-  added without raising the number turns the suite red (ADR-0016). The
+  runs `tests/contract/` in a child pytest and fails unless every contract
+  test executed and exactly `CONTRACT_FLOOR` did, so a skip, an error, a
+  removed test, or a new test added without raising the number turns the
+  suite red (ADR-0016). The
   contract suite no longer carries arms for plugin distributions that are not
   part of this repository; on a clean runner they always skipped.
 

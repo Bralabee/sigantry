@@ -75,7 +75,8 @@ def _github_provider() -> WorkItemProvider:
 # Parametrised contract battery -- the lock on TRACE-01 / TRACE-02 / TRACE-03.
 # All three providers MUST pass via the shared ``fdt_work_item_provider_contract``
 # fixture. Adding a new provider to the seam means adding one factory above
-# and one entry to the parametrize list -- no other code changes.
+# and one entry to the parametrize list, then raising CONTRACT_FLOOR in
+# tests/ci/test_contract_floor.py by the number of tests added.
 # ---------------------------------------------------------------------------
 
 

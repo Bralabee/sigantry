@@ -1,13 +1,15 @@
 """The seam contract suite must execute exactly ``CONTRACT_FLOOR`` tests.
 
-ADR-0016 ("Contract-suite skip policy") decided that a contract arm may skip
-where its implementation is not installed, but that the skip must not be
-silent. This test runs the whole ``tests/contract/`` directory in a child
-pytest, reads its JUnit XML report, and fails unless exactly
-``CONTRACT_FLOOR`` tests executed:
+ADR-0016 ("Contract-suite skip policy") required that a contract skip never
+be silent; its amendment makes the rule strict for this repository, whose
+contract arms all have their implementation in the package. This test runs
+the whole ``tests/contract/`` directory in a child pytest, reads its JUnit
+XML report, and fails unless every collected test executed (none skipped,
+none errored) and exactly ``CONTRACT_FLOOR`` of them did:
 
-* fewer -- a skip, an error (at collection or fixture setup) or a removed
-  test lowered the count;
+* a skip or an error fails, even when added tests keep the count at the
+  floor -- fix it; never lower ``CONTRACT_FLOOR`` for it;
+* fewer, with nothing skipped -- a contract test was removed;
 * more -- contract tests were added and ``CONTRACT_FLOOR`` was not raised.
 
 Equality, not a minimum: with ``>=`` a suite that grew past the floor could
@@ -83,19 +85,18 @@ def test_contract_suite_executes_exactly_the_floor(tmp_path: Path) -> None:
     skipped = sum(int(s.get("skipped", "0")) for s in suites)
     errors = sum(int(s.get("errors", "0")) for s in suites)
     executed = total - skipped - errors
-    if errors:
+    if skipped or errors:
         hint = (
-            "An error (at collection or fixture setup) never counts as executed: "
-            "fix it rather than lowering CONTRACT_FLOOR."
+            "Every contract test must execute on a clean runner: a skip or an error "
+            "(at collection or fixture setup) is a defect to fix, never a reason to "
+            "change CONTRACT_FLOOR."
         )
     else:
         hint = (
-            f"If the change is intended, set CONTRACT_FLOOR = {executed} in "
-            f"{Path(__file__).name} in the same commit (ADR-0016)."
+            f"If contract tests were added or removed on purpose, set CONTRACT_FLOOR = "
+            f"{executed} in {Path(__file__).name} in the same commit (ADR-0016)."
         )
-    assert executed == CONTRACT_FLOOR, (
+    assert executed == CONTRACT_FLOOR and skipped == 0 and errors == 0, (
         f"Contract floor: tests/contract executed {executed} tests (collected {total}, "
-        f"skipped {skipped}, errors {errors}); CONTRACT_FLOOR is {CONTRACT_FLOOR}. "
-        "Fewer means a skip, an error or a removed test lowered the count; more "
-        "means contract tests were added. " + hint + tail
+        f"skipped {skipped}, errors {errors}); CONTRACT_FLOOR is {CONTRACT_FLOOR}. " + hint + tail
     )

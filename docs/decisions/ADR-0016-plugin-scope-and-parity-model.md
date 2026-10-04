@@ -157,10 +157,13 @@ change to which seams ship reference implementations must update that expected c
 in the same commit.
 
 **Amended (contract floor).** The floor now exists: `tests/ci/test_contract_floor.py` runs
-`tests/contract/` in a child pytest and fails unless exactly `CONTRACT_FLOOR` tests
-executed. Fewer means a skip, an error (at collection or fixture setup) or a removed
-test lowered the count; more means a contract test was added without raising the
-number. The plugin-distribution contract arms counted in the measurement above were
+`tests/contract/` in a child pytest and fails unless every collected contract test
+executed (none skipped, none errored) and exactly `CONTRACT_FLOOR` of them did. A skip
+or an error fails even when added tests keep the count at the floor, which supersedes
+the skip allowance above for this repository: an arm whose implementation lives in
+another distribution belongs in that distribution's own tests. With nothing skipped,
+fewer means a contract test was removed, and more means one was added without raising
+the number. The plugin-distribution contract arms counted in the measurement above were
 removed from this tree in the same change (and the doctor test now uses an in-memory
 registry), so a clean runner executes every collected contract test: 94 of 94. The
 only skip conditions left in `tests/contract/` import the package itself or its
