@@ -930,3 +930,126 @@ def test_an_archive_comment_exception_is_in_the_archive_scope(tmp_path: Path) ->
     tree_run = _run(root, tmp_path, listed)
     assert archive_run.returncode == 0, archive_run.stdout
     assert tree_run.returncode == 0, tree_run.stdout
+
+
+PUBLISH_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "publish-pypi.yml"
+
+_PDF_EXTRACTOR = (
+    "sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends poppler-utils"
+)
+_TOKENS_ENV = {"NAME_GATE_TOKENS": "${{ secrets.NAME_GATE_TOKENS }}"}
+
+# The gate job as name-gate.yml defines it, each action's `@<ref>` dropped
+# (tests/prereqs/test_workflow_sha_pinning.py checks the pins).
+_EXPECTED_GATE_JOB = {
+    "name": _CHECK_RUN,
+    "runs-on": "ubuntu-latest",
+    "timeout-minutes": 15,
+    "steps": [
+        {"uses": "actions/checkout", "with": {"persist-credentials": False}},
+        {"uses": "actions/setup-python", "with": {"python-version": "3.11"}},
+        {"name": "Install the PDF text extractor", "run": _PDF_EXTRACTOR},
+        {
+            "name": "Scan the tree",
+            "env": _TOKENS_ENV,
+            "run": "python scripts/ci/check-name-gate.py --root .",
+        },
+    ],
+}
+
+# The job in publish-pypi.yml that uploads to PyPI, refs dropped the same way.
+_EXPECTED_PUBLISH_JOB = {
+    "name": "Build & Publish to PyPI",
+    "needs": ["quality"],
+    "runs-on": "ubuntu-latest",
+    "environment": {"name": "pypi", "url": "https://pypi.org/p/sigantry"},
+    "permissions": {"id-token": "write", "contents": "read"},
+    "steps": [
+        {"name": "Checkout repository", "uses": "actions/checkout"},
+        {
+            "name": "Set up Python 3.11",
+            "uses": "actions/setup-python",
+            "with": {"python-version": "3.11", "cache": "pip"},
+        },
+        {"name": "Install the PDF text extractor", "run": _PDF_EXTRACTOR},
+        {
+            "name": "Scan the tree for names",
+            "env": _TOKENS_ENV,
+            "run": "python scripts/ci/check-name-gate.py --root .",
+        },
+        {
+            "name": "Install packaging tools",
+            "run": "python -m pip install --upgrade pip build twine",
+        },
+        {"name": "Build sdist and wheel", "run": "python -m build"},
+        {"name": "Check package metadata with twine", "run": "twine check --strict dist/*"},
+        {
+            "name": "Publish package distributions to PyPI",
+            "uses": "pypa/gh-action-pypi-publish",
+            "with": {"skip-existing": True},
+        },
+    ],
+}
+
+
+def _without_action_refs(job: dict) -> dict:
+    steps = [
+        {**step, "uses": step["uses"].split("@", 1)[0]} if "uses" in step else step
+        for step in job["steps"]
+    ]
+    return {**job, "steps": steps}
+
+
+def test_the_gate_job_is_pinned_whole() -> None:
+    """Every key of the gate job, and of the workflow around it, is pinned.
+
+    Naming the keys that can neuter the scan one at a time never ends: a
+    step's ``shell:``, an ``env:`` entry such as ``PYTHONPATH`` or
+    ``BASH_ENV``, a ``container:``, another runner, or a workflow-level
+    ``env:`` or ``defaults:`` can each let the check pass without reading the
+    tree. So the whole job is compared. A change to the job updates
+    ``_EXPECTED_GATE_JOB`` in the same commit, where review sees it.
+    """
+    wf = _workflow()
+    assert set(wf) == {"name", True, "permissions", "concurrency", "jobs"}, (
+        f"name-gate.yml's top-level keys changed: {sorted(map(str, wf))}"
+    )
+    assert wf["permissions"] == {"contents": "read"}
+    assert set(wf["jobs"]) == {"name-gate"}, "name-gate.yml runs exactly one job"
+    assert _without_action_refs(_gate_job()) == _EXPECTED_GATE_JOB
+
+
+def test_no_other_job_reports_under_the_gate_check_name() -> None:
+    """Only the gate job is named for the check.
+
+    Branch protection matches a check run by its name, whichever workflow
+    posts it, so a job given the same name in another workflow could report
+    a passing check without scanning. A job with no ``name:`` reports under
+    its id, which cannot contain a space. A name built from an expression is
+    not resolved here.
+    """
+    others = []
+    for path in sorted((REPO_ROOT / ".github" / "workflows").glob("*.y*ml")):
+        workflow = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        for job_id, job in (workflow.get("jobs") or {}).items():
+            if isinstance(job, dict) and job.get("name") == _CHECK_RUN and path != WORKFLOW:
+                others.append(f"{path.name}::{job_id}")
+    assert others == [], f"only name-gate.yml may name a job {_CHECK_RUN!r}: {others}"
+
+
+def test_the_release_path_runs_the_gate() -> None:
+    """The job that uploads to PyPI scans the released tree before it builds.
+
+    ``quality`` runs ci.yml, which does not receive the token list, so
+    without this a release from a ref that never passed the pull-request
+    check, or a manual run on any branch, would upload unchecked. The job is
+    compared whole, for the reasons ``test_the_gate_job_is_pinned_whole``
+    gives: a step that changed the tree after the scan, or one that skipped
+    or neutered it, would otherwise pass.
+    """
+    wf = yaml.safe_load(PUBLISH_WORKFLOW.read_text(encoding="utf-8"))
+    assert "env" not in wf and "defaults" not in wf, (
+        "workflow-level env or defaults reach the scan step"
+    )
+    job = wf["jobs"]["build-and-publish"]
+    assert _without_action_refs(job) == _EXPECTED_PUBLISH_JOB

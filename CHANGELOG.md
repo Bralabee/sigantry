@@ -167,7 +167,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Python file.
 - The name gate (see Added) takes over the name checks of the older
   banned-string test (see Removed). It runs on every pull request to `main`
-  and on every push to `main`, and must pass before merge.
+  and on every push to `main`, and must pass before merge. The release
+  workflow also runs it on the released tree, before building the
+  distributions it uploads to PyPI.
 
 ### Deprecated
 - `.fabric-dataops.toml` and the `FDT_` settings env prefix. Both are still

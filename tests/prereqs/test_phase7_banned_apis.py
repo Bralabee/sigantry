@@ -29,16 +29,21 @@ setting in ``pyproject.toml`` and by
 ``tests/sigantry_core/client/test_package_structure.py``.
 
 These are file reads and AST walks: nothing under test is imported, and
-there is no network.
+there is no network. Two checks read the installed environment instead:
+which names are namespace packages, and what a declared parent requires
+(``importlib`` lookups and package metadata; no module of a permitted root
+is executed).
 """
 
 from __future__ import annotations
 
 import ast
+import importlib.util
 import re
 import sys
 import tomllib
 from collections.abc import Iterator
+from importlib import metadata
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -126,7 +131,12 @@ def _import_time_imports(node: ast.AST) -> Iterator[tuple[int, str]]:
             for alias in child.names:
                 yield child.lineno, alias.name
         elif isinstance(child, ast.ImportFrom):
-            if child.level == 0 and child.module:
+            if child.level == 0 and child.module in _NAMESPACES:
+                # ``from azure.keyvault import secrets`` imports
+                # ``azure.keyvault.secrets``: check the module it names.
+                for alias in child.names:
+                    yield child.lineno, f"{child.module}.{alias.name}"
+            elif child.level == 0 and child.module:
                 yield child.lineno, child.module
         else:
             yield from _import_time_imports(child)
@@ -187,17 +197,66 @@ def test_import_time_imports_are_stdlib_self_or_declared() -> None:
     )
 
 
+def _required_by(parent: str) -> set[str]:
+    """The distributions an installed ``parent`` requires, extras excluded."""
+    names: set[str] = set()
+    for requirement in metadata.requires(parent) or []:
+        if re.search(r"\bextra\s*==", requirement):
+            continue
+        match = _REQUIREMENT_NAME.match(requirement)
+        if match:
+            names.add(_normalise(match.group(1)))
+    return names
+
+
 def test_permitted_roots_are_declared_dependencies() -> None:
-    """Each permitted root is backed by a dependency pyproject.toml declares."""
+    """Each permitted root is backed by a dependency pyproject.toml declares.
+
+    A root whose distribution is not declared names the declared parent that
+    brings it in, and the parent's installed metadata must require it.
+    """
     declared = _declared_distributions()
     undeclared = []
     for root, (distribution, parent) in sorted(_PERMITTED_THIRD_PARTY_ROOTS.items()):
         required = parent if parent is not None else distribution
         if _normalise(required) not in declared:
             undeclared.append(f"{root!r} needs {required!r}")
+        elif parent is not None:
+            try:
+                parent_requires = _required_by(parent)
+            except metadata.PackageNotFoundError:
+                undeclared.append(
+                    f"{root!r}: {parent!r} is not installed; cannot read what it requires"
+                )
+                continue
+            if _normalise(distribution) not in parent_requires:
+                undeclared.append(f"{root!r}: {parent!r} does not require {distribution!r}")
     assert undeclared == [], (
         "_PERMITTED_THIRD_PARTY_ROOTS names a root whose distribution pyproject.toml "
         f"does not declare: {undeclared}"
+    )
+
+
+def _is_namespace_package(name: str) -> bool:
+    spec = importlib.util.find_spec(name)
+    assert spec is not None, f"{name!r} is not installed; it cannot be checked"
+    return spec.origin is None and spec.submodule_search_locations is not None
+
+
+def test_namespace_list_matches_the_installed_packages() -> None:
+    """``_NAMESPACES`` lists real namespace packages, and no permitted root is one.
+
+    A namespace package is shared by several distributions, so permitting
+    it would permit every distribution that installs under it. Read from the
+    installed environment rather than kept by hand, so a new shared prefix
+    (``azure.monitor``, ``google``) is caught without editing this test.
+    """
+    not_namespaces = sorted(n for n in _NAMESPACES if not _is_namespace_package(n))
+    assert not_namespaces == [], f"_NAMESPACES lists regular packages: {not_namespaces}"
+    namespace_roots = sorted(r for r in _PERMITTED_THIRD_PARTY_ROOTS if _is_namespace_package(r))
+    assert namespace_roots == [], (
+        "these permitted roots are namespace packages; permit the module one level "
+        f"below instead, and add the namespace to _NAMESPACES: {namespace_roots}"
     )
 
 
