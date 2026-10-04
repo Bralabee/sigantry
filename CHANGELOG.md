@@ -61,6 +61,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   part of this repository; on a clean runner they always skipped.
 
 ### Changed
+- The workspace delete fallback is described as what it does. With
+  `pbi_fallback=True`, a Fabric `DELETE` that fails with `UnknownError` is
+  tried again through the Power BI groups endpoint. The docstring, the
+  operator runbook and a test docstring made a reliability claim for that
+  endpoint that nothing in the project measures; they now say it is tried
+  instead.
 - **One copyright statement.** ADR-0010 said copyright was held jointly by
   contributors and that a DCO sign-off check was enforced, while the guide
   cover pages named a single holder. ADR-0010 now says copyright in a

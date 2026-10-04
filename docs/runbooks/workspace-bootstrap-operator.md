@@ -286,7 +286,7 @@ Use `--force` per the destructive-op gate. The toolkit's
 `delete_workspace` function accepts `pbi_fallback=True` (a workaround —
 Fabric `DELETE /v1/workspaces/{id}` intermittently returns
 `UnknownError`; the PBI fallback at
-`https://api.powerbi.com/v1.0/myorg/groups/{id}` is more reliable).
+`https://api.powerbi.com/v1.0/myorg/groups/{id}` is tried instead).
 
 ---
 

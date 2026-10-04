@@ -107,8 +107,8 @@ def delete_workspace(
 
     With ``pbi_fallback=True``, when the Fabric DELETE returns the intermittent
     ``UnknownError`` (a transient 400), this transparently falls back to
-    ``DELETE https://api.powerbi.com/v1.0/myorg/groups/{id}`` which is more
-    reliable for this single operation. Default ``False`` preserves the strict
+    ``DELETE https://api.powerbi.com/v1.0/myorg/groups/{id}``, which is tried
+    instead for this single operation. Default ``False`` preserves the strict
     single-API behaviour.
     """
     try:
