@@ -147,8 +147,9 @@ def test_delete_with_force_hits_api(mock_fabric_client: MagicMock) -> None:
 
 
 class TestDeleteWorkspacePbiFallback:
-    """Fabric DELETE intermittently returns UnknownError; the Power BI
-    fallback (DELETE /v1.0/myorg/groups/{id}) is tried instead.
+    """Fabric DELETE can fail with UnknownError; with pbi_fallback=True the
+    delete is tried again through the Power BI groups endpoint
+    (DELETE /v1.0/myorg/groups/{id}).
     """
 
     def test_pbi_fallback_off_by_default_propagates_error(
@@ -219,6 +220,46 @@ class TestDeleteWorkspacePbiFallback:
         )
         # PBI fallback was hit
         pbi_instance.send.assert_called_once_with("DELETE", "/v1.0/myorg/groups/w1")
+
+    def test_pbi_fallback_ignores_status_code_and_forwards_tenant(
+        self, mock_fabric_client: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The docstring says the status code is not checked: a 5xx carrying
+        UnknownError triggers the fallback too, and ``tenant_id`` reaches the
+        Power BI client (its only credential input).
+        """
+        from sigantry_core.client.errors import ServerError
+
+        mock_fabric_client.send.side_effect = ServerError(
+            status_code=500,
+            body={"errorCode": "UnknownError", "message": "server"},
+            request_id="req-5",
+        )
+        pbi_instance = MagicMock()
+        pbi_cm = MagicMock()
+        pbi_cm.__enter__ = MagicMock(return_value=pbi_instance)
+        pbi_cm.__exit__ = MagicMock(return_value=False)
+        seen: dict = {}
+
+        def fake_from_defaults(cls, **kw):  # type: ignore[no-untyped-def]
+            seen.update(kw)
+            return pbi_cm
+
+        from sigantry_core.client import powerbi as powerbi_mod
+
+        monkeypatch.setattr(
+            powerbi_mod.PowerBIRestClient, "from_defaults", classmethod(fake_from_defaults)
+        )
+        delete_workspace(
+            mock_fabric_client,
+            "w1",
+            force=True,
+            resource_id="w1",
+            pbi_fallback=True,
+            tenant_id="tenant-abc",
+        )
+        pbi_instance.send.assert_called_once_with("DELETE", "/v1.0/myorg/groups/w1")
+        assert seen == {"tenant_id": "tenant-abc"}
 
     def test_unknown_error_detected_in_nested_error_envelope(
         self, mock_fabric_client: MagicMock, monkeypatch: pytest.MonkeyPatch

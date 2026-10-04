@@ -283,10 +283,11 @@ sigantry workspace delete <workspace-guid> --force --runbook-id <ticket>
 ```
 
 Use `--force` per the destructive-op gate. The toolkit's
-`delete_workspace` function accepts `pbi_fallback=True` (a workaround —
-Fabric `DELETE /v1/workspaces/{id}` intermittently returns
-`UnknownError`; the PBI fallback at
-`https://api.powerbi.com/v1.0/myorg/groups/{id}` is tried instead).
+`delete_workspace` function (Python API only; the CLI has no flag for it)
+accepts `pbi_fallback=True`: when Fabric `DELETE /v1/workspaces/{id}` fails
+with `UnknownError`, the delete is tried again once through
+`https://api.powerbi.com/v1.0/myorg/groups/{id}`, using the process default
+credential.
 
 ---
 
