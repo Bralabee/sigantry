@@ -1,6 +1,6 @@
 # Sigantry — Product Brief
 
-**Status:** Draft v0.2 (positioning refreshed 2026-06-11 against [LANDSCAPE-2026-06.md](LANDSCAPE-2026-06.md); originally v0.1, 2026-04-24, milestone v3.0 Phase 10)
+**Status:** Draft v0.2 (positioning refreshed 2026-06-11 against [LANDSCAPE-2026-06.md](LANDSCAPE-2026-06.md); first drafted 2026-04-24)
 **Maintainer:** platform team
 **Licence:** Apache-2.0
 
@@ -34,10 +34,6 @@ The symptoms show up in every Fabric shop of non-trivial size: release managers 
 | Sponsor | Head of data, platform lead, or principal data engineer with CI/CD pain |
 | Tech posture | Comfortable installing OSS + editing YAML + running Python tooling; not a full-managed-vendor preference |
 | Industry | Regulated sectors (finance, healthcare, public sector) tend to value the audit plane most; tech/SaaS tend to value the dual-CI parity |
-
-**Why ACME is customer #1:** ACME is the reference implementation. Sigantry grew out of ACME's internal toolkit (v1.0 → v2.0.1) and ACME's feedback continues to shape the agnostic base.
-
-**Why Ownerco Digital is customer #2:** Ownerco Digital validates the "works at any organisation" claim. Phase 16 delivers a `sigantry-ownerco` plugin and an acceptance test on a Ownerco tenant with Ownerco's own repo.
 
 ## The wedge — work-item traceability + deploy audit
 
@@ -86,10 +82,10 @@ All three of these are involved in the buying decision. The brief addresses each
 | 10 | Product brief + architecture refresh (this phase) | BRIEF-01..06 | This document, ADR-0010, ADR-0011, seam-map, dual-CI strategy, codebase rename |
 | 11 | Work-item traceability wedge | TRACE-01..08 | `WorkItemProvider` seam, ADO + GitHub impls, `DeployRecord`, `sigantry release record` CLI |
 | 12 | Pipeline test orchestration + rollback | PIPELINE-01..05 | ADO + GHA 5-stage template pair, deploy ledger, `sigantry deploy run --rollback` |
-| 13 | Drift detection | DRIFT-01..03 | `sigantry diff -e <env>`, scheduled drift pipelines (ADO + GHA); see [ADR-0012](decisions/ADR-0012-sync-apply-vs-deploy-run-boundary.md) for the apply-vs-deploy-run boundary surfaced by the 2026-05-01 brownfield test (PR #67). |
+| 13 | Drift detection | DRIFT-01..03 | `sigantry diff -e <env>`, scheduled drift pipelines (ADO + GHA); see [ADR-0012](decisions/ADR-0012-sync-apply-vs-deploy-run-boundary.md) for the apply-vs-deploy-run boundary. |
 | 14 | Starter repo + PR-review bot | STARTER-01..07 | `sigantry-starter`, TMDL + Lakehouse diff bot (dual-CI), branching + PR-review docs |
 | 15 | Public demo environment | DEMO-01..04 | Public `demo-sigantry` repos, demo Fabric tenant, Remotion-recorded walkthrough |
-| 16 | Seam expansion + Ownerco trial | SEAM-01..06 | `NotificationSink`, `SecretStore`, `ApprovalGate` seams + `sigantry-ownerco` plugin + Ownerco acceptance test |
+| 16 | Seam expansion | SEAM-01..06 | `NotificationSink`, `SecretStore`, `ApprovalGate` seams with in-base reference implementations |
 
 **v3.1+ deferred:** managed/hosted control plane (SaaS), non-Microsoft data platforms, per-seat licensing, customer SSO, localisation, backwards-compat shim lifetime > one minor.
 
@@ -161,5 +157,3 @@ Phase 10 is the "don't write code yet" phase. The rename, the commercial-model A
 - [Seam Map — 6 existing + 5 planned v3 seams](reference/seam-map.md)
 - [Dual-CI Strategy — GitHub Actions + Azure DevOps parity rule](reference/dual-ci-strategy.md)
 - [Protocol Reference](reference/protocols.md)
-
-*Last updated: 2026-04-24 (milestone v3.0 Phase 10, BRIEF-01 + BRIEF-03)*

@@ -69,7 +69,7 @@ At resolve time, the registry will call a lightweight
 3. Call the compatibility check in `Registry.register` and in
    `_resolve_optional` after instantiation.
 4. Contract-test suite is extended to run compatibility checks
-   against doubles and ACME plugins for each version tier.
+   against doubles and plugin implementations for each version tier.
 5. `doctor` CLI surfaces `api_version` in a new column; plugins
    without an explicit version are shown as `v2.0 (legacy)`.
 
@@ -78,7 +78,7 @@ At resolve time, the registry will call a lightweight
 - **Pro:** Drift between base and plugin is detectable at install time,
   not at call time. A `doctor` run flags incompatibility before a
   deploy attempt.
-- **Pro:** Consumers can pin plugin versions in `.fabric-dataops.toml`
+- **Pro:** Consumers can pin plugin versions in `.sigantry.toml`
   if they want stricter policy.
 - **Pro:** Defers hard-break decisions: v2.1 can carry old and new
   plugins simultaneously.

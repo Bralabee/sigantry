@@ -1,13 +1,13 @@
 # Sigantry Seam Map
 
-**Status:** v3.0 working draft (2026-04-24, milestone v3.0 Phase 10, BRIEF-04)
+**Status:** design record, written 2026-04-24 for the seam expansion. The shipped seam signatures are in [`seams.md`](seams.md) and [`protocols.md`](protocols.md); where the sketches below differ, those win.
 **Companion:** [`protocols.md`](protocols.md) — the authoritative typing.Protocol definitions. This document describes **why** each seam exists and **when** it was / will be introduced.
 
 ## What is a seam?
 
-A **seam** in Sigantry is a `typing.Protocol` class in `sigantry_core.protocols` that another package (a "plugin") can implement to swap out part of Sigantry's behaviour without touching `sigantry-core`.
+A **seam** in Sigantry is a `typing.Protocol` class in `sigantry_core.protocols` that another package (a "plugin") can implement to swap out part of Sigantry's behaviour without touching `sigantry`.
 
-Plugins register their implementations via Python entry points (discovered through `importlib.metadata`). The `sigantry_core.registry` resolves the configured implementation at runtime from `.sigantry.toml`. See [`protocols.md`](protocols.md) for the SemVer commitment model and the `api_version` policy (per [ADR-0004](../decisions/ADR-0004-api-version-policy.md)).
+Plugins register their implementations via Python entry points (discovered through `importlib.metadata`). `FabricDataOps.from_config()` reads the configured implementation names from `.sigantry.toml` and resolves each through `sigantry_core.registry`. See [`protocols.md`](protocols.md) for the SemVer commitment model and the `api_version` policy (per [ADR-0004](../decisions/ADR-0004-api-version-policy.md)).
 
 The **observation plane** — `governance.audit` and the `DeployRecord` write-through — is deliberately **not a seam**. It writes through standard-library logging to an immutable log so a misconfigured `TelemetrySink` cannot suppress audit evidence.
 
@@ -17,12 +17,12 @@ The **observation plane** — `governance.audit` and the `DeployRecord` write-th
 
 | Seam | Purpose | Introduced | SemVer | Reference implementation |
 |------|---------|------------|--------|-------------------------|
-| **`DeployProfile`** | How a workspace's items get assembled and handed to `fabric-cicd` for deploy | Phase 8 (v2.0.0) | v2.0 | `sigantry_acme.NimbusDeployProfile` (ACME NIMBUS wheel-install pattern) |
-| **`DataQualityGate`** | Pre/post-deploy quality checks that can block a promotion | Phase 8 (v2.0.0) | v2.0 | `sigantry_acme.DqFrameworkGate` (ACME DQ Framework integration) |
-| **`TelemetrySink`** | Pluggable telemetry destination for deploys, DQ outcomes, capacity events | Phase 8 (v2.0.0) | v2.0 | `sigantry_acme.LogAnalyticsSink` (DCR-based Log Analytics); `sigantry_core.testing.InMemoryTelemetrySink` |
-| **`AuthProvider`** | How tokens are acquired for Fabric / ADO / GitHub / Key Vault across laptop, ADO, GHA, Fabric-notebook runtimes | Phase 8 (v2.0.0) | v2.0 | `sigantry_acme.AcmeEntraGroupAuth` (ACME SPN in `sg-deploy-operators`); base ships `DefaultAzureCredential` adapter |
-| **`RunbookRegistry`** | Maps alert or event types to runbook URLs (+ Teams channel, owner, severity) | Phase 8 (v2.0.0) | v2.0 | `sigantry_acme.AcmeTeamsRunbookRegistry` (ACME wiki runbooks + Teams channels) |
-| **`CapacityPolicy`** | Pause/resume/scale decisions for Fabric capacities (thresholds, hours, policy hooks) | Phase 8 (v2.0.0) | v2.0 | `sigantry_acme.AcmeCapacityPolicy` (ACME capacity SKU + quiet-hours rules) |
+| **`DeployProfile`** | How a workspace's items get assembled and handed to `fabric-cicd` for deploy | Phase 8 (v2.0.0) | v2.0 | none registered in the base package; supplied by an organisation's plugin; `sigantry_core.testing.FakeDeployProfile` (testing) |
+| **`DataQualityGate`** | Pre/post-deploy quality checks that can block a promotion | Phase 8 (v2.0.0) | v2.0 | none registered in the base package; supplied by an organisation's plugin (for example, a wrapper around `example_dq_lib`); `sigantry_core.testing.NoopGate` (testing) |
+| **`TelemetrySink`** | Pluggable telemetry destination for deploys, DQ outcomes, capacity events | Phase 8 (v2.0.0) | v2.0 | none registered in the base package; `sigantry_core.testing.InMemoryTelemetrySink` (testing) |
+| **`AuthProvider`** | How tokens are acquired for Fabric / ADO / GitHub / Key Vault across laptop, ADO, GHA, Fabric-notebook runtimes | Phase 8 (v2.0.0) | v2.0 | base ships the `DefaultAzureCredential`-backed `TokenProvider` chain (`sigantry_core/auth/`); a plugin can supply its own |
+| **`RunbookRegistry`** | Maps alert or event types to runbook URLs (+ Teams channel, owner, severity) | Phase 8 (v2.0.0) | v2.0 | none registered in the base package; `sigantry_core.testing.StaticRunbookRegistry` (testing) |
+| **`CapacityPolicy`** | Pause/resume/scale decisions for Fabric capacities (thresholds, hours, policy hooks) | Phase 8 (v2.0.0) | v2.0 | none registered in the base package; `sigantry_core.testing.NoopCapacityPolicy` (testing) |
 
 ### New v3 seams (planned — not yet shipped)
 
@@ -30,10 +30,10 @@ These are introduced across v3.0. Each landing phase corresponds to a REQ block.
 
 | Seam | Purpose | Introducing phase | SemVer at introduction | Reference implementations (target) |
 |------|---------|-------------------|------------------------|------------------------------------|
-| **`WorkItemProvider`** | Link a release to ADO work items or GitHub issues, write deploy-record comments back | Phase 11 (TRACE-01) | v3.0 | `AdoWorkItemProvider`, `GithubWorkItemProvider` (both ship in `sigantry-core`) |
-| **`NotificationSink`** | Outbound notifications for drift, deploy events, approvals | Phase 16 (SEAM-01) | v3.0 | Teams, Slack, email (all in `sigantry-core`); Ownerco plugin ships one if needed |
-| **`SecretStore`** | Resolve secrets for pipelines (Key Vault, GH secrets, ADO variable groups) | Phase 16 (SEAM-02) | v3.0 | Azure Key Vault, GitHub secrets, ADO variable group (all in `sigantry-core`) |
-| **`ApprovalGate`** | Gate a promotion on a named approver or policy decision | Phase 16 (SEAM-03) | v3.0 | ADO environments, GitHub environments, OPA policy hook (all in `sigantry-core`) |
+| **`WorkItemProvider`** | Link a release to ADO work items or GitHub issues, write deploy-record comments back | Phase 11 (TRACE-01) | v3.0 | `AdoWorkItemProvider`, `GithubWorkItemProvider` (both ship in `sigantry`) |
+| **`NotificationSink`** | Outbound notifications for drift, deploy events, approvals | Phase 16 (SEAM-01) | v3.0 | Teams, Slack, email (all in `sigantry`) |
+| **`SecretStore`** | Resolve secrets for pipelines (Key Vault, GH secrets, ADO variable groups) | Phase 16 (SEAM-02) | v3.0 | Azure Key Vault, GitHub secrets, ADO variable group (all in `sigantry`) |
+| **`ApprovalGate`** | Gate a promotion on a named approver or policy decision | Phase 16 (SEAM-03) | v3.0 | ADO environments, GitHub environments, OPA policy hook (all in `sigantry`) |
 | **`PrReviewBot`** | Post semantic-model / Lakehouse schema diffs on a PR, on ADO and GitHub | Phase 14 (STARTER-05..07) | v3.0 | Single bot binary; ADO PR adapter + GitHub PR adapter |
 
 Total when v3.0 ships: **11 seams** (6 existing + 5 new).
@@ -62,7 +62,7 @@ class WorkItemProvider(Protocol):
         """Contract: succeeds when the provider can reach its backend; raises on auth/network failure."""
 ```
 
-Implementations: `AdoWorkItemProvider` (ADO REST, SPN or PAT auth) and `GithubWorkItemProvider` (GitHub REST, GitHub App or PAT auth). Both are in `sigantry-core` — required for dual-CI parity.
+Implementations: `AdoWorkItemProvider` (ADO REST, SPN or PAT auth) and `GithubWorkItemProvider` (GitHub REST, GitHub App or PAT auth). Both are in `sigantry` — required for dual-CI parity.
 
 ### `NotificationSink` (Phase 16 — SEAM-01)
 
@@ -78,7 +78,7 @@ class NotificationSink(Protocol):
     def flush(self, timeout_s: float = 5.0) -> None: ...
 ```
 
-Reference impls in `sigantry-core`: Teams (webhook or Workflow adapter), Slack (webhook or bot token), email (SMTP or SendGrid adapter).
+Reference impls in `sigantry`: Teams (webhook or Workflow adapter), Slack (webhook or bot token), email (SMTP or SendGrid adapter).
 
 ### `SecretStore` (Phase 16 — SEAM-02)
 
@@ -94,7 +94,7 @@ class SecretStore(Protocol):
         """Optional: raise NotImplementedError if the backing store is read-only."""
 ```
 
-Reference impls in `sigantry-core`: Azure Key Vault (via `azure-keyvault-secrets`), GitHub Actions secrets (resolved via `gh` API during a run), ADO variable groups (resolved via `az devops` CLI / REST).
+Reference impls in `sigantry`: Azure Key Vault (via `azure-keyvault-secrets`), GitHub Actions secrets (resolved via `gh` API during a run), ADO variable groups (resolved via `az devops` CLI / REST).
 
 ### `ApprovalGate` (Phase 16 — SEAM-03)
 
@@ -108,7 +108,7 @@ class ApprovalGate(Protocol):
         """Request approval; blocks or polls until an approver decides or the gate times out."""
 ```
 
-Reference impls in `sigantry-core`: ADO environments (native approval stage), GitHub environments (required reviewers), OPA policy hook (declarative policy check — auto-approves or rejects based on input).
+Reference impls in `sigantry`: ADO environments (native approval stage), GitHub environments (required reviewers), OPA policy hook (declarative policy check — auto-approves or rejects based on input).
 
 ### `PrReviewBot` (Phase 14 — STARTER-05..07)
 
@@ -131,7 +131,7 @@ Each of the five v3 seams is **motivated by a specific requirement**, not specul
 
 - `WorkItemProvider` is the **wedge**. Nothing off-the-shelf links Fabric deploys to work items. TRACE-01..08.
 - `NotificationSink` is needed because **drift detection** (Phase 13) has to post findings somewhere, and **approval gates** (Phase 16) have to notify approvers. Introducing it in Phase 16 is a slight delay; Phase 13 uses a hard-coded fallback until Phase 16 lands. (See *Ordering note* below.)
-- `SecretStore` is needed because Ownerco (Phase 16) may use a different secret backing than ACME (Key Vault). SEAM-02 gives them a clean replacement point instead of forking.
+- `SecretStore` is needed because organisations keep pipeline secrets in different backends (Key Vault, GitHub secrets, ADO variable groups). SEAM-02 gives each a clean replacement point instead of forking.
 - `ApprovalGate` is needed because ADO-environments-only gating is insufficient for GitHub CI paths, and policy-as-code (OPA) is a valid third option.
 - `PrReviewBot` is needed because ADO PRs and GitHub PRs have different comment APIs but we want one bot binary; the Protocol is the abstraction boundary.
 
@@ -141,10 +141,8 @@ No extension point is added "just because". YAGNI is enforced.
 
 Phase 13 (Drift Detection) logically wants `NotificationSink` to post findings, but `NotificationSink` is introduced in Phase 16 (SEAM-01). Options:
 
-1. **Chosen:** Phase 13 uses a hard-coded fallback (Teams webhook via the ACME plugin's existing runbook-registry wiring). Phase 16 replaces the hard-code with `NotificationSink` resolution. The migration is internal; no user-facing breakage.
+1. **Chosen:** Phase 13 uses a hard-coded fallback (a Teams webhook read from the environment). Phase 16 replaces the hard-code with `NotificationSink` resolution. The migration is internal; no user-facing breakage.
 2. **Rejected:** Pull `NotificationSink` forward to Phase 13. Adds scope creep to Phase 13 and reduces the motivation for Phase 16.
-
-The internal migration is documented in `.planning/phases/13-drift-detection/CONTEXT.md` when that phase plans.
 
 ## SemVer and `api_version`
 
@@ -181,18 +179,14 @@ Entry-point groups (post-rename):
 Legacy v2 groups (`fabric_dataops_toolkits.deploy_profiles` etc.): first-party
 packages stopped declaring them in v3.1 per [ADR-0011](../decisions/ADR-0011-rename-to-sigantry.md).
 The core registry still dual-reads the six legacy groups so third-party plugins
-keep resolving; that read is scheduled for removal (V3.X-ROADMAP LEGACY-SURFACE-DROP).
+keep resolving; that read is scheduled for removal. See [`../migration/2.x-to-3.0.md`](../migration/2.x-to-3.0.md).
 
 ## See also
 
 - [`protocols.md`](protocols.md) — authoritative typing.Protocol definitions.
 - [ADR-0004 — API version policy](../decisions/ADR-0004-api-version-policy.md) — how seams evolve in SemVer.
-- [ADR-0010 — Commercial Model](../decisions/ADR-0010-commercial-model.md) — why all seam implementations ship in OSS `sigantry-core`, not a commercial package.
+- [ADR-0010 — Commercial Model](../decisions/ADR-0010-commercial-model.md) — why all seam implementations ship in OSS `sigantry`, not a commercial package.
 - [ADR-0011 — Rename to Sigantry](../decisions/ADR-0011-rename-to-sigantry.md) — entry-point group rename + shim strategy.
 - [`observation-planes.md`](observation-planes.md) — why the audit plane is not a seam.
 - [`dual-ci-strategy.md`](dual-ci-strategy.md) — why every ADO + GHA implementation must ship together.
 - [PRODUCT-BRIEF.md](../PRODUCT-BRIEF.md) — the why behind the seams.
-
----
-
-*Updated: 2026-04-24 (milestone v3.0 Phase 10, BRIEF-04).*

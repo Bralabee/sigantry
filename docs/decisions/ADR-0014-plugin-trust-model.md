@@ -14,8 +14,8 @@
   ``importlib.metadata.entry_points()`` and any plugin in the active
   Python environment is eligible to handle a seam invocation. That is
   the design intent (the v3.0 productisation explicitly targets a
-  multi-tenant plugin universe -- ``sigantry-acme`` lands alongside
-  ``sigantry-ownerco`` etc.) but it also means that an operator who
+  multi-tenant plugin universe, where each organisation installs its
+  own plugin distributions) but it also means that an operator who
   inadvertently installs a malicious wheel matching one of the
   registered group names gives that wheel runtime privileges
   matching the legitimate plugin's. The audit synthesis flagged
@@ -38,7 +38,7 @@ The trust model is **opt-in tightening**, not built-in restriction:
    ignored. Examples:
 
    ```
-   export SIGANTRY_TRUSTED_PLUGIN_DISTS="sigantry-acme,sigantry-ownerco"
+   export SIGANTRY_TRUSTED_PLUGIN_DISTS="sigantry,sigantry-example"
    ```
 
 2. **Doctor classification.** ``sigantry doctor`` adds a ``Trust``
@@ -65,7 +65,8 @@ The trust model is **opt-in tightening**, not built-in restriction:
 ### Operator workflow
 
 1. Set ``SIGANTRY_TRUSTED_PLUGIN_DISTS`` to your known-good plugin
-   set (e.g. ``"sigantry-acme,sigantry-ownerco"``).
+   set (e.g. ``"sigantry,sigantry-example"``; ``sigantry`` is the
+   distribution that registers the in-base plugins).
 2. Add ``sigantry doctor --strict-trust`` to your CI smoke step.
 3. When a new plugin is intentionally onboarded, add its dist name
    to the env var (review-gated change to your CI config).
@@ -128,18 +129,17 @@ smokeCommand: 'sigantry doctor --strict-trust'
    with their CI config.
 4. **Distribution name, not module name.** Distributions can
    contribute multiple modules. The allowlist matches the unit
-   operators install (``pip install sigantry-acme``), not the unit
-   the registry imports (``sigantry_acme.deploy.nimbus_profile``). This
-   keeps the env-var list short and human-readable.
+   operators install (the distribution, e.g. ``sigantry``), not the
+   unit the registry imports (e.g. ``sigantry_core.notifications.teams``).
+   This keeps the env-var list short and human-readable.
 
 ## Consequences
 
 - ``sigantry_core/doctor.py`` adds a ``Trust`` column + ``--strict-trust``
   flag. The default ``sigantry doctor`` invocation continues to exit
   zero so existing scripts are unaffected.
-- ``CLAUDE.md`` documents the env var alongside the other operator-
-  facing knobs. Operator-facing docs (``docs/USER-GUIDE.md``,
-  ``CONSUMING.md``) reference this ADR for the full model.
+- ``sigantry_core/doctor.py`` documents the env var in its module
+  docstring and in ``sigantry doctor --help``.
 - Falsifiability tests in
   ``tests/sigantry_core/test_doctor_trust.py`` lock the four
   classification rules + the ``--strict-trust`` exit code + the env-

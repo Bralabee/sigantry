@@ -1,11 +1,9 @@
-# Architecture & Process Reference (v3)
+# Architecture & Process Reference
 
-**Status:** Code-verified as of 2026-04-24 against `master` @ `4d8c665`. Last patched 2026-04-24 to correct `purview/` and `pipelines/` subpackage descriptions (both are placeholders — see `docs/reference/scope.md` §2.1).
-**Freshness (2026-08-13):** the artefact versions in §1 were re-measured and corrected. Everything else on this page — in particular the §4 validation table — still records what was checked on 2026-04-24 and has NOT been re-verified since; §4 row 20 (test counts) is known to be superseded. Treat §4 as a dated record of method, not as current numbers.
+**Status:** a dated record. §1 describes the public repository, and so do these parts of §2–§4: the consumer and plugin boxes and the vendor-import bullet in §2, the `plan` / `apply` steps in §3.1, the subapp count in §3.6, the step actions in §3.7, and rows 17 and 20 of §4. The rest of §2–§4 records what was checked on 2026-04-24 and has not been re-verified since. Its counts are known to be stale: for example, §2 and row 8 give 12 subapps where §3.6 gives 18, and §2 and row 13 give a 3-step `sync_wheel` where §3.1 gives four steps. Treat that part as a record of method, not as current numbers.
 **Source of truth:** the repo itself. When this doc and code disagree, the code wins — update this doc.
-**Supersedes:** ad-hoc diagrams in prior handoff threads.
 
-This document is the authoritative architecture + process reference for the ACME DataOps + Fabric programmatic toolkit. Every claim below has been validated against a file read, a grep, or a `pytest --collect-only` run. The validation table at the end records exactly how each claim was verified — read that before challenging any statement here.
+This document is the architecture + process reference for Sigantry. Every claim below was validated against a file read, a grep, or a `pytest --collect-only` run when it was written. The validation table at the end records how each claim was verified.
 
 If you're about to propose a change, extend a seam, or ingest a new requirement, start here. Do not re-probe "unknown" questions that have already been answered below; the validation notes record what was actually checked.
 
@@ -13,19 +11,15 @@ If you're about to propose a change, extend a seam, or ingest a new requirement,
 
 ## 1. System boundaries
 
-Three Python packages + two PowerShell modules ship from this monorepo:
+One Python distribution ships from this repository:
 
 | Artefact | Path | Version | Role |
 |---|---|---|---|
-| `sigantry-core` | `sigantry_core/` | 3.4.0 | Agnostic base. 11+ protocol seams (deploy profile, DQ gate, telemetry sink, auth provider, runbook registry, capacity policy, work-item provider, notification sink, secret store, approval gate, PR-review bot), registry, config, dispatchers, HTTP client, CLI, governance audit (now including `emit_deploy_record`), testing doubles. |
-| `sigantry-acme` | `sigantry-acme/` | 3.2.1 | ACME plugin (formerly `fabric-dataops-toolkits-acme` v1.0.0). Six entry-point registrations, one per seam, plus a livecheck CLI, Bicep defaults, and ACME docs. |
-| `sigantry-ownerco` | `sigantry-ownerco/` | 3.2.1 | Second-customer reference plugin (Phase 16). Registers a notification sink + work-item provider. |
-| `Sigantry` (pwsh) | `Sigantry/` | 3.0.0 | Generic PowerShell helpers (formerly `Fabric/` v1.0.0): `Get-FabricToken`, `Get-FabricTenantSetting`. |
-| `SigantryAcme` (pwsh) | `SigantryAcme/` | 3.0.0 | ACME plugin module (formerly `AcmeFabric/` v2.0.0). `RequiredModules=Sigantry`; re-exports as `Get-AcmeFabric*` with ACME defaults. |
+| `sigantry` (PyPI) | `sigantry_core/` | `sigantry_core/_version.py` | Agnostic base. 11 protocol seams (deploy profile, DQ gate, telemetry sink, auth provider, runbook registry, capacity policy, work-item provider, notification sink, secret store, approval gate, PR-review bot), registry, config, dispatchers, HTTP client, CLI, governance audit (including `emit_deploy_record`), testing doubles. |
 
-Infra-as-code shipped but deployed externally: `bicep/` (Log Analytics, DCR, DCE, Action Groups, Teams Logic App, alerts), `templates/` (ADO YAML — environments, extends, jobs, stages, steps).
+Also in the repository, not in the wheel: the CI templates under `templates/` (ADO YAML — environments, extends, jobs, stages, steps, schedules, pr-review, plus the starter and demo scaffolds) and the reusable GitHub Actions workflows under `.github/workflows/`. Organisation-specific behaviour (a deploy profile, a DQ gate, a telemetry sink, ...) lives in plugin wheels that an organisation builds and installs itself; none ships from this repository.
 
-Dependency direction is **one-way**: consumer repos depend on `sigantry_core` and optionally the ACME plugin; never the reverse. Plugins depend on base; base never imports plugin code. Enforced by the banned-api grep gate in `tests/prereqs/test_phase8_banned_apis.py`.
+Dependency direction is **one-way**: consumer repos depend on `sigantry_core` and optionally on their own plugins; never the reverse. Plugins depend on base. Base never imports a plugin by name: the registry loads plugins at run time through entry points in the `sigantry.*` groups (and the six legacy group names it still reads), or takes them by direct registration (`sigantry_core/registry.py`).
 
 ---
 
@@ -34,9 +28,8 @@ Dependency direction is **one-way**: consumer repos depend on `sigantry_core` an
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────┐
 │                             CONSUMER / OPERATOR SURFACE                              │
-│   ADO pipelines (templates/)   │   Python `from sigantry_core import …`    │
-│   Bash: `fabric-dataops …`     │   Bash: `sigantry-acme-livecheck`                    │
-│   PowerShell 7.4: `Get-AcmeFabric*`                                                   │
+│   ADO pipelines (templates/)  │   Python `from sigantry_core import …`               │
+│   Bash: `sigantry …`          │   GitHub Actions (.github/workflows/)                │
 └──────────┬─────────────────────────────────────────────────────────────┬─────────────┘
            │                                                             │
   ┌────────┴───────────────────┐                          ┌──────────────┴─────────────┐
@@ -98,25 +91,17 @@ Dependency direction is **one-way**: consumer repos depend on `sigantry_core` an
       │  (first-wins on duplicates); doctor CLI surfaces them.                │
       ▼                                                                      │
   ┌──────────────────────────────────────────────────────────────────────────────┐  │
-  │  ACME PLUGIN (fabric-dataops-toolkits-acme v1.0.0 — first release)             │  │
+  │  ORGANISATION PLUGINS (optional; separate wheels, none ship from this repo)  │  │
   │                                                                              │  │
-  │  nimbus           → NimbusDeployProfile         (plan → [sync_wheel,             │  │
-  │                                               deploy_workspace]; apply       │  │
-  │                                               runs both verbatim)            │  │
-  │  qualitykit   → DqFrameworkGate           (optional [dq] extra; lazy       │  │
-  │                                               imports qualitykit at call)  │  │
-  │  log_analytics  → LogAnalyticsSink          (Azure Monitor DCR/DCE;          │  │
-  │                                               Custom-AcmeDeploy/FabricCapacity│  │
-  │                                               /SparkLog/AlertAudit streams)  │  │
-  │  acme_entra_group→ AcmeEntraGroupAuth         (DefaultAzureCredential chain)   │  │
-  │  acme_teams      → AcmeTeamsRunbookRegistry   (alert_name → Teams runbook URL) │  │
-  │  acme            → AcmeCapacityPolicy         (READ-ONLY SKIP DEFAULT; caller  │  │
-  │                                               injects plan_fn/apply_fn for   │  │
-  │                                               real policy)                   │  │
+  │  <name> → a DeployProfile    plan → actions; apply composes base helpers     │  │
+  │                              (deploy.environment.sync_wheel,                 │  │
+  │                               deploy.core.deploy_workspace)                  │  │
+  │  <name> → a DataQualityGate  runs a suite from the organisation's DQ lib     │  │
+  │  <name> → a TelemetrySink    e.g. Azure Monitor DCR/DCE ingestion            │  │
+  │  <name> → an AuthProvider / RunbookRegistry / CapacityPolicy                 │  │
   │                                                                              │  │
-  │  + livecheck CLI   `sigantry-acme-livecheck`                                  │  │
-  │  + Bicep defaults  `sigantry-acme/bicep/acme-defaults.bicepparam`              │  │
-  │  + docs/live-testing.md  (ACME_FABRIC_TEST_* env var contract)                │  │
+  │  Declared in the plugin's own pyproject.toml under sigantry.<seam>           │  │
+  │  entry-point groups; named in .sigantry.toml; resolved by the registry.      │  │
   └──────────┬───────────────────────────────────────────────────────────────┬───┘  │
              │                                                               │      │
              ▼                                                               ▼      │
@@ -141,7 +126,7 @@ Dependency direction is **one-way**: consumer repos depend on `sigantry_core` an
   │                 direct 3-step: POST /staging/libraries, POST /staging/       │  │
   │                 publish LRO, GET /staging/libraries verify) · variable_      │  │
   │                 library · git_integration · parameters · item_copy ·        │  │
-  │                 profiles/ (empty in base — ACME plugin ships the only one)    │  │
+  │                 profiles/ (empty in base — plugins supply profiles)          │  │
   │                                                                              │  │
   │  dq/            dispatcher · cli                                             │  │
   │  monitor/       emit (user entry) · dispatcher (module-default sink) ·       │  │
@@ -168,8 +153,8 @@ Dependency direction is **one-way**: consumer repos depend on `sigantry_core` an
   │                  `pip install sigantry`)                           │  │
   │                                                                              │  │
   │  Cross-cutting invariants enforced by tests/prereqs/*:                       │  │
-  │   • No ACME strings outside fabric-dataops-toolkits-acme/                      │  │
-  │     (test_phase8_banned_apis)                                                │  │
+  │   • Module-scope vendor imports only in allow-listed modules                 │  │
+  │     (test_no_vendor_imports)                                                 │  │
   │   • CLIENT-01: httpx confined to client/** + auth/diagnose.py                │  │
   │     (tests/sigantry_core/client/test_package_structure.py)         │  │
   │   • _version.py ↔ CHANGELOG ↔ docs banner version alignment                  │  │
@@ -188,10 +173,6 @@ Dependency direction is **one-way**: consumer repos depend on `sigantry_core` an
   │                     accept PAT creds on /v1/connections; deferred track)     │  │
   └──────────────────────────────────────────────────────────────────────────────┘  │
                                                                                     │
-  PS flow (parallel surface, not shown above):                                      │
-    Import-Module AcmeFabric                                                         │
-      └─ RequiredModules Fabric 1.0.0                                               │
-         └─ Get-FabricToken → Az.Accounts Get-AzAccessToken per audience            │
 ```
 
 ---
@@ -224,7 +205,7 @@ caller ── FabricDataOps.from_config(path)
        4. impl()                          → zero-arg fallback
               │
               ▼
-     FabricDataOps(auth=…, telemetry=…, deploy_profile=NimbusDeployProfile(), …)
+     FabricDataOps(auth=…, telemetry=…, deploy_profile=<resolved plugin>, …)
               │
               ▼
      .deploy(ctx)  ──▶  deploy.orchestrator.deploy(
@@ -235,48 +216,30 @@ caller ── FabricDataOps.from_config(path)
                             │
                             ▼
                       plan = profile.plan(ctx)
-                       └─ NimbusDeployProfile.plan:
-                           reads ctx.parameters for
-                             wheel_path, environment_id, items_directory,
-                             parameters_path, environment_key, item_types,
-                             expected_sha256
-                           returns DeployPlan(actions=[
-                             {kind: sync_wheel, …},
-                             {kind: deploy_workspace, …}
-                           ])
+                       └─ plugin-defined: reads ctx.parameters, returns
+                          DeployPlan(actions=[...])
                             │
                             ▼
                       result = profile.apply(ctx, plan)
-                       └─ NimbusDeployProfile.apply:
-                           1. _find_action(plan, "sync_wheel")
-                           2. _find_action(plan, "deploy_workspace")
-                           3. client = self._client or FabricRestClient.from_defaults()
-                           4. sync_wheel_fn(client, ws, env, wheel_path,
-                                            expected_sha256=…)
-                               └─ POST /v1/workspaces/{ws}/environments/{env}
-                                        /staging/libraries   (upload)
-                               └─ POST …/staging/publish     (LRO)
-                               └─ GET  …/staging/libraries   (verify)
-                           5. deploy_workspace_fn(ws, repo_dir, env_key,
-                                                  item_type_in_scope,
-                                                  parameters_path,
-                                                  token_provider=None)
-                               └─ fabric-cicd 1.x drives item-tree publish
-                                  (5 optional scope filters: item_name_exclude_regex,
-                                   folder_path_exclude_regex, folder_path_to_include,
-                                   items_to_include, shortcut_exclude_regex;
-                                   2 of those also flow to orphan-unpublish)
-                           6. build NimbusWheelUploadSnapshot from wheel_result
-                           7. return DeployResult(
-                                workspace_id, items_published, items_failed,
-                                raw={nimbus_wheel, orphans_unpublished, dot_graph_path}
-                              )
+                       └─ plugin-defined: typically composes base helpers --
+                          deploy.environment.sync_wheel(...)
+                            └─ POST …/staging/libraries (upload)
+                            └─ POST …/staging/publish   (starts the build)
+                            └─ poll publishDetails.state until terminal
+                            └─ GET  …/libraries         (verify published)
+                          deploy.core.deploy_workspace(...)
+                            └─ fabric-cicd 1.x drives item-tree publish
+                               (5 optional scope filters: item_name_exclude_regex,
+                                folder_path_exclude_regex, folder_path_to_include,
+                                items_to_include, shortcut_exclude_regex;
+                                2 of those also flow to orphan-unpublish)
+                          and returns DeployResult(workspace_id, items_published,
+                                                   items_failed, raw={...})
                             │
                             ▼
-                     NOTE: NimbusDeployProfile.apply does NOT emit telemetry
-                           and does NOT call reconcile_folders_from_repo.
-                           The caller (or a higher-level orchestrator) does
-                           both of those if desired:
+                     NOTE: the orchestrator neither emits telemetry nor calls
+                           reconcile_folders_from_repo on the profile's behalf.
+                           The caller does both if desired:
                              fdo.emit("deploy_completed", {...})
                              reconcile_folders_from_repo(client, ws, repo, …)
               │
@@ -285,8 +248,8 @@ caller ── FabricDataOps.from_config(path)
        for seam in (auth, telemetry, dq_gate, deploy_profile, runbooks, capacity):
          if seam is None: continue
          if isinstance(seam, Closeable):   ← runtime_checkable duck-type
-             seam.close()                  ← LogAnalyticsSink releases
-                                             LogsIngestionClient
+             seam.close()                  ← e.g. a telemetry sink releases
+                                             its HTTP client
 ```
 
 ### 3.2 `FabricDataOps.run_dq_gate(suite, DataRef(…))`
@@ -301,17 +264,7 @@ caller ─▶ run_dq_gate(suite, data_ref, gate_name=None)
                             registry=self.registry)
             │
             ▼
-     DqFrameworkGate.run(suite, data_ref)
-       ├─ lazy `from qualitykit.gate import run_checkpoint` (if [dq] installed)
-       ├─ fallback: wrap FabricDataQualityRunner.validate_* (PR #21 fix)
-       │  NOTE: FabricDataQualityRunner imports pyspark.sql.SparkSession
-       │        + mssparkutils at module scope — not runnable from local pytest.
-       │        Live path is `fabric-dataops-toolkits-acme/notebooks/
-       │        dq_gate_livecheck.py`. test_live_gate auto-skips without the
-       │        Fabric notebook runtime.
-       └─ _adapt_result(raw) → GateResult(
-              suite, success, violations, evaluated, run_id
-          )
+     <resolved DataQualityGate>.run(suite, data_ref)  → GateResult
 ```
 
 ### 3.3 `FabricDataOps.emit("deploy_started", {...})`
@@ -328,14 +281,7 @@ caller ─▶ emit(event_name, properties, strict=False)
             ▼  if no sink resolvable → silent no-op (best-effort by design)
             │
             ▼
-     LogAnalyticsSink.emit(TelemetryEvent(name, properties, timestamp))
-       ├─ _to_row: TimeGenerated (ISO-8601 UTC, now() default)
-       │          EventName, Properties,
-       │          CorrelationId / Principal / Workspace convenience columns
-       ├─ LogsIngestionClient.upload(
-       │     rule_id=dcr_immutable_id,
-       │     stream_name=Custom-Acme{Deploy|FabricCapacity|SparkLog|AlertAudit},
-       │     logs=[row])
+     <resolved TelemetrySink>.emit(TelemetryEvent(name, properties, timestamp))
        └─ on exception: log + swallow UNLESS strict=True (re-raise)
 ```
 
@@ -401,13 +347,13 @@ apply_reconcile(plan, apply=True, unpublish_orphans, force)
    4. Second run on clean tree ≡ no-op (idempotent)
 ```
 
-### 3.6 CLI surface — `fabric-dataops workspace list ...`
+### 3.6 CLI surface — `sigantry workspace list ...`
 
 ```
-shell ─▶ fabric-dataops workspace list --tenant-id <...>
+shell ─▶ sigantry workspace list --tenant-id <...>
             │
             ▼ (pyproject [project.scripts])
-     sigantry_core.cli:app  (Typer, 12 subapps)
+     sigantry_core.cli:app  (Typer, 18 subapps)
             │
             ▼  app.add_typer(workspace_app, name="workspace")
      workspace.cli.list_cmd
@@ -422,23 +368,7 @@ entirely — they call v1 subpackages directly. Only `deploy`, `dq`, and
 `doctor` touch the dispatcher / registry layer.
 ```
 
-### 3.7 PowerShell surface — `Get-AcmeFabricToken -Audience Fabric`
-
-```
-pwsh ─▶ Import-Module AcmeFabric             (v2.0.0)
-           │  RequiredModules = Fabric 1.0.0 → auto-loaded
-           ▼
-     Get-AcmeFabricToken -Audience Fabric
-           │  (ACME defaults applied: default tenant, default audience)
-           ▼
-     Get-FabricToken (generic cmdlet in Fabric module)
-           ├─ Az.Accounts: Connect-AzAccount (cached or WIF)
-           ├─ Get-AzAccessToken -ResourceUrl <audience-url>
-           │   audiences: Fabric, PowerBI, Graph, Purview, AzureRM
-           └─ return PSCustomObject { Token; ExpiresOn; Audience }
-```
-
-### 3.8 ADO pipeline surface
+### 3.7 ADO pipeline surface
 
 ```
 ADO stage ─▶ templates/stages/{ci,cd-dev,cd-test,cd-prod,
@@ -452,12 +382,9 @@ ADO stage ─▶ templates/stages/{ci,cd-dev,cd-test,cd-prod,
      templates/steps/{fabric-deploy,fabric-validate,fabric-vl-apply,
                      fabric-git-commit,post-pr-comment}.yml
               │
-              ├─ pip install sigantry (+ sigantry-acme)
-              ├─ sigantry-acme-livecheck --load-env <file>
-              │    env-var presence · DefaultAzureCredential · DCE reach ·
-              │    sink schema
-              ├─ fabric-dataops deploy / workspace / capacity / …
-              └─ deploy-artefacts/ + telemetry → LogAnalyticsSink
+              ├─ fabric-*: pip install sigantry, then sigantry deploy run /
+              │            deploy validate / git commit / variable-library update
+              └─ post-pr-comment: posts a PR thread through the ADO REST API
 ```
 
 ---
@@ -467,7 +394,6 @@ ADO stage ─▶ templates/stages/{ci,cd-dev,cd-test,cd-prod,
 | # | Claim | How verified | Verdict |
 |---|---|---|---|
 | 1 | Six `@runtime_checkable` Protocols in `protocols.py` | File read — `DeployProfile`, `DataQualityGate`, `TelemetrySink`, `AuthProvider`, `RunbookRegistry`, `CapacityPolicy` + optional `Closeable` | Confirmed |
-| 2 | Each ACME plugin class implements its Protocol surface | grep: `NimbusDeployProfile.plan/apply` · `DqFrameworkGate.run` · `LogAnalyticsSink.emit/flush/close` · `AcmeEntraGroupAuth.get_token` · `AcmeTeamsRunbookRegistry.resolve` · `AcmeCapacityPolicy.plan/apply`. Each sets `name: str = "<pyproject-ep-name>"` | Confirmed |
 | 3 | Registry: six groups, lazy discover, import-error capture | Read `registry.py` — `_GROUPS` tuple has 6 entries; `discover()` holds `_lock` + `_discovered` flag (idempotent); per-EP exception recorded on `PluginInfo.import_error` (first-wins on duplicates) | Confirmed |
 | 4 | `FabricDataOps` exposes only `deploy` / `run_dq_gate` / `emit` (+ `close`, `__enter__`, `__exit__`) | Read `api.py` — three behaviour methods + `from_config`. Auth / Runbooks / Capacity seams exist but aren't wrapped in behaviour methods | Confirmed (under-exposed) |
 | 5 | 3 logical dispatchers across 4 modules | `find` → `monitor/dispatcher.py`, `monitor/emit.py`, `dq/dispatcher.py`, `deploy/orchestrator.py`. `monitor` has both `emit.py` (user entry) + `dispatcher.py` (default-sink registry) | Confirmed |
@@ -480,16 +406,11 @@ ADO stage ─▶ templates/stages/{ci,cd-dev,cd-test,cd-prod,
 | 12 | `_REQUIRES_RUNBOOK = {(capacity, pause), (capacity, resume)}` | Read `audit.py` — frozenset with exactly those two tuples | Confirmed |
 | 13 | `sync_wheel` 3-step flow: POST /staging/libraries → POST /staging/publish → GET /staging/libraries | Read `deploy/environment.py` — docstring lines 75–77 list three steps; code at lines 112/126/141 matches. Upload is direct multipart, NOT fabric-cicd | Confirmed (v2 had this partly wrong; v3 fixed) |
 | 14 | `move_item` uses `POST /v1/workspaces/{id}/items/{itemId}/move` | `workspace/folders.py:114: client.send("POST", f"/v1/workspaces/{workspace_id}/items/{item_id}/move", json=body)` | Confirmed |
-| 15 | `NimbusDeployProfile.apply` is: sync_wheel + deploy_workspace only (no telemetry emit, no reconciler call) | Full read of `apply()` — two function calls wrapped in try/except; builds `NimbusWheelUploadSnapshot` + `DeployResult`; returns. Zero telemetry calls. Zero reconciler calls | Confirmed (v2 overclaimed both) |
-| 16 | `AcmeCapacityPolicy` default apply is read-only skip | Read source — when no injected `apply_fn`: `return CapacityApplyResult(applied=0, skipped=len(actions))`. Caller injects `plan_fn` / `apply_fn` for real policy | Confirmed (v2 overclaimed) |
-| 17 | Banned-API + version-alignment + structure prereq tests exist | `ls tests/prereqs/` — `test_phase7_banned_apis.py`, `test_phase8_banned_apis.py`, `test_version_alignment.py`, `test_adr_structure.py`, `test_changelog.py`, `test_wiki_links.py`, `test_evidence_schemas.py`, plus 6 `.Tests.ps1` Pester files | Confirmed |
+| 17 | Version-alignment + changelog + wiki-link prereq tests exist | `ls tests/prereqs/` — `test_version_alignment.py`, `test_changelog.py`, `test_wiki_links.py` | Confirmed |
 | 18 | CLIENT-01 (httpx-only-in-client) enforcement test | `tests/sigantry_core/client/test_package_structure.py` exists | Confirmed |
 | 19 | `pytest11` entry point auto-registers contract fixtures downstream | `pyproject.toml [project.entry-points.pytest11] sigantry_core = "sigantry_core.testing.fixtures"` | Confirmed |
-| 20 | Test counts | **SUPERSEDED — do not cite.** As measured 2026-04-24: `conda run -n sigantry-core pytest --collect-only -q` in repo root = **1057 tests** (base); same in `fabric-dataops-toolkits-acme/` = **99 tests**; total = **1156**. Re-measured 2026-08-14 in the `fabric-dataops-toolkits` env, the whole-repo `pytest` run reports **2144 passed / 6 skipped / 17 deselected / 0 failed** (rc=0) — see CONTRIBUTING.md for the current baseline. The earlier `test_wheel_passes_twine_check` failure is cleared (env twine is now 7.0.0). | Confirmed at the time; numbers now stale |
-| 21 | PowerShell: `Fabric` 1.0.0 exports `Get-FabricToken` / `Get-FabricTenantSetting`; `AcmeFabric` 2.0.0 `RequiredModules=Fabric 1.0.0` and re-exports as `Get-AcmeFabric*` | Read both `.psd1` files | Confirmed |
-| 22 | Plugin version `1.0.0` vs base `2.0.1` | `pyproject.toml` versions + base `_version.py` | Confirmed |
+| 20 | Test counts | **SUPERSEDED — do not cite.** For current numbers, run `python -m pytest` after the setup in CONTRIBUTING.md. | Stale |
 | 23 | Six entry-point groups in `pyproject.toml` — all empty in base | **SUPERSEDED.** True on 2026-04-24: `[project.entry-points."fabric_dataops_toolkits.*"]` sections existed with no plugins in base. Re-checked 2026-08-13: those legacy tables were dropped in v3.1 and the base now declares 11 `sigantry.*` groups (`pyproject.toml:84-119`). | Confirmed at the time; no longer true |
-| 24 | ACME plugin registers one entry per seam | Read `fabric-dataops-toolkits-acme/pyproject.toml` — exactly 6 `[project.entry-points."fabric_dataops_toolkits.*"]` tables, one class each | Confirmed |
 
 ---
 
@@ -497,13 +418,8 @@ ADO stage ─▶ templates/stages/{ci,cd-dev,cd-test,cd-prod,
 
 These remain open. Do NOT re-probe them casually — they each have real cost or require tenant access.
 
-- **Live integration test pass count.** HANDOFF claims 15 green against the ACME tenant; I did not run the integration suite this session. `pytest -m integration` or `PYTEST_RUN_INTEGRATION=1 pytest tests/integration/` is the command; requires `ACME_FABRIC_TEST_*` credentials.
-- **`.env.live` contents.** Not read — it's a secret. Structure documented in `fabric-dataops-toolkits-acme/docs/live-testing.md`.
 - **Every plugin's Protocol conformance at runtime.** Structural typing means `isinstance(impl, DeployProfile)` only checks method names + `name` attribute, not signatures. Contract tests via `testing.fixtures` are the canonical check.
-- **Track 1** (LA emit DCR round-trip) — blocked on bicep deploy + `Monitoring Metrics Publisher` RBAC. See HANDOFF §"Deferred live-test tracks".
-- **Track 2** (DQ gate live from local pytest) — architecturally deferred; the notebook path ships but a local gate test is not possible without the Fabric notebook runtime.
 - **Track 3** (git connect live) — blocked on portal-OAuth Connection GUID + disposable `NotConnected` test workspace.
-- **Whether `.planning/STATE.md` reflects reality.** Last updated 2026-04-22 and says Phase 08 in progress; roadmap completed Phase 9 at v2.0.1. Stale.
 
 ---
 
@@ -512,4 +428,4 @@ These remain open. Do NOT re-probe them casually — they each have real cost or
 1. When code in any of the surfaces listed above changes, re-run the corresponding grep / read / `pytest --collect-only` from the validation table and update the row.
 2. When an unknown in §5 is resolved, move it up into §4 with its verification method, and strike the §5 entry.
 3. Never weaken a claim without evidence. If verification now fails, either (a) fix the code or (b) mark the row `Regression` and open a ticket — don't silently downgrade the claim.
-4. This doc's "Status" line at the top records the master SHA it was verified against. Bump the SHA on every substantive update.
+4. This doc's "Status" line at the top records when the page was last checked against the code. Update it on every substantive edit.

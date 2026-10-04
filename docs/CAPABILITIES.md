@@ -1,20 +1,19 @@
 # Sigantry Capability Catalogue
 
-**Generated:** 2026-06-12 -- master @ `f577ab0` (v3.2.1 release-day refresh)
-**Toolkit version:** `3.4.0` (`sigantry_core/_version.py`)
+**Describes:** the `sigantry` distribution (import package `sigantry_core`) as it stands on this repository's `main` branch. A release on PyPI can differ from `main`: the `[Unreleased]` section of [`CHANGELOG.md`](../CHANGELOG.md) lists the changes since the last release, and [Section 4](#4-configuration) gives the configuration names the 1.0.0 release reads.
 **Audience:** operators evaluating what Sigantry can do today, and contributors mapping the surface to the source.
 
-This document is the authoritative inventory of operational capability, complementing the day-to-day usage reference in [`handbook.md`](handbook.md). Every claim is grounded in a `file:line` citation; every command was verified live against `sigantry --help` on the date stamped above.
+This document is the inventory of operational capability, complementing the day-to-day usage reference in [`handbook.md`](handbook.md). Each claim cites the source that implements it. For the flags of the version you installed, `sigantry <verb> --help` is authoritative.
 
 ## How to read this document
 
 Each capability is labelled with one of:
 
-- **VERIFIED** -- confirmed against the live tool output and/or a falsifiability test in `tests/`.
+- **VERIFIED** -- confirmed against the source and/or a falsifiability test in `tests/`.
 - **PARTIAL** -- the surface exists but is gated, deferred, or conditionally wired (e.g. requires an opt-in flag or a plugin not in the base distribution).
 - **OPEN** -- documented design that is NOT yet wired in code; listed in [section 9](#9-what-is-not-yet-available).
 
-When a capability cites a test, you can falsify the claim by deleting the test file and re-running -- if the related code still passes spec, the test was load-bearing and the citation is honest; if not, the gap is real.
+When a capability cites a test, you can falsify the claim by breaking the code under test and re-running the test: if the test still passes, the citation is not load-bearing.
 
 ---
 
@@ -34,9 +33,9 @@ When a capability cites a test, you can falsify the claim by deleting the test f
    10. [PR-review bot](#210-pr-review-bot)
    11. [Operational diagnostics](#211-operational-diagnostics)
 3. [Python API](#3-python-api)
-4. [PowerShell modules](#4-powershell-modules)
+4. [Configuration](#4-configuration)
 5. [CI/CD pipeline templates](#5-cicd-pipeline-templates)
-6. [Plugin development -- 11 protocol seams](#6-plugin-development--11-protocol-seams)
+6. [Plugin development -- 11 protocol seams](#6-plugin-development----11-protocol-seams)
 7. [Audit + observability](#7-audit--observability)
 8. [End-to-end operator workflows](#8-end-to-end-operator-workflows)
 9. [What is NOT yet available](#9-what-is-not-yet-available)
@@ -46,17 +45,16 @@ When a capability cites a test, you can falsify the claim by deleting the test f
 
 ## 1. Architecture at a glance
 
-Sigantry is a thin governance and orchestration layer over Microsoft Fabric REST + Azure ARM + Git provider APIs. It exposes three consumer surfaces that funnel through one front door, dispatch to plugin-supplied behaviour via 11 protocol seams, and emit immutable audit records.
+Sigantry is a thin governance and orchestration layer over Microsoft Fabric REST + Azure ARM + Git provider APIs. It exposes two consumer surfaces that funnel through one front door, dispatch to plugin-supplied behaviour via 11 protocol seams, and emit immutable audit records.
 
 ```mermaid
 flowchart TB
     subgraph CONS["Consumer surfaces"]
-        CLI["sigantry CLI<br/>17 subcommands"]
+        CLI["sigantry CLI<br/>18 subcommands"]
         PYAPI["Python API<br/>FabricDataOps"]
-        PWSH["PowerShell<br/>Sigantry / SigantryAcme"]
     end
 
-    subgraph CORE["sigantry-core front door"]
+    subgraph CORE["sigantry front door"]
         API["api.py · FabricDataOps"]
         REGISTRY["registry.py · plugin registry"]
         CONFIG[".sigantry.toml loader"]
@@ -71,9 +69,8 @@ flowchart TB
     end
 
     subgraph PLUGINS["Plugin distributions"]
-        BASE["sigantry-core<br/>base reference impls"]
-        ACME["sigantry-acme<br/>ACME reference plugin"]
-        OWNERCO["sigantry-ownerco<br/>2nd customer plugin"]
+        BASE["sigantry<br/>in-base reference impls"]
+        ORG["an organisation's private plugin<br/>(optional, separate wheel)"]
     end
 
     subgraph EXT["External systems"]
@@ -85,16 +82,14 @@ flowchart TB
 
     CLI --> API
     PYAPI --> API
-    PWSH -. token only .-> FAB
     API --> REGISTRY
     API --> CLIENT
     API --> CONFIG
     REGISTRY --> SEAMS
     BASE -. implements .-> S3
     BASE -. implements .-> S4
-    ACME -. implements .-> S1
-    ACME -. implements .-> S2
-    OWNERCO -. implements .-> S3
+    ORG -. implements .-> S1
+    ORG -. implements .-> S2
     CLIENT --> FAB
     CLIENT --> ARM
     CLIENT --> GIT
@@ -103,9 +98,9 @@ flowchart TB
 
 **Source citations:**
 
-- 17 subcommands wired in `sigantry_core/cli.py:66-82` (`add_typer` calls). [VERIFIED]
-- 11 entry-point groups enumerated in `sigantry_core/registry.py:46-60`. [VERIFIED]
-- One HTTP client governed by the banned-API gate in `tests/prereqs/test_phase8_banned_apis.py` (no module outside `sigantry_core.client` may `import httpx` directly). [VERIFIED]
+- 18 subcommands wired in `sigantry_core/cli.py:67-84` (`add_typer` calls). [VERIFIED]
+- 11 entry-point groups enumerated in `sigantry_core/registry.py:54-64`. [VERIFIED]
+- One HTTP client: ruff's TID251 `banned-api` rule, configured in `pyproject.toml`, flags any import of `httpx`. The per-file ignores in the same file allow it only in `sigantry_core/client/`, `sigantry_core/auth/diagnose.py`, `sigantry_core/auth/github_app.py`, `sigantry_core/notifications/__init__.py`, `sigantry_core/notifications/teams.py`, `sigantry_core/notifications/slack.py` and `tests/`. [VERIFIED]
 
 ---
 
@@ -122,7 +117,7 @@ The full CLI surface is registered in [`sigantry_core/cli.py`](../sigantry_core/
 | `sigantry workspace list` | List every workspace the principal can see (`GET /v1/workspaces`). | `sigantry_core/workspace/cli.py:35` | -- |
 | `sigantry workspace get <id>` | Inspect a single workspace. | `cli.py:68` | -- |
 | `sigantry workspace create` | Create a new workspace. | `cli.py:87` | -- |
-| `sigantry workspace delete` | Destructive; gated by `force=True` (DestructiveOpError without it). | `cli.py:106` | `delete_item` audit |
+| `sigantry workspace delete` | Destructive; refuses without `--force` (`DestructiveOpError`). | `cli.py:106` | `DestructiveOpRecord` (`destructive_ops.jsonl`) |
 | `sigantry workspace assign-capacity` | Bind a workspace to a capacity. | `cli.py:124` | -- |
 | `sigantry workspace list-items` | Enumerate every item in a workspace. | `cli.py:135` | -- |
 | `sigantry workspace bootstrap workspace.yml` | Greenfield materialiser: workspace + capacity bind + folders + Git connect + initialize. | `cli.py:165` | `BootstrapRecord` (`bootstraps.jsonl`) |
@@ -187,12 +182,12 @@ sequenceDiagram
     LEDGER-->>Op: release_id + verify_hash() == True
 ```
 
-**Available blueprints** (verified in `sigantry_core/workspace/blueprints.py`):
+**Available blueprints** (in `sigantry_core/workspace/blueprints.py`, which holds the folder names):
 
 - `minimal_starter` -- 8 folders in numbered pipeline-flow order: `00_control`, `10_intake`, `20_storage`, `30_transform`, `40_semantic`, `50_reporting`, `90_shared`, `99_retired`.
-- `medallion` -- alias for the identical `minimal_starter` layout (for operators who prefer the medallion framing; there are no bronze/silver/gold folders). [VERIFIED 2026-06-11]
+- `medallion` -- alias for the identical `minimal_starter` layout (for operators who prefer the medallion framing; there are no bronze/silver/gold folders). [VERIFIED]
 
-**Test pinning:** 40 unit tests across `tests/sigantry_core/workspace/test_bootstrap.py` (23 -- step probe logic), `tests/sigantry_core/workspace/test_records.py` (12 -- `BootstrapRecord` shape + audit-hash invariant), `tests/sigantry_core/workspace/test_blueprints.py` (5 -- blueprint catalog). [VERIFIED 2026-05-12]
+**Test pinning:** 40 unit tests across `tests/sigantry_core/workspace/test_bootstrap.py` (23 -- step probe logic), `tests/sigantry_core/workspace/test_records.py` (12 -- `BootstrapRecord` shape + audit-hash invariant), `tests/sigantry_core/workspace/test_blueprints.py` (5 -- blueprint catalogue). [VERIFIED]
 
 ### 2.2 Capacity lifecycle
 
@@ -201,8 +196,8 @@ sequenceDiagram
 | Verb | Purpose | Source |
 |---|---|---|
 | `sigantry capacity list` | `GET /v1/capacities`. | `sigantry_core/capacity/cli.py:38` |
-| `sigantry capacity pause` | ARM 202 LRO; `force=True` required (cost-control gate). | `cli.py:79` |
-| `sigantry capacity resume` | ARM 202 LRO; `force=True` required. | `cli.py:105` |
+| `sigantry capacity pause` | ARM 202 LRO; requires `--force` and a non-empty `--runbook-id` (cost-control gate). | `cli.py:79` |
+| `sigantry capacity resume` | ARM 202 LRO; requires `--force` and a non-empty `--runbook-id`. | `cli.py:105` |
 
 ### 2.3 Folder-aware sync engine
 
@@ -210,21 +205,23 @@ sequenceDiagram
 
 | Verb | Purpose | Source |
 |---|---|---|
-| `sigantry sync apply` | Push manifest items into a workspace; default additive (creates folders, moves items). | `sigantry_core/sync/cli.py:130` |
-| `sigantry sync pull` | IaC-fy a live workspace into `sync.yml` + per-folder item sources at `<folder-path>/<display_name>/` (no separate `sources/` dir; D-22 `logical_id` round-trip). | `cli.py:363` |
-| `sigantry sync snapshot` | Emit a `WorkspaceSnapshot` JSON for diffing (INTROSPECT-01). | `cli.py:306` |
+| `sigantry sync apply` | Push manifest items into a workspace; default additive (creates folders, moves items). | `sigantry_core/sync/cli.py:154` |
+| `sigantry sync pull` | IaC-fy a live workspace into `sync.yml` + per-folder item sources at `<folder-path>/<display_name>/` (no separate `sources/` dir; D-22 `logical_id` round-trip). | `cli.py:438` |
+| `sigantry sync snapshot` | Emit a `WorkspaceSnapshot` JSON for diffing (INTROSPECT-01). | `cli.py:381` |
 
-**The `sync apply` flag matrix (verified live):**
+**The `sync apply` flag matrix:**
 
 | Flag | Semantics |
 |---|---|
 | `--manifest` (req) | Path to `sync.yml`. |
 | `--workspace-id` (req) | Target Fabric workspace GUID. |
-| `--environment` | Optional `parameters.yml` environment label. |
+| `--environment` | The `parameters.yml` environment to publish with `--with-publish`; required there when `parameters.yml` names any environment beyond `_ALL_`. |
 | `--audit-dir` | Override `~/.sigantry/audit/`. |
 | `--dry-run` | Compute the plan; print to console; exit 0 without applying. |
 | `--with-publish` | Compose folder reconcile with `fabric-cicd.publish_all_items` for first-time items (Phase 17, ADR-0012 Option C). Requires `--params`. |
+| `--republish-existing` | Modifier on `--with-publish`: also refresh the content of manifest items that already exist in the workspace (matched by display name + type). |
 | `--params` | Path to `parameters.yml`. Required when `--with-publish` is set. |
+| `--bulk` | Modifier on `--with-publish`: when more than one item is published, publish them through a concurrent worker pool. Has no effect without `--with-publish`. |
 | `--unpublish-orphans` | Delete workspace folders + items absent from the manifest. The manifest's `folders[]` preservation set + every ancestor of each declared path is excluded. Default off. |
 
 **Sync apply lifecycle:**
@@ -259,36 +256,36 @@ The manifest's top-level `folders` list is a preservation set. When `--unpublish
 
 **Schema reference:** [`reference/sync-schema.md`](reference/sync-schema.md) -- top-level `items[]` + `folders[]` shape, validation rules, folder-less item types (D-07 / SYNC-06).
 
-**Item types accepted:** Whatever `fabric_cicd.constants.ItemType` enumerates -- canonical PascalCase strings such as `Notebook`, `DataPipeline`, `SemanticModel`, `Report`, `SparkJobDefinition`, `Lakehouse`, `Warehouse`, `MLModel`, `MLExperiment`, `Eventstream`, `KQLDatabase`, `KQLQueryset`, `MirroredDatabase`. See `sigantry_core/sync/manifest.py:50-90`. The single folder-less type override (`Dataflow` -> `target_folder='/'`) is at `manifest.py:94-111`.
+**Item types accepted:** Whatever `fabric_cicd.constants.ItemType` enumerates -- canonical PascalCase strings such as `Notebook`, `DataPipeline`, `SemanticModel`, `Report`, `SparkJobDefinition`, `Lakehouse`, `Warehouse`, `MLModel`, `MLExperiment`, `Eventstream`, `KQLDatabase`, `KQLQueryset`, `MirroredDatabase`. See `sigantry_core/sync/manifest.py`, which also holds the single folder-less type override (`Dataflow` -> `target_folder='/'`).
 
-**Worked example -- the NIMBUS 9-notebook canonical fixture** (used in Phase 13 tests):
+**Worked example** -- nine notebooks under an `Orders` folder:
 
 ```yaml
 schema_version: "1.0.0"
 items:
-  - {local_path: notebooks/00_NIMBUS_Orchestration.ipynb, type: Notebook, target_folder: NIMBUS/01_NOTEBOOKS_NIMBUS_2026_V2, display_name: 00_NIMBUS_Orchestration}
-  - {local_path: notebooks/01_NIMBUS_Bronze.ipynb,         type: Notebook, target_folder: NIMBUS/01_NOTEBOOKS_NIMBUS_2026_V2, display_name: 01_NIMBUS_Bronze}
+  - {local_path: notebooks/00_Orders_Orchestration.ipynb, type: Notebook, target_folder: Orders/01_Notebooks, display_name: 00_Orders_Orchestration}
+  - {local_path: notebooks/01_Orders_Bronze.ipynb,         type: Notebook, target_folder: Orders/01_Notebooks, display_name: 01_Orders_Bronze}
   # ... 7 more
 folders:
-  - /NIMBUS/02_NOTEBOOKS_NIMBUS_2026_V2_ARCHIVE   # operator-created via Fabric UI
+  - /Orders/02_Notebooks_Archive   # operator-created via Fabric UI
 ```
 
 Run `sigantry sync apply --manifest sync.yml --workspace-id <id> --dry-run` to preview; add `--unpublish-orphans` to enable cleanup.
 
 ### 2.4 Drift detection
 
-[VERIFIED]. Compares a manifest against a live workspace and emits a SemVer-pinned JSON diff (`docs/reference/drift-schema.json`).
+[VERIFIED]. Compares a manifest against a live workspace when you run it, and emits a SemVer-pinned JSON diff (`docs/reference/drift-schema.json`). It does not run by itself: scheduling it is the adopter's job (see the scheduled templates in [Section 5](#5-cicd-pipeline-templates)).
 
 | Verb | Purpose | Source |
 |---|---|---|
-| `sigantry diff --manifest sync.yml --workspace-id <id>` | Drift report (`added` / `removed` / `modified` / `unchanged`). | `sigantry_core/diff_cli.py:131` |
+| `sigantry diff --manifest sync.yml --workspace-id <id>` | Drift report (`added` / `removed` / `modified` / `unchanged`). | `sigantry_core/diff_cli.py:136` |
 
 **Flag matrix:**
 
-- `--output human|json` -- human is default; `json` is the SemVer-pinned wire contract consumed by CI.
+- `--output human|json|html` -- human is default; `json` is the SemVer-pinned wire contract consumed by CI; `html` renders a standalone report to stdout, or to the file named by `--html-out`.
 - `--fail-on-drift` -- exit 1 if any drift detected.
 - `--no-hint` -- suppress the operator hint trailer (CI-friendly).
-- `--environment` -- recorded in output for log scoping (informational only).
+- `--environment` / `-e` -- recorded in output for log scoping (informational only; default `prod`).
 
 **Behaviour:** D-24 metadata-only -- compares `display_name`, `type`, `folder_path`. Content-level drift is OUT of scope (a candidate enhancement; see [section 9](#9-what-is-not-yet-available)).
 
@@ -322,10 +319,11 @@ sequenceDiagram
 
 | Verb | Purpose | Source |
 |---|---|---|
-| `sigantry deploy run` | Deploy a Fabric item tree. Non-zero exit on item-publish failure. | `sigantry_core/deploy/cli.py:47` |
-| `sigantry deploy validate` | Validate WITHOUT deploying (ADOPIPE-05 pre-flight). | `cli.py:281` |
-| `sigantry deploy run --rollback --to-release <id>` | Re-publish content from a prior `DeployRecord`. | `sigantry_core/deploy/rollback.py:44` |
-| `sigantry fabric-item copy` | Duplicate an item folder with a fresh `logicalId`. | `sigantry_core/deploy/cli.py:429` |
+| `sigantry deploy run` | Deploy a Fabric item tree. Non-zero exit on item-publish failure. `--bulk` publishes through a concurrent worker pool; `--items-to-include`, `--item-name-exclude-regex`, `--folder-path-to-include`, `--folder-path-exclude-regex` and `--shortcut-exclude-regex` scope the publish. | `sigantry_core/deploy/cli.py:53` |
+| `sigantry deploy validate` | Validate WITHOUT deploying (ADOPIPE-05 pre-flight). | `cli.py:315` |
+| `sigantry deploy run --rollback --to-release <id>` | Re-publish content from a prior `DeployRecord`. | `sigantry_core/deploy/rollback.py:88` |
+| `sigantry fabric-item copy` | Duplicate an item folder with a fresh `logicalId`. | `sigantry_core/deploy/cli.py:463` |
+| `sigantry fabric-item set-binding` | Attach an Environment and/or a default Lakehouse to a deployed notebook. | `sigantry_core/deploy/cli.py:504` |
 
 ```mermaid
 sequenceDiagram
@@ -349,9 +347,9 @@ sequenceDiagram
     CLI->>LEDGER: emit new DeployRecord<br/>(provider="rollback")
 ```
 
-**`unpublish_orphans` flag** is also exposed on `deploy run` (separate from `sync apply --unpublish-orphans` -- different code path; deploy's variant runs through `_unpublish_orphans_gated` in `sigantry_core/deploy/core.py:233`).
+**`unpublish_orphans` flag** is also exposed on `deploy run` (separate from `sync apply --unpublish-orphans` -- different code path; deploy's variant runs through `_unpublish_orphans_gated` in `sigantry_core/deploy/core.py:319`).
 
-**Toolkit-side `$ENV:` substitution** (PR #54): `sigantry_core/deploy/parameters.py` substitutes `$ENV:VAR` references into a tempfile copy of `parameters.yml` BEFORE handoff to fabric-cicd (which rejects raw `$ENV:` references). PR #54 added 7 unit tests for the substitution invariants on top of the existing parameters-validation suite; `tests/sigantry_core/deploy/test_parameters.py` totals 18 tests as of master `8753202`.
+**Toolkit-side `$ENV:` substitution:** `sigantry_core/deploy/parameters.py` substitutes `$ENV:VAR` references into a tempfile copy of `parameters.yml` BEFORE handoff to fabric-cicd (which rejects raw `$ENV:` references). Tests: `tests/sigantry_core/deploy/test_parameters.py` (18 tests).
 
 **Runbook:** [`runbooks/pipeline-orchestration/deploy-with-tests.md`](runbooks/pipeline-orchestration/deploy-with-tests.md) (Phase 12).
 
@@ -361,13 +359,13 @@ sequenceDiagram
 
 | Verb | Endpoint | Source |
 |---|---|---|
-| `sigantry git connect` | `POST /git/connect` | `sigantry_core/deploy/cli.py:490` |
-| `sigantry git init` | `POST /git/initializeConnection` | `cli.py:526` |
-| `sigantry git update` | `POST /git/updateFromGit` (workspace <- repo) | `cli.py:538` |
-| `sigantry git commit` | `POST /git/commitToGit` (workspace -> repo) | `cli.py:556` |
-| `sigantry git status` | `GET /git/status` | `cli.py:576` |
-| `sigantry git connection` | `GET /git/connection` | `cli.py:587` |
-| `sigantry git disconnect` | `POST /git/disconnect` (destructive; `--force`) | `cli.py:608` |
+| `sigantry git connect` | `POST /git/connect` | `sigantry_core/deploy/cli.py:579` |
+| `sigantry git init` | `POST /git/initializeConnection` | `cli.py:615` |
+| `sigantry git update` | `POST /git/updateFromGit` (workspace <- repo) | `cli.py:627` |
+| `sigantry git commit` | `POST /git/commitToGit` (workspace -> repo) | `cli.py:645` |
+| `sigantry git status` | `GET /git/status` | `cli.py:665` |
+| `sigantry git connection` | `GET /git/connection` | `cli.py:676` |
+| `sigantry git disconnect` | `POST /git/disconnect` (destructive; `--force`) | `cli.py:697` |
 
 ### 2.7 Variable Library, Environments, DQ gates
 
@@ -377,23 +375,23 @@ sequenceDiagram
 
 | Verb | Source |
 |---|---|
-| `sigantry variable-library create` | `sigantry_core/deploy/cli.py:645` |
-| `sigantry variable-library list` | `cli.py:669` |
-| `sigantry variable-library get` | `cli.py:687` |
-| `sigantry variable-library update` | `cli.py:706` |
-| `sigantry variable-library delete` | `cli.py:726` (force-required) |
+| `sigantry variable-library create` | `sigantry_core/deploy/cli.py:734` |
+| `sigantry variable-library list` | `cli.py:758` |
+| `sigantry variable-library get` | `cli.py:776` |
+| `sigantry variable-library update` | `cli.py:795` |
+| `sigantry variable-library delete` | `cli.py:815` (force-required) |
 
 **Fabric Environments**:
 
 | Verb | Purpose | Source |
 |---|---|---|
-| `sigantry env sync` | Upload + publish a Python wheel to a Fabric Environment (Pitfall-6 primitive used by NIMBUS). | `sigantry_core/deploy/cli.py:786` |
-| `sigantry env sync-all` | Config-driven fan-out of a wheel set across many Environments from an `environments.yml` (per-target pin/float, gating, idempotent skip, fail-isolation, dry-run). | `sigantry_core/deploy/cli.py:815` |
-| `sigantry env reconcile` | Reconcile an Environment's custom libraries to the desired wheel **versions**: removes superseded versions of each named package, uploads the new wheels, publishes **once**, blocks to completion. The upgrade-safe counterpart to add-only `env sync`; idempotent; `--dry-run`. | `sigantry_core/deploy/cli.py` (`env reconcile`) |
+| `sigantry env sync` | Upload + publish a Python wheel to a Fabric Environment. | `sigantry_core/deploy/cli.py:848` |
+| `sigantry env sync-all` | Config-driven fan-out of a wheel set across many Environments from an `environments.yml` (per-target pin/float, gating, idempotent skip, fail-isolation, dry-run). | `sigantry_core/deploy/cli.py:877` |
+| `sigantry env reconcile` | Reconcile an Environment's custom libraries to the desired wheel **versions**: removes superseded versions of each named package, uploads the new wheels, publishes **once**, blocks to completion. The upgrade-safe counterpart to add-only `env sync`; idempotent; `--dry-run`. | `sigantry_core/deploy/cli.py:933` |
 
-Notes on `env sync` (proven live against `DEMO_WS_UNIT_B`, 2026-06-14):
+Notes on `env sync` (proven live on a production workspace, 2026-06-14):
 
-- **Blocks to completion (#142).** It uploads to staging (`POST .../staging/libraries`),
+- **Blocks to completion.** It uploads to staging (`POST .../staging/libraries`),
   triggers `POST .../staging/publish`, then polls `GET .../environments/<env>` until
   `publishDetails.state` is terminal. A zero exit means the Spark image actually
   rebuilt and the wheel is *importable* — not merely staged. Budget minutes per call.
@@ -401,13 +399,11 @@ Notes on `env sync` (proven live against `DEMO_WS_UNIT_B`, 2026-06-14):
   normal user (`az login` → AzureCliCredential) just as well as a service principal /
   ADO service connection. Any identity with **write** on the target workspace can publish.
 - **Add-only — use `env reconcile` for upgrades.** `env sync` adds a wheel; it never
-  removes older versions. Two versions of one package in staging (e.g.
-  `nimbus_data_platform` 1.5.1 *and* 1.6.0) make the publish **fail**
-  (`componentPublishInfo.sparkLibraries.state = "Failed"`). For a version upgrade use
+  removes older versions. Two versions of one package in staging make the publish
+  **fail** (`componentPublishInfo.sparkLibraries.state = "Failed"`). For a version upgrade use
   `sigantry env reconcile --wheel <new.whl>` (repeatable), which removes the superseded
-  version, uploads the new wheel, and publishes once — proven live on `DEMO_WS_UNIT_B`
-  (2026-06-14, `quality_suite` 2.1.2 → 2.2.0 while leaving `nimbus_data_platform`
-  untouched). The equivalent raw REST is
+  version, uploads the new wheel, and publishes once -- proven live on a production
+  workspace, 2026-06-14. The equivalent raw REST is
   `DELETE /v1/workspaces/{ws}/environments/{env}/staging/libraries?libraryToDelete=<file.whl>`
   then re-publish. See [Tutorial 11 — Troubleshooting](tutorials/11-environments-and-libraries.md#troubleshooting--the-dual-version-pitfall).
 
@@ -415,7 +411,7 @@ Notes on `env sync` (proven live against `DEMO_WS_UNIT_B`, 2026-06-14):
 
 | Verb | Purpose | Source |
 |---|---|---|
-| `sigantry dq gate` | Run a registered `DqGate` plugin (e.g. ACME's `DqFrameworkGate`) against a dataset. Exit 0 clean / 1 violation / 2 invocation error. | `sigantry_core/dq/cli.py:31` |
+| `sigantry dq gate` | Run a registered `DataQualityGate` plugin against a dataset. The base package registers none: the gate comes from a plugin. Exit 0 clean / 1 violation / 2 resolution error. | `sigantry_core/dq/cli.py:31` |
 
 ### 2.8 Release records (work-item traceability)
 
@@ -423,10 +419,11 @@ Notes on `env sync` (proven live against `DEMO_WS_UNIT_B`, 2026-06-14):
 
 | Verb | Purpose | Source |
 |---|---|---|
-| `sigantry release record` | Build + audit a `DeployRecord`; link to ADO / GitHub work items. Reads `GITHUB_TOKEN` envvar (gh CLI convention). | `sigantry_core/release/cli.py:154` |
-| `sigantry release list` | List releases (most recent first). | `cli.py:302` |
-| `sigantry release show <id>` | Show one `DeployRecord`. | `cli.py:371` |
-| `sigantry release diff <id1> <id2>` | Diff `fabric_items_changed` between two releases. | `cli.py:415` |
+| `sigantry release record` | Build + audit a `DeployRecord`; link to ADO / GitHub work items. Reads `GITHUB_TOKEN` envvar (gh CLI convention). | `sigantry_core/release/cli.py:162` |
+| `sigantry release list` | List releases (most recent first). | `cli.py:310` |
+| `sigantry release show <id>` | Show one `DeployRecord`. | `cli.py:378` |
+| `sigantry release diff <id1> <id2>` | Diff `fabric_items_changed` between two releases. | `cli.py:432` |
+| `sigantry release verify` | Check that the deploy ledger forms an unbroken SHA-256 chain. The chain is unkeyed; see the [audit ledger threat model](reference/audit-ledger-threat-model.md). | `cli.py:562` |
 
 **Audit invariants:**
 
@@ -442,9 +439,9 @@ Runbook: [`runbooks/work-item-traceability/comment-rendering.md`](runbooks/work-
 
 | Verb | Purpose | Source |
 |---|---|---|
-| `sigantry label-sync` | Apply a sensitivity label to every item in a workspace (GOV-02). | `sigantry_core/governance/cli.py` |
-| `sigantry rbac-audit [--output csv|json]` | Tenant-wide three-layer RBAC dump (GOV-04): every visible workspace + capacity + item placeholders, with `via-group:` membership expansion. No per-workspace flag -- scope by filtering the output (verified live 2026-06-11). 401/403 handling on `/admin/capacities` was fixed in PR #72 (merged 2026-05-06). | `sigantry_core/governance/rbac.py` |
-| `sigantry tenant-settings export` | Export Fabric admin tenant-settings baseline (GOV-05). | `sigantry_core/governance/cli.py:161` |
+| `sigantry label-sync` | Apply a sensitivity label to every item in a workspace (GOV-02). | `sigantry_core/governance/cli.py:77` |
+| `sigantry rbac-audit [--output csv|json]` | Three-layer RBAC dump (GOV-04): every visible workspace + capacity + item placeholders, with `via-group:` membership expansion. Tenant-wide by default; `-w/--workspace-id` (repeatable) scopes the sweep; `--out` / `--out-dir` write the audit to a file. | `sigantry_core/governance/cli.py:139` |
+| `sigantry tenant-settings export` | Export Fabric admin tenant-settings baseline (GOV-05). | `sigantry_core/governance/cli.py:222` |
 
 ### 2.10 PR-review bot
 
@@ -452,7 +449,7 @@ Runbook: [`runbooks/work-item-traceability/comment-rendering.md`](runbooks/work-
 
 | Verb | Purpose | Source |
 |---|---|---|
-| `sigantry pr-bot run` | Detect provider (ADO / GitHub), diff TMDL + Lakehouse metadata files, post a structured comment. POST-body byte-identical across providers. | `sigantry_core/pr_bot/cli.py:217` |
+| `sigantry pr-bot run` | Detect provider (ADO / GitHub), diff TMDL + Lakehouse metadata files, post a structured comment. POST-body byte-identical across providers. `--fail-on-breaking` exits 1 when dropped tables, columns, measures or relationships are detected. `--dry-run` prints the body instead of posting it, but still fetches the PR metadata and changed-file list from the provider, so it needs network access and a token. | `sigantry_core/pr_bot/cli.py:217` |
 
 Runbook: [`runbooks/pr-bot-operator.md`](runbooks/pr-bot-operator.md).
 
@@ -462,10 +459,12 @@ Runbook: [`runbooks/pr-bot-operator.md`](runbooks/pr-bot-operator.md).
 
 | Verb | Purpose | Source |
 |---|---|---|
-| `sigantry doctor` | List discovered plugins; flag entry-point import failures. `--strict` exits non-zero on any failure. | `sigantry_core/doctor.py:108` |
+| `sigantry doctor` | List discovered plugins with a Trust column. `--strict` exits non-zero on any entry-point import failure; `--strict-trust` exits non-zero when any plugin's Trust is `untrusted`, meaning `SIGANTRY_TRUSTED_PLUGIN_DISTS` is non-empty and does not list that plugin's distribution; with the variable unset or empty every plugin shows `unknown` and the flag passes ([ADR-0014](decisions/ADR-0014-plugin-trust-model.md)). | `sigantry_core/doctor.py:249` |
 | `sigantry config validate <parameters.yml>` | Validate a `fabric-cicd` `parameters.yml` (catches `HardcodedGuidError` + unset `$ENV:`). | `sigantry_core/config_cli.py:37` |
+| `sigantry preflight` | Four non-destructive probes (schema syntax, dependency graph, Entra scope, capacity state) against a `sync.yml` or `workspace.yml`. Exits 1 on any failed probe, and also on any warning under `--strict` ([ADR-0015](decisions/ADR-0015-config-driven-preflight.md)). | `sigantry_core/preflight/cli.py:24` |
+| `diagnose-auth` | Standalone console script (not a `sigantry` subcommand): which credential resolved, and whether the tenant toggle is visible. Exit 0 healthy / 2 degraded / 3 no token / 4 invalid `--output` value. | `sigantry_core/auth/cli.py` |
 
-Live `sigantry doctor` output (verified 2026-05-12) reports **17 plugins discovered across 11 seam group(s)** -- see Section 6.
+On a base install, `sigantry doctor` reports **9 plugins discovered across 11 seam group(s)** -- see Section 6.
 
 ---
 
@@ -474,53 +473,49 @@ Live `sigantry doctor` output (verified 2026-05-12) reports **17 plugins discove
 [VERIFIED]. The `FabricDataOps` facade in [`sigantry_core/api.py`](../sigantry_core/api.py) is the recommended entry-point for embedding Sigantry inside notebooks, scripts, or services where you don't want to shell out to the CLI.
 
 ```python
-from sigantry_core import FabricDataOps
+from sigantry_core import DataRef, DeployContext, FabricDataOps
 
-# 1. Construct from .sigantry.toml + plugin registry
+# 1. Construct from .sigantry.toml + the plugin registry
 fdo = FabricDataOps.from_config()
 
-# 2. Programmatic deploy via a registered DeployProfile (e.g. ACME 'nimbus')
-fdo.deploy(
-    workspace_id="<guid>",
-    source_dir="./fabric_items",
-    parameters_path="./parameters.yml",
-    environment="prod",
-)
+# 2. Deploy through the DeployProfile named by `[deploy] profile = "..."`
+result = fdo.deploy(DeployContext(workspace_id="<guid>", environment="prod"))
 
-# 3. Inline DQ gate via a registered DqGate (e.g. ACME 'qualitykit')
-result = fdo.run_dq_gate("qualitykit", dataset_path="./table")
+# 3. Run a suite through the DataQualityGate named by `[dq] gate = "..."`
+gate_result = fdo.run_dq_gate("orders_suite", DataRef(name="orders", path="Tables/orders"))
 
-# 4. Telemetry emission via a registered TelemetrySink (e.g. ACME 'log_analytics')
+# 4. Emit through the TelemetrySink named by `[telemetry] sink = "..."`
 fdo.emit("deploy_finished", {"release_id": "...", "duration_ms": 1234})
 
-# 5. Release client connections cleanly
+# 5. Release plugin resources
 fdo.close()
 ```
+
+The base package registers no deploy profile, DQ gate or telemetry sink, so steps 2-4 resolve implementations that a plugin provides -- or that you inject directly: `FabricDataOps(deploy_profile=..., dq_gate=..., telemetry=...)`. With no sink configured, `emit` is a silent no-op.
 
 **Method signatures** (from `api.py`):
 
 | Method | Line | Purpose |
 |---|---|---|
-| `from_config(...)` | `api.py:83` | Constructor; loads `.sigantry.toml`, resolves seams via registry. |
-| `deploy(...)` | `api.py:133` | Programmatic deploy. |
-| `run_dq_gate(...)` | `api.py:155` | Inline DQ gate execution. |
-| `emit(...)` | `api.py:179` | Telemetry emission. |
-| `close()` | `api.py:201` | Releases HTTP client + plugin handles. |
+| `from_config(...)` | `api.py:107` | Constructor; loads the config file (Section 4) and resolves each named seam through the registry. |
+| `deploy(...)` | `api.py:227` | Programmatic deploy. |
+| `run_dq_gate(...)` | `api.py:249` | Inline DQ gate execution. |
+| `emit(...)` | `api.py:273` | Telemetry emission. |
+| `close()` | `api.py:295` | Calls `close()` on every seam plugin that implements `Closeable` (for example, to release a plugin's HTTP pool). |
 
 **In-memory testing doubles** ship at `sigantry_core/testing/doubles.py` and `sigantry_core/testing/fixtures.py`. The pytest11 entry-point auto-registers contract fixtures on install.
 
 ---
 
-## 4. PowerShell modules
+## 4. Configuration
 
-[VERIFIED].
+[VERIFIED]. `sigantry_core/config.py` loads one TOML file into `ToolkitSettings`: a `[core]` section, one section per seam (`[auth]`, `[telemetry]`, `[deploy]`, `[dq]`, `[runbooks]`, `[capacity]`, `[release]`, `[notifications]`, `[secrets]`, `[approvals]`, `[pr_review_bots]`) and `[workflow]`. `FabricDataOps.from_config()` reads the plugin names from those sections and resolves each through the registry.
 
-| Module | Path | Exports |
-|---|---|---|
-| `Sigantry` (formerly `Fabric/`) | `Sigantry/Sigantry.psd1` | `Get-FabricToken`, `Get-FabricTenantSetting`, plus v3 additions. |
-| `SigantryAcme` (formerly `AcmeFabric/`) | `SigantryAcme/SigantryAcme.psd1` | `Get-AcmeFabricToken`, `Get-AcmeFabricTenantSetting`. `RequiredModules = Sigantry`. |
+- **File.** Called with no path, `load_settings()` reads `.sigantry.toml` from the working directory, or the legacy `.fabric-dataops.toml` with a `DeprecationWarning` when `.sigantry.toml` is absent. A missing file is not an error: every setting keeps its default. An explicit path is read as given, whatever its name.
+- **Environment overrides.** `SIGANTRY_<SECTION>__<KEY>`, for example `SIGANTRY_CORE__TENANT_ID`, wins over the file. The legacy `FDT_` prefix is still read, warns, and loses to `SIGANTRY_`.
+- **1.0.0.** Given no path, the 1.0.0 release on PyPI looks for `.fabric-dataops.toml`, and it reads settings overrides as `FDT_<SECTION>__<KEY>`, not `SIGANTRY_`. See the note in [`README.md`](../README.md) and [`migration/2.x-to-3.0.md`](migration/2.x-to-3.0.md).
 
-PowerShell support is intentionally minimal -- it's the operator's "I just need a Fabric token" surface. The full control plane is the Python CLI.
+No PowerShell module ships in this repository. The `templates/jobs/build-powershell.yml` and `lint-powershell.yml` job templates run Pester and PSScriptAnalyzer over a consumer's own PowerShell code.
 
 ---
 
@@ -539,7 +534,7 @@ PowerShell support is intentionally minimal -- it's the operator's "I just need 
 | [`templates/environments/`](../templates/environments/) | `spark-diagnostic-emitter.yml` |
 | [`templates/schedules/`](../templates/schedules/) | `drift-check.yml` |
 | [`templates/pr-review/`](../templates/pr-review/) | `sigantry-pr-bot.yml` |
-| [`templates/starter/`](../templates/starter/) | Full greenfield consumer scaffold (parity-gated mirror to `sigantry/sigantry-starter` post-UAT). |
+| [`templates/starter/`](../templates/starter/) | Greenfield consumer scaffold, written to be copied into a consumer repository. |
 | [`templates/demo/`](../templates/demo/) | 15-minute walkthrough scaffold (byte-extends starter). |
 
 **The 5-stage Phase 12 pipeline (`sigantry-cd.yml`):**
@@ -550,12 +545,14 @@ flowchart LR
     S1 --> S2["2 Smoke<br/>fast invariants"]
     S2 --> S3["3 Integration<br/>full test suite"]
     S3 --> APP{"4 Approval<br/>ADO/GitHub<br/>Environment gate"}
-    APP -->|approved| S5["5 Promote<br/>cross-env deploy"]
-    APP -->|denied| END(("no promote"))
+    APP -->|approved| S5["5 Promote<br/>sigantry release record"]
+    APP -->|denied| END(("no release record"))
     S1 -. fail .-> ROLL["sigantry deploy<br/>--rollback ready"]
     S2 -. fail .-> ROLL
     S3 -. fail .-> ROLL
 ```
+
+Stage 5 deploys nothing. It runs `sigantry release record`, so the approval gates the release record, not the deployment, which stage 1 has already made. The rollback node marks where an operator would run `sigantry deploy run --rollback`; no stage runs it automatically.
 
 **GitHub Actions workflow inventory** (one row per file in `.github/workflows/`):
 
@@ -575,23 +572,23 @@ flowchart LR
 
 ## 6. Plugin development -- 11 protocol seams
 
-[VERIFIED]. Sigantry's extensibility surface. Every plugin is a Python wheel that registers a class against one of the 11 entry-point groups in [`sigantry_core/registry.py:46-60`](../sigantry_core/registry.py).
+[VERIFIED]. Sigantry's extensibility surface. Every plugin is a Python wheel that registers a class against one of the 11 entry-point groups in [`sigantry_core/registry.py:54-64`](../sigantry_core/registry.py).
 
 **The 11 seams:**
 
-| Group | Protocol class | Source line | Plugin examples |
+| Group | Protocol class | Source line | Registered in the base package |
 |---|---|---|---|
-| `sigantry.deploy_profiles` | `DeployProfile` | `protocols.py:213` | `nimbus` (sigantry-acme) |
-| `sigantry.dq_gates` | `DataQualityGate` | `protocols.py:224` | `qualitykit` (sigantry-acme) |
-| `sigantry.telemetry_sinks` | `TelemetrySink` | `protocols.py:233` | `log_analytics` (sigantry-acme) |
-| `sigantry.auth_providers` | `AuthProvider` | `protocols.py:244` | `acme_entra_group` (sigantry-acme) |
-| `sigantry.runbook_registries` | `RunbookRegistry` | `protocols.py:253` | `acme_teams` (sigantry-acme) |
-| `sigantry.capacity_policies` | `CapacityPolicy` | `protocols.py:262` | `acme` (sigantry-acme) |
-| `sigantry.work_item_providers` | `WorkItemProvider` | `protocols.py:273` | `ownerco` (sigantry-ownerco); ADO + GitHub providers in base |
-| `sigantry.notification_sinks` | `NotificationSink` | `protocols.py:351` | `email`, `slack`, `teams` (base); `ownerco` (sigantry-ownerco) |
-| `sigantry.secret_stores` | `SecretStore` | `protocols.py:371` | `key_vault`, `ado_variable_group`, `github_secrets` (base) |
-| `sigantry.approval_gates` | `ApprovalGate` | `protocols.py:526` | `ado_environments`, `github_environments`, `opa` (base) |
-| `sigantry.pr_review_bots` | `PrReviewBot` | `protocols.py:493` | none yet -- 11th group reserved for plugin authors |
+| `sigantry.deploy_profiles` | `DeployProfile` | `protocols.py:213` | none -- supplied by a plugin |
+| `sigantry.dq_gates` | `DataQualityGate` | `protocols.py:224` | none -- supplied by a plugin |
+| `sigantry.telemetry_sinks` | `TelemetrySink` | `protocols.py:233` | none -- supplied by a plugin |
+| `sigantry.auth_providers` | `AuthProvider` | `protocols.py:244` | none; the `TokenProvider` chain in `sigantry_core/auth/` is the built-in default |
+| `sigantry.runbook_registries` | `RunbookRegistry` | `protocols.py:253` | none -- supplied by a plugin |
+| `sigantry.capacity_policies` | `CapacityPolicy` | `protocols.py:262` | none -- supplied by a plugin |
+| `sigantry.work_item_providers` | `WorkItemProvider` | `protocols.py:273` | none; `AdoWorkItemProvider` and `GithubWorkItemProvider` (`sigantry_core/workitems/`) ship as classes that `sigantry release record --provider` constructs directly |
+| `sigantry.notification_sinks` | `NotificationSink` | `protocols.py:351` | `email`, `slack`, `teams` |
+| `sigantry.secret_stores` | `SecretStore` | `protocols.py:371` | `key_vault`, `ado_variable_group`, `github_secrets` |
+| `sigantry.approval_gates` | `ApprovalGate` | `protocols.py:526` | `ado_environments`, `github_environments`, `opa` |
+| `sigantry.pr_review_bots` | `PrReviewBot` | `protocols.py:493` | none; `AdoProvider` and `GithubProvider` (`sigantry_core/pr_bot/providers/`) ship as classes that `sigantry pr-bot run` constructs directly |
 
 **Plugin discovery sequence:**
 
@@ -623,31 +620,10 @@ sequenceDiagram
         end
     end
 
-    Doc->>Doc: render Rich table<br/>"17 plugin(s) across 11 seam group(s)"
+    Doc->>Doc: render Rich table<br/>"N plugin(s) discovered across 11 seam group(s)"
 ```
 
-**Live discovery** (verified 2026-06-12, post-v3.2.1):
-
-```
-Group               | Name                | Module        | Version | Status
-approval_gates      | ado_environments    | sigantry_core | 3.2.1    | ok
-approval_gates      | github_environments | sigantry_core | 3.2.1    | ok
-approval_gates      | opa                 | sigantry_core | 3.2.1    | ok
-auth_providers      | acme_entra_group     | sigantry_acme  | 3.2.1    | ok
-capacity_policies   | acme                 | sigantry_acme  | 3.2.1    | ok
-deploy_profiles     | nimbus                | sigantry_acme  | 3.2.1    | ok
-dq_gates            | qualitykit        | sigantry_acme  | 3.2.1    | ok
-notification_sinks  | email               | sigantry_core | 3.2.1    | ok
-notification_sinks  | ownerco               | sigantry_ownerco| 3.2.1    | ok
-notification_sinks  | slack               | sigantry_core | 3.2.1    | ok
-notification_sinks  | teams               | sigantry_core | 3.2.1    | ok
-runbook_registries  | acme_teams           | sigantry_acme  | 3.2.1    | ok
-secret_stores       | ado_variable_group  | sigantry_core | 3.2.1    | ok
-secret_stores       | github_secrets      | sigantry_core | 3.2.1    | ok
-secret_stores       | key_vault           | sigantry_core | 3.2.1    | ok
-telemetry_sinks     | log_analytics       | sigantry_acme  | 3.2.1    | ok
-work_item_providers | ownerco               | sigantry_ownerco| 3.2.1    | ok
-```
+**Base install.** With only `sigantry` installed, `sigantry doctor` lists nine plugins -- `email`, `slack` and `teams` (`notification_sinks`); `ado_variable_group`, `github_secrets` and `key_vault` (`secret_stores`); `ado_environments`, `github_environments` and `opa` (`approval_gates`) -- and prints the summary line `9 plugin(s) discovered across 11 seam group(s).` Each plugin distribution you install adds its own rows.
 
 **Authoring a new plugin** (worked example -- a PagerDuty notification sink):
 
@@ -655,7 +631,7 @@ work_item_providers | ownerco               | sigantry_ownerco| 3.2.1    | ok
 # my_org_pagerduty/pyproject.toml
 [project]
 name = "my-org-sigantry-pagerduty"
-dependencies = ["sigantry-core>=3.0,<4"]
+dependencies = ["sigantry>=1.0,<2"]
 
 [project.entry-points."sigantry.notification_sinks"]
 pagerduty = "my_org_pagerduty:PagerDutySink"
@@ -663,34 +639,42 @@ pagerduty = "my_org_pagerduty:PagerDutySink"
 
 ```python
 # my_org_pagerduty/__init__.py
+from sigantry_core.protocols import NotificationEvent
+
+
 class PagerDutySink:
     name = "pagerduty"
-    def emit(self, event_name: str, payload: dict) -> None:
-        ...  # POST to PD events API
+
+    def send(self, event: NotificationEvent, *, channel: str | None = None) -> None:
+        ...  # POST to the PagerDuty Events API
+
+    def ping(self) -> None:
+        ...  # raise if the PagerDuty endpoint is unreachable
 ```
 
-After `pip install`, `sigantry doctor` discovers it; `SIGANTRY_NOTIFICATION_SINK=pagerduty` in CI selects it.
+Once the wheel is installed, `sigantry doctor` lists it. To select it, set `sink = "pagerduty"` under `[notifications]` in `.sigantry.toml`; `FabricDataOps.from_config()` then resolves it. (`SIGANTRY_NOTIFICATION_SINK` selects only the three built-in sinks.)
 
-Detailed protocol contracts live in [`docs/reference/protocols.md`](reference/protocols.md). Migration recipe (v2 -> v3 entry-point group rename) in [`docs/migration/2.x-to-3.0.md`](migration/2.x-to-3.0.md).
+Detailed protocol contracts live in [`docs/reference/protocols.md`](reference/protocols.md). Legacy `fabric_dataops_toolkits.<seam>` entry-point groups: [`docs/migration/2.x-to-3.0.md`](migration/2.x-to-3.0.md).
 
 ---
 
 ## 7. Audit + observability
 
-[VERIFIED]. Sigantry maintains four append-only JSONL ledgers under `~/.sigantry/audit/` (override via `--audit-dir` for hermetic CI). Every record carries an `audit_hash` SHA-256 chain so tampering is detectable.
+[VERIFIED]. Sigantry maintains five append-only JSONL ledgers under `~/.sigantry/audit/`. The verbs that write `deploys.jsonl` and `bootstraps.jsonl` take `--audit-dir` to write them elsewhere, for hermetic CI; `destructive_ops.jsonl`, `approvals.jsonl` and `secret_changes.jsonl` are always written under `~/.sigantry/audit/`. Every record carries an `audit_hash` (SHA-256) and a `prev_hash` link to the record before it, so accidental corruption, an edit made without recomputing the hashes, and a record deleted from the middle are detectable. The chain is unkeyed and does not record its own length, so an edit whose hashes were recomputed, and records dropped from the end, are not (see the [audit ledger threat model](reference/audit-ledger-threat-model.md)).
 
 | Record | File | Source | Emitted by |
 |---|---|---|---|
-| `DeployRecord` | `deploys.jsonl` | `sigantry_core/release/record.py:43` | `sigantry deploy run`, `sigantry sync apply --with-publish` or `--unpublish-orphans`, `sigantry release record` |
+| `DeployRecord` | `deploys.jsonl` | `sigantry_core/release/record.py:43` | `sigantry sync apply` (every run that loads its manifest, failed runs included; a `--dry-run` that succeeds writes none), `sigantry deploy run --rollback`, `sigantry release record` |
 | `BootstrapRecord` | `bootstraps.jsonl` | `sigantry_core/workspace/records.py:54` | `sigantry workspace bootstrap` |
 | `SecretChangeRecord` | `secret_changes.jsonl` | `sigantry_core/governance/records.py:46` | `SecretStore` plugin operations |
 | `ApprovalRecord` | `approvals.jsonl` | `sigantry_core/governance/records.py:133` | `ApprovalGate` plugin operations |
+| `DestructiveOpRecord` | `destructive_ops.jsonl` | `sigantry_core/governance/records.py:215` | every call that passes the `@destructive_op` gate, on success and on failure |
 
 **Hash-verification API** -- every record class exposes `verify_hash() -> bool`. The audit-hash is a SHA-256 over canonical-JSON of all fields except the hash itself, so a single tampered byte breaks the verification.
 
-**Telemetry**: governance audit is non-pluggable; **business telemetry** (deploy duration, DQ gate counts, custom events) flows through whichever `TelemetrySink` plugin is wired. ACME ships `LogAnalyticsSink` (Azure Monitor DCR/DCE).
+**Telemetry**: governance audit is non-pluggable; **business telemetry** (deploy duration, DQ gate counts, custom events) flows through whichever `TelemetrySink` plugin is wired. The base package registers none; a plugin supplies one (for example, an Azure Monitor DCR/DCE sink).
 
-**Destructive-op gate**: every destructive Fabric REST call is wrapped by `@destructive_op(resource_kind, action)` from `sigantry_core/governance/destructive.py:64` (re-exported via `sigantry_core/governance/audit.py`). The decorator demands `force=True` keyword, refuses on missing audit-dir, emits a structured log line, and refuses to mutate without an explicit `runbook_id` (operator-bound traceability).
+**Destructive-op gate**: the delete, disconnect, pause and resume entry points (workspace, item and folder delete; Git disconnect; Variable Library delete; role-assignment delete; orphan unpublish; rollback; capacity pause and resume) are wrapped by `@destructive_op(resource_kind, action)` from `sigantry_core/governance/destructive.py:64` (re-exported via `sigantry_core/governance/audit.py`). The decorator refuses unless `force=True` is passed as a keyword, and additionally requires a non-empty `runbook_id` for capacity pause and resume only. Whether the call succeeds or fails, it logs a structured line and appends a `DestructiveOpRecord`; a disk error on that append is logged as `destructive_op_audit_write_failed` and does not fail the call. Not every destructive call is wrapped. Calls that run without the decorator include the `SecretStore.delete` implementations (which write a `SecretChangeRecord` instead), `env reconcile`'s staging-library DELETE, and the content overwrites made by a `deploy run` publish or by `sync apply --republish-existing`.
 
 ---
 
@@ -702,7 +686,7 @@ Detailed protocol contracts live in [`docs/reference/protocols.md`](reference/pr
 
 ```mermaid
 flowchart TD
-    START([New project]) --> A["1 Provision Azure resources<br/>via bicep/main.bicep"]
+    START([New project]) --> A["1 Provision a Fabric capacity<br/>(outside Sigantry)"]
     A --> B["2 Author workspace.yml<br/>blueprint = minimal_starter or medallion"]
     B --> C["3 sigantry workspace bootstrap workspace.yml"]
     C --> D["4 Author sync.yml<br/>declare items + target_folder + folders[]"]
@@ -736,29 +720,27 @@ flowchart TD
     I --> END([In production with CI guardrails])
 ```
 
-The brownfield path was live-tested 2026-05-01 against the `DEMO_WS_TRIALOPS_POC` workspace (8 existing folders + 42 existing items). The brownfield invariant (no existing items disturbed) and idempotency invariant (re-run reports `folders_created=0 items_moved=0`) both held; that test surfaced ADR-0012 / Phase 17 SYNC-PUBLISH.
+The brownfield path was live-tested on a development workspace, 2026-05-01: the brownfield invariant (no existing items disturbed) and the idempotency invariant (a re-run reports `folders_created=0 items_moved=0`) both held.
 
 ---
 
 ## 9. What is NOT yet available
 
-Honest scope documentation. None of these items block the capabilities listed above; they're tracked for future milestones.
+Honest scope documentation. None of these items block the capabilities listed above.
 
-| Item | Status | Tracked at |
+| Item | Status | Where |
 |---|---|---|
-| `sigantry-core` on PyPI | held | maintainer release checklist (not in this repository); gates on UAT closure + `PYPI_API_TOKEN` secret |
-| Public `sigantry/sigantry-starter` GitHub repo | held | maintainer release checklist (not in this repository) |
-| Public `sigantry/demo-sigantry` GitHub repo | held | maintainer release checklist (not in this repository) |
-| Phase 18 NOTIFICATION-V2 (sinks via SEAM-04 plugin model, not stand-ins) | not started | maintainer roadmap (not in this repository); soft-blocked on an operator-run Teams webhook E2E |
-| Phase 20 SHIM-DROP (delete `shim/` deprecation layer) | not started | maintainer roadmap (not in this repository); hard-blocked on v3.0 PyPI publish + 60-day soak (ADR-0011) |
+| Public `sigantry/sigantry-starter` and `sigantry/demo-sigantry` scaffolding repositories | not provisioned | use [`templates/starter/`](../templates/starter/) and [`templates/demo/`](../templates/demo/) |
+| Entry-point registration of the in-base `WorkItemProvider` and `PrReviewBot` implementations | not registered; `release record` and `pr-bot run` construct them directly | `pyproject.toml` (`sigantry.work_item_providers`, `sigantry.pr_review_bots`) |
+| `@destructive_op` coverage of every destructive call, for example the `SecretStore.delete` implementations, `env reconcile`'s staging-library DELETE, and the content overwrites made by a `deploy run` publish or by `sync apply --republish-existing` | partial; the calls named here are not wrapped | `sigantry_core/secrets/`, `sigantry_core/deploy/environment.py`, `sigantry_core/deploy/core.py`, `sigantry_core/sync/apply.py` |
+| Drift notifications through a plugin `NotificationSink` | not wired; the drift-check templates select a sink with `sink_from_env` (teams, slack or email only) | `sigantry_core/sync/_notify_main.py`, `sigantry_core/notifications/__init__.py` |
 | `--with-publish` + `manifest.folders[]` interaction (propagate preservation to fabric-cicd `_unpublish_folders`) | candidate | candidate enhancement noted in `docs/runbooks/sync/folder-preservation.md` |
 | Content-level drift in `sigantry diff` | by-design out of scope (D-24 metadata-only) | candidate enhancement |
 | Structured `--output json` for `sigantry sync apply` (deletion-plan inclusive) | candidate | current output is Rich console only |
-| `PrReviewBot` plugin slot (11th seam group) | reserved; no plugin yet | `sigantry_core/registry.py:60` |
+| Declarative `[preflight]` scenarios | proposed, not implemented | [ADR-0015](decisions/ADR-0015-config-driven-preflight.md) |
+| PowerShell module | not shipped | -- |
 | `sigantry_core/purview/`, `pipelines/`, `utils/`, `monitor/config.py` | acknowledged placeholders | not in current scope; populated when a phase calls for them |
 | `--rename-in-content` on `fabric-item copy` | TODO(v2) -- deferred | `sigantry_core/deploy/item_copy.py` |
-
-Live-tenant test failures: `tests/integration/{client,workspace}/test_live_*.py` carry 2 inherited 401 failures requiring `ACME_FABRIC_TEST_*` credentials. Documented in CLAUDE.md under "Known tech debt".
 
 ---
 
@@ -767,17 +749,17 @@ Live-tenant test failures: `tests/integration/{client,workspace}/test_live_*.py`
 **Top-level project docs:**
 
 - [`README.md`](../README.md) -- Status, layout, install
-- `CLAUDE.md` -- Project contract (env, conventions, gates)
 - [`CONSUMING.md`](CONSUMING.md) -- Consumer (operator) entry-point
 - [`CONTRIBUTING.md`](../CONTRIBUTING.md) -- Contributor entry-point
 
 **Reference docs (`docs/reference/`):**
 
 - [`architecture.md`](reference/architecture.md) -- System architecture
-- [`scope.md`](reference/scope.md) -- Capability boundary (verified)
+- [`scope.md`](reference/scope.md) -- Capability boundary
 - [`sync-schema.md`](reference/sync-schema.md) -- `sync.yml` field reference
 - [`protocols.md`](reference/protocols.md) -- Plugin protocol contracts
 - [`observation-planes.md`](reference/observation-planes.md) -- Audit vs telemetry
+- [`audit-ledger-threat-model.md`](reference/audit-ledger-threat-model.md) -- What the ledger's hash chain does and does not prove
 - [`thread-safety.md`](reference/thread-safety.md) -- Threading model
 - [`api-stability.md`](reference/api-stability.md) -- SemVer commitments
 
@@ -798,15 +780,18 @@ Live-tenant test failures: `tests/integration/{client,workspace}/test_live_*.py`
 
 **Architecture Decision Records (`docs/decisions/`):**
 
-- ADR-0011 -- Rename to Sigantry (deprecation shims, v3.1 drop)
-- ADR-0012 -- `sync apply` vs `deploy run` boundary; Option C `--with-publish`
-- ADR-0013 -- Sync-publish `parameters.yml` resolution
+- [ADR-0011](decisions/ADR-0011-rename-to-sigantry.md) -- Rename to Sigantry (deprecation shims, v3.1 drop)
+- [ADR-0012](decisions/ADR-0012-sync-apply-vs-deploy-run-boundary.md) -- `sync apply` vs `deploy run` boundary; Option C `--with-publish`
+- [ADR-0013](decisions/ADR-0013-sync-publish-parameters-resolution.md) -- Sync-publish `parameters.yml` resolution
+- [ADR-0014](decisions/ADR-0014-plugin-trust-model.md) -- Plugin trust model and `--strict-trust`
+- [ADR-0015](decisions/ADR-0015-config-driven-preflight.md) -- Config-driven preflight (proposed; the shipped surface differs)
+- [ADR-0017](decisions/ADR-0017-distribution-name-sigantry.md) -- The PyPI distribution is `sigantry`
 
 **Migration recipes:**
 
-- [`migration/2.x-to-3.0.md`](migration/2.x-to-3.0.md) -- v2 -> v3 rename + entry-point migration
+- [`migration/2.x-to-3.0.md`](migration/2.x-to-3.0.md) -- Legacy (pre-rename) names and what replaces them
 - [`migration/3.x-pr-bot.md`](migration/3.x-pr-bot.md) -- PR-bot adoption
 
 ---
 
-*This catalogue is generated from authoritative source as of master `8753202`. Numerical claims (plugin counts, entry-point groups, audit record types, template counts, workflow counts) were verified live on 2026-05-12 against `sigantry --help`, `sigantry doctor`, and source greps. When the toolkit ships a new milestone, regenerate against the new master tip and update the time-stamp banner.*
+*When a change alters a verb, a flag, a seam or a ledger, update the matching section here in the same pull request.*

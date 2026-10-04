@@ -1,6 +1,6 @@
 # Observation planes
 
-`sigantry-core` has **two distinct observation planes**.
+`sigantry` has **two distinct observation planes**.
 Understanding where each event lands is load-bearing for incident
 response and for writing correct consumer dashboards.
 
@@ -9,13 +9,14 @@ response and for writing correct consumer dashboards.
 **Seam:** `TelemetrySink`
 **Entry point group:** `sigantry.telemetry_sinks`
 **Invoked via:** `FabricDataOps.emit(event, properties)` OR direct calls from
- plugin internals (e.g. `NimbusDeployProfile.apply` emits progress events).
+ plugin internals (e.g. a `DeployProfile` plugin may emit progress events
+ from `apply`).
 
 Intended for **what the system is doing** — deploy-started,
 deploy-finished, gate-result, capacity-decision, etc. These events are
-expected to land in a business-facing dashboard (Log Analytics via
-`LogAnalyticsSink`, Application Insights via a hypothetical
-`ApplicationInsightsSink`, stdout for local dev, etc.).
+expected to land in a business-facing dashboard (Log Analytics or
+Application Insights through a sink plugin you install, stdout for
+local dev, etc.).
 
 **Failure mode:** `emit_telemetry` defaults to `strict=False` and
 **swallows sink exceptions**. A broken sink cannot brick a deploy, but
@@ -64,7 +65,7 @@ must abort.
 | Guarantee | Best-effort | Mandatory |
 | Emitter | `FabricDataOps.emit` + plugins | `@destructive_op` decorator |
 | Consumer dashboards | Any (plugin-dependent) | Wire through `logging` |
-| Typical sink in prod | `LogAnalyticsSink` → DCR | `logging.FileHandler` → fluentd → SIEM |
+| Typical sink in prod | a Log Analytics sink plugin → DCR | `logging.FileHandler` → fluentd → SIEM |
 
 ## Wiring both to the same backend
 
@@ -103,6 +104,4 @@ causes operational pain.
 
 ## Related
 
-- `.planning/phases/08-platform-base-refactor/08-SECURITY.md` T-08-03
-  (internal threat model; not published to the wiki)
 - [thread-safety.md](thread-safety.md)

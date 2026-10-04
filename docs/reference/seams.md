@@ -1,11 +1,10 @@
-# Seams Reference -- All 11 Protocol Seams (v3.0)
+# Seams Reference -- All 11 Protocol Seams
 
 **Audience:** Plugin authors integrating with Sigantry's vendor-agnostic
 core. This document is the authoritative per-seam reference for the 11
-Protocol seams that comprise the SemVer-committed plugin surface as of
-Sigantry v3.0.
+Protocol seams that comprise the SemVer-committed plugin surface.
 
-**Source of truth:** [`sigantry_core/protocols.py`](https://github.com/acmelabs/sigantry/blob/master/sigantry_core/protocols.py)
+**Source of truth:** [`sigantry_core/protocols.py`](https://github.com/Bralabee/sigantry/blob/main/sigantry_core/protocols.py)
 -- this document is a hand-maintained mirror; when in doubt the Python
 type hints in `protocols.py` win.
 
@@ -21,8 +20,8 @@ per-seam asymmetry.
 - [Reference > Seam map](seam-map.md) -- BRIEF-04 high-level catalogue
 - [Reference > Observation planes](observation-planes.md) -- the
   non-pluggable audit + telemetry layer
-- [Migration > 2.x -> 3.0](../migration/2.x-to-3.0.md) -- entry-point
-  group rename for the existing 6 seams + the 5 net-new ones
+- [Migration > 2.x -> 3.0](../migration/2.x-to-3.0.md) -- the legacy
+  entry-point group names the registry still reads
 
 ---
 
@@ -34,7 +33,7 @@ core. Each seam is a `runtime_checkable typing.Protocol` in
 `sigantry_core.protocols` with a single class variable `name: str`
 (no `api_version` field at v3.0; see ADR-0004).
 
-| Seam | Phase | Entry-point group | Reference impls (in `sigantry-core`) |
+| Seam | Phase | Entry-point group | Reference impls (in `sigantry`) |
 |------|-------|-------------------|--------------------------------------|
 | `DeployProfile` | v2.0 (Phase 8) | `sigantry.deploy_profiles` | (consumer-side) |
 | `DataQualityGate` | v2.0 (Phase 8) | `sigantry.dq_gates` | (consumer-side) |
@@ -42,9 +41,9 @@ core. Each seam is a `runtime_checkable typing.Protocol` in
 | `AuthProvider` | v2.0 (Phase 8) | `sigantry.auth_providers` | (`TokenProvider` chain in core) |
 | `RunbookRegistry` | v2.0 (Phase 8) | `sigantry.runbook_registries` | `StaticRunbookRegistry` (testing) |
 | `CapacityPolicy` | v2.0 (Phase 8) | `sigantry.capacity_policies` | `NoopCapacityPolicy` (testing) |
-| `WorkItemProvider` | v3.0 (Phase 11) | `sigantry.work_item_providers` | `AdoWorkItemProvider`, `GithubWorkItemProvider`, `OwnercoWorkItemProvider` (stub) |
+| `WorkItemProvider` | v3.0 (Phase 11) | `sigantry.work_item_providers` | `AdoWorkItemProvider`, `GithubWorkItemProvider` |
 | `PrReviewBot` | v3.0 (Phase 14) | `sigantry.pr_review_bots` | `AdoProvider`, `GithubProvider` |
-| `NotificationSink` | v3.0 (Phase 16) | `sigantry.notification_sinks` | `TeamsNotificationSink`, `SlackNotificationSink`, `EmailNotificationSink`, `OwnercoNotificationSink` (stub) |
+| `NotificationSink` | v3.0 (Phase 16) | `sigantry.notification_sinks` | `TeamsNotificationSink`, `SlackNotificationSink`, `EmailNotificationSink` |
 | `SecretStore` | v3.0 (Phase 16) | `sigantry.secret_stores` | `KeyVaultSecretStore`, `GithubSecretsSecretStore`, `AdoVariableGroupSecretStore` |
 | `ApprovalGate` | v3.0 (Phase 16) | `sigantry.approval_gates` | `AdoEnvironmentsApprovalGate`, `GithubEnvironmentsApprovalGate`, `OpaApprovalGate` |
 
@@ -71,8 +70,8 @@ class DeployProfile(Protocol):
 **Audit record:** `DeployRecord` -- `~/.sigantry/audit/deploys.jsonl`
 (written by `sigantry release record`)
 
-**Reference impls in `sigantry-core`:** none (consumer-supplied -- `sigantry-acme`
-ships `NimbusDeployProfile`).
+**Reference impls in `sigantry`:** none registered (supplied by a
+plugin); `FakeDeployProfile` (testing).
 
 ---
 
@@ -92,8 +91,8 @@ class DataQualityGate(Protocol):
 **Audit record:** none (gate result is logged via `TelemetrySink` not the
 audit plane)
 
-**Reference impls in `sigantry-core`:** `NoopGate` (testing); `sigantry-acme`
-ships `DqFrameworkGate`.
+**Reference impls in `sigantry`:** `NoopGate` (testing); production
+gates are supplied by a plugin.
 
 ---
 
@@ -115,8 +114,8 @@ class TelemetrySink(Protocol):
 audit is a separate non-pluggable plane -- see
 [observation-planes.md](observation-planes.md))
 
-**Reference impls in `sigantry-core`:** `InMemoryTelemetrySink` (testing);
-`sigantry-acme` ships `LogAnalyticsSink`.
+**Reference impls in `sigantry`:** `InMemoryTelemetrySink` (testing);
+production sinks are supplied by a plugin.
 
 ---
 
@@ -135,7 +134,7 @@ class AuthProvider(Protocol):
 **Entry-point group:** `sigantry.auth_providers`
 **Audit record:** none (auth is below the audit plane)
 
-**Reference impls in `sigantry-core`:** `FakeAuth` (testing); the
+**Reference impls in `sigantry`:** `FakeAuth` (testing); the
 `TokenProvider` chain in `sigantry_core.auth` is the production
 default (DefaultAzureCredential + federated workload identity).
 
@@ -156,8 +155,7 @@ class RunbookRegistry(Protocol):
 **Entry-point group:** `sigantry.runbook_registries`
 **Audit record:** none
 
-**Reference impls in `sigantry-core`:** `StaticRunbookRegistry` (testing);
-`sigantry-acme` ships `AcmeTeamsRunbookRegistry`.
+**Reference impls in `sigantry`:** `StaticRunbookRegistry` (testing).
 
 ---
 
@@ -178,8 +176,7 @@ class CapacityPolicy(Protocol):
 **Audit record:** capacity actions flow through `@destructive_op` decorator
 (see [observation-planes.md](observation-planes.md))
 
-**Reference impls in `sigantry-core`:** `NoopCapacityPolicy` (testing);
-`sigantry-acme` ships `AcmeCapacityPolicy`.
+**Reference impls in `sigantry`:** `NoopCapacityPolicy` (testing).
 
 ---
 
@@ -207,14 +204,13 @@ class WorkItemProvider(Protocol):
 **Audit record:** `DeployRecord` (Phase 11 wedge -- `link_release` carries
 the audit hash forward into work-item comments so the trace is integrity-checked)
 
-**Reference impls in `sigantry-core`:**
+**Reference impls in `sigantry`:**
 
 | Class | Module | Notes |
 |-------|--------|-------|
 | `AdoWorkItemProvider` | `sigantry_core.workitems.ado` | REST atop `BaseRestClient`; `DefaultAzureCredential` against scope `499b84ac-1321-427f-aa17-267ca6975798/.default`; comments POST uses `api-version=7.0-preview.3` (RESEARCH §Pitfall 1) |
 | `GithubWorkItemProvider` | `sigantry_core.workitems.github` | REST atop `BaseRestClient`; PAT or GitHub App auth; App-auth via `sigantry_core.auth.github_app` (PyJWT[crypto] RS256) |
 | `FakeWorkItemProvider` | `sigantry_core.testing.doubles` | In-memory test double |
-| `OwnercoWorkItemProvider` | `sigantry-ownerco` (sibling pkg) | Stub demonstrating multi-org plugin authorship; Ownerco replaces with real impl on their fork |
 
 **Runbook:** [Work-item traceability comment rendering](../runbooks/work-item-traceability/comment-rendering.md)
 
@@ -246,7 +242,7 @@ class NotificationEvent:
 when emitted as part of a deploy the deploy itself is audited via
 `DeployRecord`)
 
-**Reference impls in `sigantry-core` + `sigantry-ownerco`:**
+**Reference impls in `sigantry`:**
 
 | Class | Module | Notes |
 |-------|--------|-------|
@@ -254,11 +250,9 @@ when emitted as part of a deploy the deploy itself is audited via
 | `SlackNotificationSink` | `sigantry_core.notifications.slack` | Modern Block Kit `blocks` payload (legacy `attachments[].color` removed) |
 | `EmailNotificationSink` | `sigantry_core.notifications.email` | stdlib `email.message.EmailMessage` (modern policy-aware API; replaces legacy `email.mime.text.MIMEText`) + `smtplib.SMTP` / `SMTP_SSL` |
 | `FakeNotificationSink` | `sigantry_core.testing.doubles` | In-memory test double |
-| `OwnercoNotificationSink` | `sigantry-ownerco` (sibling pkg) | Stub demonstrating multi-org plugin authorship |
 
 The `sigantry_core.sync.notifications` legacy import path (Phase 13) is
-preserved as an in-package deprecation shim; its removal is scheduled
-via the V3.X-ROADMAP LEGACY-SURFACE-DROP candidate (Plan 16-01 Open-Q-1).
+preserved as an in-package deprecation shim.
 
 **Runbook:** none (configuration via `pydantic-settings`; per-impl
 constructor docstrings carry the wire format)
@@ -287,7 +281,7 @@ class SecretStore(Protocol):
 The record carries the operation + key + actor + timestamp;
 **never the secret value** (Anti-Pattern: never log secrets).
 
-**Reference impls in `sigantry-core`:**
+**Reference impls in `sigantry`:**
 
 | Class | Module | Notes |
 |-------|--------|-------|
@@ -328,7 +322,7 @@ ApprovalOutcome = Literal["approved", "rejected", "timeout"]
 `~/.sigantry/audit/approvals.jsonl` on every `request` + `wait`. Distinguishes
 client-side timeout from server-side timeout via `last_observed_status`.
 
-**Reference impls in `sigantry-core`:**
+**Reference impls in `sigantry`:**
 
 | Class | Module | Notes |
 |-------|--------|-------|
@@ -375,7 +369,7 @@ providers** (STARTER-07 invariant), enforced by
 shapes onto one literal alphabet (`added`/`modified`/`removed`/`renamed`) so
 cross-provider bot logic reads a single shape.
 
-**Reference impls in `sigantry-core`:**
+**Reference impls in `sigantry`:**
 
 | Class | Module | Notes |
 |-------|--------|-------|
@@ -405,9 +399,9 @@ v3.0**. Adopters can rely on:
 
 The `runtime_checkable` decoration means `isinstance(plugin, SeamProtocol)`
 returns `True` for any class that satisfies the structural contract,
-regardless of inheritance. Ownerco's plugin authors can implement the
-seam without importing Sigantry at module-load time -- they just match
-the method shape.
+regardless of inheritance. A plugin author can implement the seam
+without importing Sigantry at module-load time -- they just match the
+method shape.
 
 ---
 
