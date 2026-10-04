@@ -2,7 +2,7 @@
   "version": "2.0",
   "$schema": "https://developer.microsoft.com/json-schemas/fabric/platform/platformProperties.json",
   "config": {
-    "logicalId": "99999999-9999-4999-8999-999999999999"
+    "logicalId": "00000000-0000-4000-8000-000000000006"
   },
   "metadata": {
     "type": "Lakehouse",

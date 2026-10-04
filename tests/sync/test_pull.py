@@ -78,8 +78,8 @@ def _wire_workspace_snapshot(
     router: respx.MockRouter,
     *,
     workspace_id: str,
-    folder_id: str = "f-nimbus",
-    folder_display_name: str = "NIMBUS",
+    folder_id: str = "f-orders",
+    folder_display_name: str = "Orders",
     item_id: str = "nb-real-guid",
     item_display_name: str = "MyNb",
 ) -> None:
@@ -176,7 +176,7 @@ def test_pull_writes_sync_yml(tmp_path: Path) -> None:
     """sync pull writes a sync.yml mirroring workspace topology (SYNC-05 / D-20).
 
     The emitted sync.yml carries one item with ``type=Notebook``,
-    ``target_folder="/NIMBUS"``, ``display_name="MyNb"``, and a
+    ``target_folder="/Orders"``, ``display_name="MyNb"``, and a
     ``logical_id`` matching the snapshot's item id (D-22 round-trip
     invariant).
     """
@@ -209,7 +209,7 @@ def test_pull_writes_sync_yml(tmp_path: Path) -> None:
     assert len(payload["items"]) == 1
     item = payload["items"][0]
     assert item["type"] == "Notebook"
-    assert item["target_folder"] == "/NIMBUS"
+    assert item["target_folder"] == "/Orders"
     assert item["display_name"] == "MyNb"
     assert item["logical_id"] == "nb-real-guid"
     # UAT-FOUND-3 regression: ``local_path`` for a Notebook MUST point at
@@ -217,7 +217,7 @@ def test_pull_writes_sync_yml(tmp_path: Path) -> None:
     # dir -- NotebookPackager.pack requires source.suffix == ".ipynb"
     # (sigantry_core/sync/packagers/notebook.py:111). Emitting the bare
     # source dir here (the pre-fix behaviour) breaks the D-22 round-trip.
-    assert item["local_path"] == "NIMBUS/MyNb/notebook-content.ipynb"
+    assert item["local_path"] == "Orders/MyNb/notebook-content.ipynb"
     on_disk = report.into / item["local_path"]
     assert on_disk.is_file(), f"emitted local_path must be a real file, got {on_disk}"
 
@@ -253,10 +253,10 @@ def test_pull_unwraps_notebook_definition_to_ipynb(tmp_path: Path) -> None:
         with _client_with_mock_token() as client:
             pull_workspace(workspace_id, into=out, client=client)
 
-    on_disk = out / "NIMBUS" / "MyNb" / "notebook-content.ipynb"
+    on_disk = out / "Orders" / "MyNb" / "notebook-content.ipynb"
     assert on_disk.exists(), (
         f"expected raw notebook at {on_disk}; "
-        f"directory contents: {list((out / 'NIMBUS' / 'MyNb').iterdir()) if (out / 'NIMBUS' / 'MyNb').exists() else 'missing'}"
+        f"directory contents: {list((out / 'Orders' / 'MyNb').iterdir()) if (out / 'Orders' / 'MyNb').exists() else 'missing'}"
     )
     assert on_disk.read_bytes() == ipynb_bytes
 
@@ -351,7 +351,7 @@ def test_pull_refuses_non_empty_target_without_force(tmp_path: Path) -> None:
             report = pull_workspace(workspace_id, into=dirty, force=True, client=client)
     assert report.items_pulled == 1
     # The pre-existing file is left in place unless the pull writes
-    # over the same path (it does not -- we wrote to NIMBUS/MyNb/...).
+    # over the same path (it does not -- we wrote to Orders/MyNb/...).
     assert (dirty / "file.txt").exists()
 
 
@@ -433,7 +433,7 @@ def test_pull_rejects_path_traversal_in_definition_part(tmp_path: Path) -> None:
                     "definition": {
                         "parts": [
                             {
-                                # Walk up out of <out>/NIMBUS/EvilNb back to
+                                # Walk up out of <out>/Orders/EvilNb back to
                                 # tmp_path; the sentinel filename would land
                                 # next to ``out`` if the containment check
                                 # were missing.
@@ -540,7 +540,7 @@ def test_pull_resolves_into_symlink_before_write(tmp_path: Path) -> None:
 
     This test creates ``<tmp_path>/symlink`` -> ``<tmp_path>/real_dir``
     and asserts that after the pull the bytes land at the real
-    directory under ``real_dir/NIMBUS/MyNb/...``, not via symlink
+    directory under ``real_dir/Orders/MyNb/...``, not via symlink
     indirection. The behavioural assertion is loose -- ``Path.resolve``
     canonicalises symlinks so the file ends up at the real path either
     way -- but the explicit test pins down the contract so a refactor
@@ -574,7 +574,7 @@ def test_pull_resolves_into_symlink_before_write(tmp_path: Path) -> None:
     assert real_dir in report.into.parents or report.into == real_dir
     # Bytes landed at the real directory -- visible through the symlink
     # OR directly through real_dir; both should resolve to the same file.
-    via_real = real_dir / "NIMBUS" / "MyNb" / "notebook-content.ipynb"
+    via_real = real_dir / "Orders" / "MyNb" / "notebook-content.ipynb"
     assert via_real.exists(), f"expected file via real_dir at {via_real}; not found"
     # The path returned by the report is the resolved (real) path, not
     # the symlink. ``Path.resolve()`` is idempotent so an extra resolve

@@ -23,11 +23,11 @@ Declare any folder paths you want preserved in the manifest's `folders[]` array:
 ```yaml
 schema_version: "1.0.0"
 items:
-  - {local_path: notebooks/orchestrate.ipynb, type: Notebook, target_folder: NIMBUS, display_name: orchestrate}
+  - {local_path: notebooks/orchestrate.ipynb, type: Notebook, target_folder: Orders, display_name: orchestrate}
 folders:
   - /raw/UI-Created
   - /curated/Adhoc
-  - NIMBUS/02_NOTEBOOKS_NIMBUS_2026_V2_ARCHIVE  # leading slash optional
+  - Orders/02_Notebooks_Archive  # leading slash optional
 ```
 
 Each entry is a forward-slash path (leading `/` optional). The engine retains the folder even if it's empty. Validation rules (depth cap, banned chars) apply to entries the same way they do to `items[].target_folder`.
@@ -40,8 +40,8 @@ Workspace state before the run:
 
 ```text
 /
-  NIMBUS/
-    01_NOTEBOOKS_NIMBUS_2026_V2/
+  Orders/
+    01_Notebooks/
       orchestrate (Notebook)
   raw/
     UI-Created/                     <-- analyst created via Fabric UI; empty
@@ -55,7 +55,7 @@ Workspace state before the run:
 ```yaml
 schema_version: "1.0.0"
 items:
-  - {local_path: notebooks/orchestrate.ipynb, type: Notebook, target_folder: NIMBUS/01_NOTEBOOKS_NIMBUS_2026_V2, display_name: orchestrate}
+  - {local_path: notebooks/orchestrate.ipynb, type: Notebook, target_folder: Orders/01_Notebooks, display_name: orchestrate}
 folders:
   - /raw/UI-Created
   - /curated/Adhoc
@@ -65,8 +65,8 @@ After `sigantry sync apply` (no `--unpublish-orphans`):
 
 ```text
 /
-  NIMBUS/
-    01_NOTEBOOKS_NIMBUS_2026_V2/
+  Orders/
+    01_Notebooks/
       orchestrate (Notebook)
   raw/
     UI-Created/                     <-- untouched (additive default)
@@ -79,8 +79,8 @@ After `sigantry sync apply --unpublish-orphans` (opt-in cleanup pass):
 
 ```text
 /
-  NIMBUS/
-    01_NOTEBOOKS_NIMBUS_2026_V2/
+  Orders/
+    01_Notebooks/
       orchestrate (Notebook)
   raw/
     UI-Created/                     <-- preserved (in folders[])

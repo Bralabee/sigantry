@@ -34,8 +34,7 @@ flowchart LR
 
 By default the audit is **tenant-wide**: it sweeps every workspace your identity
 can see (plus capacity and item layers). Two flags make it actionable
-day-to-day (added in 3.2.0 — if `sigantry rbac-audit --help`
-does not show them, upgrade):
+day-to-day:
 
 - `--workspace-id <guid>` / `-w` (repeatable) scopes the sweep to named
   workspaces; the capacity layer then narrows to the capacities those
@@ -49,8 +48,8 @@ does not show them, upgrade):
 ```bash
 # The filed, scoped form -- the shape you act on later:
 sigantry rbac-audit -w "$WSID" --out-dir ./access-reviews
-# expect a single summary line (live-verified 2026-06-11 against DEMO_WS_TRIALOPS_POC,
-# 18 rows):
+# expect a single summary line (live-verified 2026-06-11 against a development
+# workspace, 18 rows):
 #   wrote access-reviews/rbac-audit-20260611T181719Z.csv (rows=18, scope=1 workspace(s))
 
 # The classic tenant-wide console stream still works:

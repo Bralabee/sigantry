@@ -11,7 +11,7 @@ third plane Sigantry governs — alongside item *topology* (`sync apply`) and it
 **Uses:** `sigantry env sync`.
 
 > **Proven live (2026-06-14).** This flow was run end-to-end against a production
-> workspace (`DEMO_WS_UNIT_B`), publishing `nimbus_data_platform-1.6.0` into a live
+> workspace, publishing a package's `1.6.0` wheel into a live
 > Environment. The publish/rebuild took ~6 minutes and `env sync` blocked for its
 > whole duration. It was authenticated as a **normal user via `az login`**
 > (AzureCliCredential through `DefaultAzureCredential`) — `env sync` is *not*
@@ -123,7 +123,7 @@ confusion.
 
 `env sync` **adds** a wheel to the Environment; it does **not** remove older versions
 of the same package. If staging ends up with two versions of one package — e.g.
-`nimbus_data_platform-1.5.1` *and* `nimbus_data_platform-1.6.0` — the publish **fails**.
+`data_platform-1.5.1` *and* `data_platform-1.6.0` — the publish **fails**.
 You will see (on the environment object) `publishDetails.state: "Failed"` with
 `componentPublishInfo.sparkLibraries.state: "Failed"`, while `sparkSettings` succeeds.
 The published library set is left unchanged (the old version stays live).
@@ -139,12 +139,12 @@ and blocks to completion. Packages you don't name are left untouched:
 sigantry env reconcile \
   --workspace-id   <workspace-guid> \
   --environment-id <environment-guid> \
-  --wheel dist/nimbus_data_platform-1.6.0-py3-none-any.whl   # repeat --wheel per package
+  --wheel dist/data_platform-1.6.0-py3-none-any.whl   # repeat --wheel per package
 # add --dry-run to preview the delete/upload plan first.
 ```
 
-Proven live 2026-06-14 (`quality_suite` 2.1.2 → 2.2.0 on `DEMO_WS_UNIT_B`,
-leaving `nimbus_data_platform-1.6.0` in place).
+Proven live 2026-06-14 (a second package upgraded 2.1.2 → 2.2.0 on the same production
+workspace, leaving the first package's `1.6.0` wheel in place).
 
 **Fix (manual fallback) — raw Fabric REST.** Equivalent to what `reconcile` does, if
 you need to script it directly. With a token for the Fabric API
@@ -160,7 +160,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 # 2. Delete the stale version (note: libraryToDelete is the exact .whl filename)
 curl -s -X DELETE -H "Authorization: Bearer $TOKEN" \
-  "https://api.fabric.microsoft.com/v1/workspaces/$WS/environments/$ENV/staging/libraries?libraryToDelete=nimbus_data_platform-1.5.1-py3-none-any.whl"
+  "https://api.fabric.microsoft.com/v1/workspaces/$WS/environments/$ENV/staging/libraries?libraryToDelete=data_platform-1.5.1-py3-none-any.whl"
 
 # 3. Republish the now-clean staging
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Length: 0" \
@@ -173,7 +173,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 ```
 
 After step 4 reports `Success`, the published set holds exactly the intended versions
-(verified live: `nimbus_data_platform-1.6.0` + `quality_suite-2.1.2`, with `1.5.1`
+(verified live: exactly the two intended wheels, with `1.5.1`
 gone). **Rule of thumb:** on a version *upgrade*, always strip the previous wheel from
 staging before (or right after) `env sync`, so the publish never sees two versions of
 the same package.

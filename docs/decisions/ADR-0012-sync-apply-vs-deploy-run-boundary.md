@@ -4,7 +4,7 @@
 - **Date:** 2026-05-01
 - **Milestone:** v3.0.x (operator-experience hardening; surfaced by 2026-05-01 brownfield live test)
 - **Deciders:** platform team
-- **Context:** Operators running their first `sigantry sync apply` against a brownfield workspace consistently mis-read the success line as "items deployed". They aren't. The engine packages items into a tempdir staging tree, then calls `reconcile_folders_from_repo` which only does folder topology + existing-item placement. The actual `publish_all_items` step lives in `sigantry deploy run`. This split has been latent since Phase 13 shipped; the 2026-05-01 live test against `DEMO_WS_TRIALOPS_POC` (workspace `effa6941-...`) made the gap concrete: a fresh project folder was created, the seed notebook was packaged, and zero items appeared in the workspace -- a confused-operator failure mode worth preventing in code.
+- **Context:** Operators running their first `sigantry sync apply` against a brownfield workspace consistently mis-read the success line as "items deployed". They aren't. The engine packages items into a tempdir staging tree, then calls `reconcile_folders_from_repo` which only does folder topology + existing-item placement. The actual `publish_all_items` step lives in `sigantry deploy run`. This split has been latent since Phase 13 shipped; the 2026-05-01 live test against a brownfield development workspace made the gap concrete: a fresh project folder was created, the seed notebook was packaged, and zero items appeared in the workspace -- a confused-operator failure mode worth preventing in code.
 
 ## Decision
 
