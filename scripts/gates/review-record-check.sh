@@ -71,9 +71,11 @@ deny() { printf 'STOP: %s\n' "$1" >&2; exit 1; }
 # a public repo a drive-by COMMENTED review, or the PR author's own "fixed" reply on a
 # finding thread, turned the required status green. The same filter R-3 always had
 # applies to all three now: the repo OWNER or a MEMBER, plus the Copilot reviewer bot
-# (a login only GitHub's app can carry; Copilot review is on explicit ask since
-# 2026-08-29 and stays a record when asked for). Spelled ONCE, as a jq predicate.
-RECORD_AUTHOR='((.author_association == "OWNER" or .author_association == "MEMBER") or ((.user.login // "") | test("^copilot-pull-request-reviewer(\\[bot\\])?$")))'
+# (Copilot review is on explicit ask since 2026-08-29 and stays a record when asked for).
+# The bot is matched by its `[bot]` login AND `.user.type == "Bot"` (#295): the plain
+# login `copilot-pull-request-reviewer` is a separate Organization account, which the
+# old optional `(\[bot\])?` let through. Spelled ONCE, as a jq predicate.
+RECORD_AUTHOR='((.author_association == "OWNER" or .author_association == "MEMBER") or ((.user.login // "") == "copilot-pull-request-reviewer[bot]" and (.user.type // "") == "Bot"))'
 
 # ── selftest ─────────────────────────────────────────────────────────────────────────
 if [ "${1:-}" = "--selftest" ]; then
@@ -127,7 +129,7 @@ SHIM
 		printf '{"name":"review-record.yml"}' > "$WORK/$1/wf.json"
 	}
 	EMPTY='[]'
-	REV='[{"user":{"login":"copilot-pull-request-reviewer"},"state":"COMMENTED","submitted_at":"2021-06-01T00:00:00Z","commit_id":"fixturehead123"}]'
+	REV='[{"user":{"login":"copilot-pull-request-reviewer[bot]","type":"Bot"},"state":"COMMENTED","submitted_at":"2021-06-01T00:00:00Z","commit_id":"fixturehead123"}]'
 	INL='[{"user":{"login":"Bralabee"},"author_association":"OWNER","body":"finding: off-by-one in the loop bound","created_at":"2021-06-01T00:00:00Z","commit_id":"fixturehead123","original_commit_id":"fixturehead123"}]'
 	MRK='[{"user":{"login":"Bralabee"},"author_association":"OWNER","created_at":"2021-06-01T00:00:00Z","body":"Review-Record: /code-review ultra, findings in session link"}]'
 	CHAT='[{"user":{"login":"Bralabee"},"body":"will do the code review tomorrow"}]'
@@ -172,8 +174,12 @@ SHIM
 	mkfix markerhead "$EMPTY" "$EMPTY" "$MRKHEAD"                  # a marker NAMING this head, older than the head date: the name wins
 	MRKOTHER='[{"user":{"login":"Bralabee"},"author_association":"OWNER","created_at":"2021-06-01T00:00:00Z","body":"Review-Record: R-3, round 2 (review-verify) on deadbeefdead found zero admissible findings; the series ends and this head merges."}]'
 	mkfix markerother "$EMPTY" "$EMPTY" "$MRKOTHER"                # a marker naming ANOTHER head, newer than the head date: the name loses
-	BOTREV='[{"user":{"login":"copilot-pull-request-reviewer[bot]"},"author_association":"NONE","state":"COMMENTED","submitted_at":"2021-06-01T00:00:00Z","commit_id":"fixturehead123"}]'
+	BOTREV='[{"user":{"login":"copilot-pull-request-reviewer[bot]","type":"Bot"},"author_association":"NONE","state":"COMMENTED","submitted_at":"2021-06-01T00:00:00Z","commit_id":"fixturehead123"}]'
 	mkfix botrev  "$BOTREV" "$EMPTY" "$EMPTY"                      # the Copilot reviewer bot, association NONE
+	BOTORG='[{"user":{"login":"copilot-pull-request-reviewer","type":"Organization"},"author_association":"NONE","state":"COMMENTED","submitted_at":"2021-06-01T00:00:00Z","commit_id":"fixturehead123"}]'
+	mkfix botorg  "$BOTORG" "$EMPTY" "$EMPTY"                      # the plain login: a separate Organization account (#295)
+	MRKSHORT='[{"user":{"login":"Bralabee"},"author_association":"OWNER","created_at":"2021-06-01T00:00:00Z","body":"Review-Record: R-3, round 2 (review-verify) on deadbee found zero admissible findings; the series ends and this head merges."}]'
+	mkfix markershort "$EMPTY" "$EMPTY" "$MRKSHORT"                # a marker naming ANOTHER head by a 7-hex SHA, newer than the head date (#295)
 	PENDREV='[{"user":{"login":"Bralabee"},"author_association":"OWNER","state":"PENDING","commit_id":"fixturehead123"}]'
 	mkfix pendrev "$PENDREV" "$EMPTY" "$EMPTY"                     # the owner's unsubmitted draft on this head
 	# backstop workflow absent (await short-circuit arm)
@@ -276,6 +282,7 @@ SHIM
 	arm revext    - 1 'STOP: NO review record'  'a CONTRIBUTOR review is NOT a record -> STOP'          "${A[@]}"
 	arm inlext    - 1 'STOP: NO review record'  'a CONTRIBUTOR inline comment is NOT a record -> STOP'  "${A[@]}"
 	arm botrev    - 0 'R-1: PR review'          'the Copilot reviewer bot (association NONE) -> GO'     "${A[@]}"
+	arm botorg    - 1 'STOP: NO review record'  'the plain bot login (an Organization) is NOT a record -> STOP (#295)' "${A[@]}"
 	arm revext    - 1 'failure: no review record' 'verdict: drive-by review on THIS head -> failure'    "${V[@]}" --head fixturehead123
 	arm inlext    - 1 'failure: no review record' 'verdict: drive-by inline comment on THIS head -> failure' "${V[@]}" --head fixturehead123
 	arm revother  - 1 'failure: .*predates head' 'verdict: owner review NEWER than the head date but on ANOTHER head -> failure (#269 item 1)' "${V[@]}" --head fixturehead123
@@ -286,7 +293,8 @@ SHIM
 	arm botrev    - 0 'success: .*1 review'       'verdict: the Copilot reviewer bot on the head -> success' "${V[@]}" --head fixturehead123
 	arm markerhead - 0 'success: .*1 Review-Record comment' 'verdict: a marker NAMING the head, older than its date -> success (the name wins)' "${V[@]}" --head fixturehead123
 	arm markerother - 1 'failure: .*predates head' 'verdict: a marker naming ANOTHER head, newer than the date -> failure' "${V[@]}" --head fixturehead123
-	arm marker    - 0 'success: .*naming no head'  'verdict: a marker naming no head, newer than the head date -> success (documented residue)' "${V[@]}" --head fixturehead123
+	arm markershort - 1 'failure: .*predates head' 'verdict: a marker naming ANOTHER head by 7 hex, newer than the date -> failure (#295)' "${V[@]}" --head fixturehead123
+	arm marker    - 1 'failure: .*predates head'   'verdict: a marker naming no head, newer than the head date -> failure (#295; the residue is gone)' "${V[@]}" --head fixturehead123
 	arm pendrev   - 1 'failure: .*predates head'   'verdict: an owner PENDING draft on the head never freshens it -> failure' "${V[@]}" --head fixturehead123
 	# #280: a selector literally named merge / pr survives; the verb pair is stripped once
 	arm absent - 0 '^43$'                 'selector named "merge" resolves THAT branch'    "${R[@]}" pr merge merge
@@ -347,9 +355,16 @@ SHIM
 	armg absent  o/r 1 'G-4 ON.*review-gated'   'guard AUTO-requires review for listed repo' "${G[@]}"
 	armg absent  'a/b o/r' 1 'G-4 ON.*review-gated' 'guard auto-on matches ANY list member' "${G[@]}"
 	armg absent  'a/b x/y' 0 'GO:'              'guard control: unlisted repos stay opt-in' "${G[@]}"
-	armg absent  '' 1 'G-4 ON.*review-gated'    'guard DEFAULT list (canonical-only arm; vendored placeholder)' --repo Example-Org/example-repo --pr 1
+	# The non-dotfiles built-in is READ from the guard (as review-gate-onboard.sh's builtins()
+	# does), never typed here: a public consumer vendors this file verbatim and cannot publish
+	# another repository's name (#293).
+	BUILTIN2=$(sed -n 's/^\tfor RSLUG in \${DOTFILES_REPO_SLUG:-[^}]*} \([^ $]*\) .*$/\1/p' "$GUARD" 2>/dev/null | head -1)
+	if [ -z "$BUILTIN2" ] && [ -f "$GUARD" ]; then
+		printf '  NOT OK %-43s (reshaped RSLUG line in pr-merge-guard.sh?)\n' 'read the second built-in from the guard'; FAILED=$((FAILED+1))
+	fi
+	armg absent  '' 1 'G-4 ON.*review-gated'    'guard DEFAULT list covers the 2nd built-in' --repo "${BUILTIN2:-x/unread}" --pr 1
 	armg absent  '' 1 'G-4 ON.*review-gated'    'guard DEFAULT list covers the dotfiles slug' --repo Bralabee/dotfiles --pr 1
-	armg absent  '' 1 'G-4 ON.*review-gated'    'guard compare is case-insensitive (vendored placeholder)' --repo example-org/example-repo --pr 1
+	armg absent  '' 1 'G-4 ON.*review-gated'    'guard compare is case-insensitive'         --repo "${BUILTIN2,,}" --pr 1
 	armg absent  x/y 1 'G-4 ON.*review-gated'   'guard env ADDS, never drops the built-ins' --repo Bralabee/dotfiles --pr 1
 	armg garbage x/y 2 'VOID:'                  'guard G-4 VOIDs on unevaluable record'     "${G[@]}" --require-review
 
@@ -764,10 +779,12 @@ if [ "$STATUS_VERDICT" -eq 1 ]; then
 			# advanced (the same #281 reviews still name f5a59f8038c4), so R-1 keeps it.
 			# Both from record authors only (RECORD_AUTHOR); an R-3 marker (owner/member,
 			# non-waived) for the head it NAMES as `on <sha12>` — the resolution template's
-			# Review-Record line does. A marker naming NO head keeps the old rule, newer than
-			# the head's committer date, as the documented residue: it is owner-authored,
-			# and the timing it races is the owner's own. Reviews and inline comments go
-			# through fetch() (VOID, never silently empty).
+			# Review-Record line does. A marker naming NO head, or another head by a SHA of
+			# any length, freshens nothing (#295): the old fallback — newer than the head's
+			# committer date — let `on deadbee` (7 hex, not matched as a head) pass on its
+			# timestamp, and trusted a date the head's AUTHOR sets (GIT_COMMITTER_DATE), so a
+			# fork could push a back-dated unreviewed commit after any unnamed owner marker.
+			# Reviews and inline comments go through fetch() (VOID, never silently empty).
 			H12="${HEAD:0:12}"
 			fetch "reviews" "repos/$REPO/pulls/$PR/reviews"
 			RH=$(printf '%s' "$OUT" | jq --arg h "$HEAD" "[.[] | select($RECORD_AUTHOR) | select(.state != \"PENDING\") | select((.commit_id // \"\") == \$h)] | length" 2>/dev/null) || void "reviews unparseable — cannot judge record freshness"
@@ -780,15 +797,6 @@ if [ "$STATUS_VERDICT" -eq 1 ]; then
 			if [ "${RH:-0}" -gt 0 ] || [ "${IH:-0}" -gt 0 ] || [ "${MH:-0}" -gt 0 ]; then
 				printf 'success: %s (made on head %s: %s review(s), %s inline comment(s), %s Review-Record comment(s))\n' "$(printf '%s' "$RECOUT" | tail -1)" "$H12" "${RH:-0}" "${IH:-0}" "${MH:-0}"
 				exit 0
-			fi
-			MTS=$(printf '%s' "$MARKERS" | jq -r '.[] | select(.body | test("(^|\n)Review-Record:[^\n]* on [0-9a-f]{12}") | not) | .created_at // empty' 2>/dev/null | sed '/^$/d' | sort | tail -1)
-			if [ -n "$MTS" ]; then
-				HEAD_DATE=$(gh api "repos/$REPO/commits/$HEAD" 2>/dev/null | jq -r '.commit.committer.date // empty' 2>/dev/null)
-				[ -n "$HEAD_DATE" ] || void "cannot read head $HEAD's commit date — cannot judge the marker's freshness"
-				if [ ! "$MTS" \< "$HEAD_DATE" ]; then
-					printf 'success: %s (a Review-Record: comment naming no head, %s >= head %s — name the head as "on %s" to be exact)\n' "$(printf '%s' "$RECOUT" | tail -1)" "$MTS" "$HEAD_DATE" "$H12"
-					exit 0
-				fi
 			fi
 			fail_unless_waived \
 				"stale record superseded by an owner/member WAIVE for head $H12 (head-scoped)" \
@@ -851,7 +859,7 @@ if [ "$RESOLVE" -eq 1 ]; then
 	# two words after leading flags (`gh -R o/r pr merge 151`). A LATER `pr` or `merge`
 	# is a selector (a branch literally named so): `gh pr merge merge` used to drop it
 	# and resolve the CWD branch instead — a wrong-PR check is a false GO (reproduced
-	# with a fake gh in a downstream project's review).
+	# with a fake gh by a consumer repo's review).
 	_seen_pr=0; _seen_merge=0
 	[ "${1:-}" = "pr" ] && [ "${2:-}" = "merge" ] && { shift 2; _seen_pr=1; _seen_merge=1; }
 	while [ $# -gt 0 ]; do
