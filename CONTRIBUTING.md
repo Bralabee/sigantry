@@ -93,10 +93,14 @@ through a branch of this repository, where the check can run.
 
 ## Licence of contributions
 
-Sigantry is licensed under Apache-2.0. Under section 5 of that licence, a
-contribution you submit for inclusion (a pull request, a patch, a suggested
-change) is licensed under Apache-2.0 with no additional terms. You keep the
-copyright in your contribution; there is no contributor licence agreement.
+Sigantry is licensed under Apache-2.0. Under section 5 of that licence,
+unless you explicitly state otherwise, a contribution you submit for
+inclusion (a pull request, a patch, a suggested change) is licensed under
+Apache-2.0 with no additional terms; a separate agreement you have signed
+with the project about that contribution takes precedence. Copyright in a
+contribution stays with its owner: you, or your employer if it owns the
+work you do for it. The project does not ask for a contributor licence
+agreement.
 
 ## Code of Conduct
 
