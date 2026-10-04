@@ -184,10 +184,6 @@ end-to-end against a real Fabric tenant:
 
 ## Next steps
 
-- Read the [walkthrough script](walkthrough-script.md) for the
-  narrative behind the recorded mp4.
-- Watch the [demo walkthrough mp4](https://github.com/Bralabee/sigantry/releases/latest)
-  (~90 seconds; produced by `scripts/remotion/`).
 - Read the [PRODUCT-BRIEF](../PRODUCT-BRIEF.md) for the full Sigantry
   adoption story.
 - Read [docs/reference/parameters-yml.md](../reference/parameters-yml.md)
