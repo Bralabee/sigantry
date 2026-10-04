@@ -192,7 +192,7 @@ def test_apply_resolves_relative_local_path_against_manifest_dir(
     The Phase 13 D-22 round-trip (sync pull -> sync apply) writes the
     manifest into the pulled tree (e.g. /tmp/pulled/sync.yml) with
     ``local_path`` values relative to that pulled tree (e.g.
-    ``AIMS/MyNb/notebook-content.ipynb``). When the operator invokes
+    ``Orders/MyNb/notebook-content.ipynb``). When the operator invokes
     ``sigantry sync apply --manifest /tmp/pulled/sync.yml`` from an
     arbitrary CWD (e.g. their project root), the resolution MUST happen
     against the manifest's parent dir, NOT the CWD. Otherwise the
@@ -204,7 +204,7 @@ def test_apply_resolves_relative_local_path_against_manifest_dir(
     packager receives the correct absolute path.
     """
     pulled_tree = tmp_path / "pulled"
-    nb_dir = pulled_tree / "AIMS" / "MyNb"
+    nb_dir = pulled_tree / "Orders" / "MyNb"
     nb_dir.mkdir(parents=True)
     nb_file = nb_dir / "notebook-content.ipynb"
     _write_minimal_ipynb(nb_file)
@@ -213,9 +213,9 @@ def test_apply_resolves_relative_local_path_against_manifest_dir(
     _write_sync_yml(
         sync_yml,
         items_yaml=(
-            "  - local_path: 'AIMS/MyNb/notebook-content.ipynb'\n"  # relative
+            "  - local_path: 'Orders/MyNb/notebook-content.ipynb'\n"  # relative
             "    type: Notebook\n"
-            "    target_folder: '/AIMS'\n"
+            "    target_folder: '/Orders'\n"
             "    display_name: 'MyNb'\n"
         ),
     )
@@ -269,8 +269,8 @@ def test_apply_resolves_relative_local_path_against_manifest_dir(
     resolved = captured_sources[0]
     # The packager must have received the manifest-dir-resolved path,
     # not the CWD-relative one (which would have pointed at
-    # foreign_cwd / 'AIMS/MyNb/notebook-content.ipynb' -- nonexistent).
-    assert resolved == pulled_tree / "AIMS" / "MyNb" / "notebook-content.ipynb"
+    # foreign_cwd / 'Orders/MyNb/notebook-content.ipynb' -- nonexistent).
+    assert resolved == pulled_tree / "Orders" / "MyNb" / "notebook-content.ipynb"
 
 
 # ---------------------------------------------------------------------------

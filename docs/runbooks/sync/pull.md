@@ -72,7 +72,7 @@ A typical operator run looks like:
 ```bash
 # 1. Pull the existing workspace into a fresh directory.
 sigantry sync pull \
-  --workspace-id <coe-guid> \
+  --workspace-id <workspace-guid> \
   --into ./fabric-iac
 
 # Expected output:
@@ -104,13 +104,13 @@ sigantry diff -e staging \
 `sync pull` preserves each item's `logical_id` verbatim from the workspace snapshot. This means an immediate `sync apply` against the SAME workspace -- using the just-emitted `sync.yml` -- is a no-op:
 
 ```bash
-sigantry sync pull --workspace-id <coe-guid> --into /tmp/pulled
-sigantry sync apply --manifest /tmp/pulled/sync.yml --workspace-id <coe-guid>
+sigantry sync pull --workspace-id <workspace-guid> --into /tmp/pulled
+sigantry sync apply --manifest /tmp/pulled/sync.yml --workspace-id <workspace-guid>
 # Expected output:
 #   sync apply succeeded release_id=sync-... folders_created=0 items_moved=0
 ```
 
-The live integration test in `tests/integration/sync/test_e2e_sync_round_trip.py` proves this against the user's `COE_F_ManagedData` workspace (gated on `SIGANTRY_FABRIC_TEST_*` env vars per V3-RISK-3).
+The first half of that invariant -- each `logical_id` copied verbatim into the emitted manifest -- is pinned offline (mocked REST) by `tests/sync/test_pull.py::test_pull_preserves_logical_id_in_emitted_manifest`. No live round-trip test ships in this repository.
 
 A follow-up `sync apply` against a **fresh** (different) workspace will re-create folders and place items per the manifest -- but folder GUIDs and item GUIDs will differ (they're freshly minted), even though paths and display names match.
 

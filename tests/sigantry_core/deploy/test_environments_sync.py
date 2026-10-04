@@ -51,7 +51,7 @@ def _ok_sync(calls: list[tuple]):
 
 
 def test_dry_run_does_no_work(tmp_path: Path) -> None:
-    w = _wheel(tmp_path, "aims_data_platform-1.6.0-py3-none-any.whl")
+    w = _wheel(tmp_path, "data_platform-1.6.0-py3-none-any.whl")
     m = _manifest([{"name": "dev", "workspace_id": "w", "environment_id": "e", "wheels": [str(w)]}])
 
     def _boom(*_a, **_k):  # must never be called in dry-run
@@ -203,7 +203,7 @@ def test_pin_missing_literal_wheel_fails(tmp_path: Path) -> None:
                 "name": "prod",
                 "workspace_id": "wp",
                 "environment_id": "ep",
-                "wheels": [str(tmp_path / "aims_data_platform-9.9.9-py3-none-any.whl")],
+                "wheels": [str(tmp_path / "data_platform-9.9.9-py3-none-any.whl")],
                 "policy": "pin",
             }
         ]

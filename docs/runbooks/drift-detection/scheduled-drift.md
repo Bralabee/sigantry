@@ -62,7 +62,7 @@ This is the load-bearing boundary the scheduled drift-check templates enforce --
    stages:
      - template: schedules/drift-check.yml@sigantry-templates
        parameters:
-         workspaceId: '<coe-guid>'
+         workspaceId: '<workspace-guid>'
          manifestPath: 'fabric-iac/sync.yml'
          serviceConnection: 'sigantry-wif-prod'
          environment: 'prod'
@@ -89,7 +89,7 @@ This is the load-bearing boundary the scheduled drift-check templates enforce --
      drift:
        uses: org/sigantry-templates/.github/workflows/drift-check.yml@<tag>
        with:
-         workspaceId: '<coe-guid>'
+         workspaceId: '<workspace-guid>'
          manifestPath: 'fabric-iac/sync.yml'
          environment: 'prod'
        secrets: inherit
@@ -147,7 +147,7 @@ Microsoft Fabric's REST throttling surface is documented in [Fabric throttling d
 ```bash
 gh workflow run drift-check.yml \
   --repo org/repo \
-  -f workspaceId=<coe-guid> \
+  -f workspaceId=<workspace-guid> \
   -f manifestPath=fabric-iac/sync.yml \
   -f environment=prod
 ```
@@ -160,7 +160,7 @@ Then `gh run list --workflow=drift-check.yml --limit 1` to monitor; download the
 az pipelines run \
   --name drift-check \
   --branch master \
-  --variables workspaceId=<coe-guid> manifestPath=fabric-iac/sync.yml environment=prod
+  --variables workspaceId=<workspace-guid> manifestPath=fabric-iac/sync.yml environment=prod
 ```
 
 Then inspect the run via `az pipelines runs show --id <run-id>`; download the `drift-json` artefact from the build details page.

@@ -791,8 +791,8 @@ def test_with_publish_idempotent_rerun_moved_items_empty(
 ) -> None:
     """Idempotent rerun: items already at target -> moved_items=[] (audit-record correctness).
 
-    Surfaced by the 2026-05-06 live ``--with-publish`` run against
-    ``COE_F_SBDEVOPS_POC`` workspace ``effa6941-0717-4578-b8e5-95339152f4b2``.
+    Surfaced by the 2026-05-06 live ``--with-publish`` run against a
+    development workspace.
     The second invocation of the same command produced
     ``items_moved=0`` on the CLI summary line (correct -- no
     reconciler ops needed) but the persisted ``DeployRecord``

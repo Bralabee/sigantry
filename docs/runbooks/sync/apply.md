@@ -25,7 +25,7 @@ The greenfield `sigantry workspace bootstrap` (Phase 13.5 / BOOTSTRAP-XX) is a s
 3. For each manifest item, run the type-appropriate packager (Notebook / DataPipeline / SemanticModel / Report / SparkJobDefinition / generic) into a staging tempdir. **The packager writes the item to local staging only -- it does NOT publish to the workspace.** See [§1.1](#11-what-sync-apply-does-not-do).
 4. Pre-flight gate: refuse to apply if the workspace's `gitConnection.sync_state` is anything other than `"Synced"` (D-18 -- Council D constraint #6).
 5. Call `sigantry_core.workspace.reconciler.reconcile_folders_from_repo(...)` against the staging tree -- delegates **folder create/move/delete and item-folder placement only**. No item is created or published in the workspace by this call.
-6. Emit a `DeployRecord` to the audit ledger (`~/.sigantry/audit/deploys.jsonl`) with `provider="sync-engine"` and `release_id="sync-<ISO_TS>"`.
+6. Emit a `DeployRecord` to the audit ledger (`~/.sigantry/audit/deploys.jsonl`) with `approver="sync-engine"`, `release_id="sync-<ISO_TS>"` and the outcome in `test_evidence["sync_engine_outcome"]`.
 7. Cleanup the tempdir on success; on failure preserve it and print the path to stderr for debugging.
 
 `sigantry sync apply` is **idempotent** -- applying the same `sync.yml` twice yields a no-op second run (zero `create_folder` / `move_item` operations). This is the strongest falsifiability gate the engine ships (Round-4-locked SPEC acceptance criterion, asserted by `tests/sync/test_apply.py::test_apply_idempotent_second_run_no_op`).
@@ -58,7 +58,7 @@ Phase 17 ([ADR-0013](../../decisions/ADR-0013-sync-publish-parameters-resolution
 
 #### When NOT to use it
 
-- Pure folder-shuffle runs (no new items) -- the default `sync apply` is faster and emits a lighter `provider="sync-engine"` record.
+- Pure folder-shuffle runs (no new items) -- the default `sync apply` is faster and emits a lighter `sync-engine` record.
 - Multi-env deployment fan-out (DEV -> PREPROD -> PROD) -- use `deploy run` with explicit `--environment` per stage; `--with-publish` is for one-shot first-time publish.
 - Rollback -- `--with-publish` does NOT support `--rollback`; use `sigantry deploy run --rollback --to-release <id>` against the appropriate `R-...` record.
 
@@ -86,8 +86,8 @@ After a successful `--with-publish` invocation, the audit ledger receives ONE `D
 
 ```json
 {
-  "workspace": "effa6941-0717-4578-b8e5-95339152f4b2",
-  "release_id": "sync-publish-2026-05-01T12:34:56Z",
+  "workspace": "00000000-0000-4000-8000-000000000002",
+  "release_id": "sync-publish-2026-05-01T12-34-56Z",
   "work_items": [],
   "fabric_items_changed": ["A.Notebook", "B.DataPipeline", "C.SemanticModel"],
   "test_evidence": {
@@ -125,7 +125,7 @@ When `--with-publish` is set, the D-26-bis boundary trailer described in [§1.2]
 1. Install Sigantry into your conda env (or pipx-installed shell):
 
    ```bash
-   conda activate fabric-dataops-toolkits
+   conda activate <your-env-name>
    pip install sigantry
    ```
 
@@ -145,12 +145,12 @@ When `--with-publish` is set, the D-26-bis boundary trailer described in [§1.2]
 
    ```bash
    sigantry doctor
-   sigantry workspace get <coe-guid>
+   sigantry workspace get <workspace-guid>
    ```
 
    `doctor` resolves the toolkit settings + verifies the auth chain. If it exits non-zero, fix the underlying error before invoking `sync apply`.
 
-4. Author your `sync.yml` (see section 5 for the canonical 9-notebook example) and confirm it parses cleanly:
+4. Author your `sync.yml` (see section 5 for a 9-notebook worked example) and confirm it parses cleanly:
 
    ```bash
    sigantry sync apply --manifest sync.yml --workspace-id <id> --dry-run
@@ -189,39 +189,39 @@ The manifest's `folders[]` preservation set declares operator-created paths the 
 
 The audit ledger location follows Phase 11 / 12 convention: `~/.sigantry/audit/deploys.jsonl` (mode 0o600, fsync'd, dir 0o700). Override via `--audit-dir` for hermetic CI runs.
 
-## 5. The user's primary use case (canonical example)
+## 5. Worked example -- nine notebooks into one folder
 
-The canonical Phase 13 fixture: 9 raw `.ipynb` files at `/home/sanmi/Documents/HS2/HS2_PROJECTS_2025/1_AIMS_LOCAL_2026/notebooks/` syncing into the `COE_F_ManagedData` workspace at `AIMS/01_NOTEBOOKS_AIMS_2026_V2/`.
+Nine raw `.ipynb` files at `~/work/orders-pipeline/notebooks/` syncing into a new `Orders/01_Notebooks/` folder of the `Analytics-Dev` workspace. The nine notebooks already exist in the workspace (at its root) and the parent folder `Orders/` already exists, so the run creates one folder and moves nine items -- without `--with-publish`, `sync apply` creates no items (see [§1.1](#11-what-sync-apply-does-not-do)).
 
 ### `sync.yml`
 
 ```yaml
-# /home/sanmi/Documents/HS2/HS2_PROJECTS_2025/1_AIMS_LOCAL_2026/notebooks/sync.yml
+# ~/work/orders-pipeline/notebooks/sync.yml
 schema_version: "1.0.0"
 items:
-  - {local_path: 00_AIMS_Orchestration.ipynb,            type: Notebook, target_folder: AIMS/01_NOTEBOOKS_AIMS_2026_V2, display_name: 00_AIMS_Orchestration}
-  - {local_path: 01_AIMS_Bronze_Ingest.ipynb,            type: Notebook, target_folder: AIMS/01_NOTEBOOKS_AIMS_2026_V2, display_name: 01_AIMS_Bronze_Ingest}
-  - {local_path: 02_AIMS_Bronze_Validate.ipynb,          type: Notebook, target_folder: AIMS/01_NOTEBOOKS_AIMS_2026_V2, display_name: 02_AIMS_Bronze_Validate}
-  - {local_path: 03_AIMS_Silver_Standardise.ipynb,       type: Notebook, target_folder: AIMS/01_NOTEBOOKS_AIMS_2026_V2, display_name: 03_AIMS_Silver_Standardise}
-  - {local_path: 04_AIMS_Silver_DQ.ipynb,                type: Notebook, target_folder: AIMS/01_NOTEBOOKS_AIMS_2026_V2, display_name: 04_AIMS_Silver_DQ}
-  - {local_path: 05_AIMS_Gold_Conform.ipynb,             type: Notebook, target_folder: AIMS/01_NOTEBOOKS_AIMS_2026_V2, display_name: 05_AIMS_Gold_Conform}
-  - {local_path: 06_AIMS_Gold_Aggregate.ipynb,           type: Notebook, target_folder: AIMS/01_NOTEBOOKS_AIMS_2026_V2, display_name: 06_AIMS_Gold_Aggregate}
-  - {local_path: 07_AIMS_Publish.ipynb,                  type: Notebook, target_folder: AIMS/01_NOTEBOOKS_AIMS_2026_V2, display_name: 07_AIMS_Publish}
-  - {local_path: 08_AIMS_Teardown.ipynb,                 type: Notebook, target_folder: AIMS/01_NOTEBOOKS_AIMS_2026_V2, display_name: 08_AIMS_Teardown}
+  - {local_path: 00_Orders_Orchestration.ipynb,          type: Notebook, target_folder: Orders/01_Notebooks, display_name: 00_Orders_Orchestration}
+  - {local_path: 01_Orders_Bronze_Ingest.ipynb,          type: Notebook, target_folder: Orders/01_Notebooks, display_name: 01_Orders_Bronze_Ingest}
+  - {local_path: 02_Orders_Bronze_Validate.ipynb,        type: Notebook, target_folder: Orders/01_Notebooks, display_name: 02_Orders_Bronze_Validate}
+  - {local_path: 03_Orders_Silver_Standardise.ipynb,     type: Notebook, target_folder: Orders/01_Notebooks, display_name: 03_Orders_Silver_Standardise}
+  - {local_path: 04_Orders_Silver_DQ.ipynb,              type: Notebook, target_folder: Orders/01_Notebooks, display_name: 04_Orders_Silver_DQ}
+  - {local_path: 05_Orders_Gold_Conform.ipynb,           type: Notebook, target_folder: Orders/01_Notebooks, display_name: 05_Orders_Gold_Conform}
+  - {local_path: 06_Orders_Gold_Aggregate.ipynb,         type: Notebook, target_folder: Orders/01_Notebooks, display_name: 06_Orders_Gold_Aggregate}
+  - {local_path: 07_Orders_Publish.ipynb,                type: Notebook, target_folder: Orders/01_Notebooks, display_name: 07_Orders_Publish}
+  - {local_path: 08_Orders_Teardown.ipynb,               type: Notebook, target_folder: Orders/01_Notebooks, display_name: 08_Orders_Teardown}
 folders: []
 ```
 
-> **Note:** the exact list of 9 notebooks above is illustrative -- the canonical test scenario is "9 raw `.ipynb` files in the AIMS notebooks directory" syncing into `AIMS/01_NOTEBOOKS_AIMS_2026_V2/`. Adjust `local_path` + `display_name` to match what your repo actually carries. The pattern (one entry per `.ipynb`, all targeting the same folder) is what's load-bearing.
+> **Note:** the exact list of 9 notebooks above is illustrative -- the scenario is "9 raw `.ipynb` files in one notebooks directory" syncing into `Orders/01_Notebooks/`. Adjust `local_path` + `display_name` to match what your repo actually carries. The pattern (one entry per `.ipynb`, all targeting the same folder) is what's load-bearing.
 
 ### Invocation
 
 ```bash
-cd /home/sanmi/Documents/HS2/HS2_PROJECTS_2025/1_AIMS_LOCAL_2026/notebooks/
+cd ~/work/orders-pipeline/notebooks/
 
 # 1. Dry-run first.
 sigantry sync apply \
   --manifest sync.yml \
-  --workspace-id <coe-guid> \
+  --workspace-id <workspace-guid> \
   --dry-run
 
 # Expected output:
@@ -230,7 +230,7 @@ sigantry sync apply \
 # 2. Apply.
 sigantry sync apply \
   --manifest sync.yml \
-  --workspace-id <coe-guid>
+  --workspace-id <workspace-guid>
 
 # Expected output:
 #   sync apply succeeded release_id=sync-2026-04-27T... items_packaged=9
@@ -243,12 +243,12 @@ sigantry sync apply \
 
 ```text
 <tempdir>/
-  AIMS/
-    01_NOTEBOOKS_AIMS_2026_V2/
-      00_AIMS_Orchestration.Notebook/
+  Orders/
+    01_Notebooks/
+      00_Orders_Orchestration.Notebook/
         .platform                  # schema 2.0; logicalId UUID4 from sidecar
         notebook-content.ipynb     # LF-normalised raw .ipynb
-      01_AIMS_Bronze_Ingest.Notebook/
+      01_Orders_Bronze_Ingest.Notebook/
         .platform
         notebook-content.ipynb
       ... (7 more)
@@ -269,15 +269,18 @@ Returns one record (newest first):
 ```json
 [
   {
+    "workspace": "<workspace-guid>",
     "release_id": "sync-2026-04-27T14-30-05Z",
-    "provider": "sync-engine",
-    "workspace": "<coe-guid>",
+    "work_items": [],
     "fabric_items_changed": [
-      {"logical_name": "00_AIMS_Orchestration", "item_type": "Notebook", "fabric_item_id": "<id>"},
+      "00_Orders_Orchestration.Notebook",
       ...
     ],
-    "outcome": "succeeded",
-    "audit_hash": "<sha256>"
+    "test_evidence": {"sync_engine_outcome": "succeeded", "items_packaged": "9"},
+    "approver": "sync-engine",
+    "prev_hash": "<audit_hash of the previous record>",
+    "audit_hash": "<sha256>",
+    "created_at": "2026-04-27T14:30:05Z"
   }
 ]
 ```
@@ -287,7 +290,7 @@ Returns one record (newest first):
 Re-run the same command:
 
 ```bash
-sigantry sync apply --manifest sync.yml --workspace-id <coe-guid>
+sigantry sync apply --manifest sync.yml --workspace-id <workspace-guid>
 ```
 
 Expected output:
@@ -314,7 +317,7 @@ Zero create / move operations on the second run. This is the locked Round-4 idem
 ## 7. Known limitations
 
 - **Folder-less item types** (Dataflow Gen2, streaming semantic models, streaming dataflows) are placed at workspace root regardless of `target_folder` (Council D #4).
-- **Greenfield workspace bootstrap** (create workspace + bind capacity + connect Git) is deferred to Phase 13.5 / a future sub-phase. `sync apply` requires the workspace to already exist.
+- **Greenfield workspace bootstrap** (create workspace + bind capacity + connect Git) is a separate verb, `sigantry workspace bootstrap` (see §0). `sync apply` requires the workspace to already exist.
 - **Content-level drift** is NOT detected -- `sigantry diff` only catches metadata drift (display_name, type, folder_path). For content drift, run `sync pull` and compare with `git diff`.
 - **Cross-environment rollback** (DEV -> PROD) is rejected by the rollback engine (Phase 12 Pitfall 9). Stay within a single workspace per `release_id`.
 - **Auto-cleanup** -- `fabric-cicd._unpublish_folders` deletes empty folders by default. Add operator-created paths to `folders[]` (see [`folder-preservation.md`](folder-preservation.md)).
