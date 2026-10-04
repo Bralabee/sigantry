@@ -307,8 +307,8 @@ class TestExpectedGroup:
 
     @pytest.mark.parametrize(
         "name",
-        ["[prod] deployers", "team[/old]", "g" * 120],
-        ids=["markup-tag", "closing-tag", "long"],
+        ["[prod] deployers", "team[/old]", "g" * 120, "ops:fire:", "sg:x:deployers"],
+        ids=["markup-tag", "closing-tag", "long", "emoji-code", "emoji-code-inside"],
     )
     def test_group_name_survives_json_output_exactly(
         self,
@@ -324,7 +324,7 @@ class TestExpectedGroup:
         assert groups["expected"] == name
         assert groups["status"] == "ok"
 
-    @pytest.mark.parametrize("name", ["[prod] deployers", "team[/old]"])
+    @pytest.mark.parametrize("name", ["[prod] deployers", "team[/old]", "ops:fire:", "a:ok:b"])
     def test_group_name_survives_table_output(
         self,
         runner: CliRunner,
@@ -337,6 +337,18 @@ class TestExpectedGroup:
         assert result.exit_code == 2, result.output
         assert result.exception is None or isinstance(result.exception, SystemExit)
         assert name in result.stdout
+
+    def test_graph_group_names_survive_json_output_exactly(
+        self,
+        runner: CliRunner,
+        respx_router: respx.MockRouter,
+        fake_jwt: str,
+    ) -> None:
+        returned = [_GROUP, "other:ok:group", "[x] y"]
+        _member_of(respx_router, returned)
+        result = _invoke_live(runner, fake_jwt, ["--output", "json", "--expected-group", _GROUP])
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["entra_groups"]["groups"] == returned
 
     def test_settings_are_not_read_outside_the_fabric_scope(
         self,

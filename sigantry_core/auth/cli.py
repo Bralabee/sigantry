@@ -34,8 +34,8 @@ import typer
 from pydantic import ValidationError
 from pydantic_settings import SettingsError
 from rich.console import Console
-from rich.markup import escape
 from rich.table import Table
+from rich.text import Text
 
 from sigantry_core.auth.audiences import (
     AZURE_DEVOPS_SCOPE,
@@ -161,7 +161,7 @@ def diagnose(
     The Entra group check runs only when an expected group is set.
     """
     if output not in ("table", "json"):
-        console.print(f"[red]--output must be 'table' or 'json' (got {escape(repr(output))})[/red]")
+        console.print(Text(f"--output must be 'table' or 'json' (got {output!r})", style="red"))
         raise typer.Exit(code=4)
 
     resolved_scope = _resolve_scope(scope)
@@ -178,13 +178,13 @@ def diagnose(
             "will_probe_graph": False,
         }
         if output == "json":
-            console.print(json.dumps(plan, indent=2), markup=False, highlight=False, soft_wrap=True)
+            typer.echo(json.dumps(plan, indent=2))
         else:
             tbl = Table(title="diagnose-auth (dry-run)")
             tbl.add_column("key")
             tbl.add_column("value")
             for k, v in plan.items():
-                tbl.add_row(escape(str(k)), escape(str(v)))
+                tbl.add_row(Text(str(k)), Text(str(v)))
             console.print(tbl)
         raise typer.Exit(code=0)
 
@@ -229,8 +229,10 @@ def diagnose(
     claims = decode_token_claims(token)
     if tenant_id and claims.get("tid") and claims["tid"] != tenant_id:
         console.print(
-            f"[yellow]WARNING[/yellow]: token tid {escape(repr(claims['tid']))} "
-            f"does not match expected {escape(repr(tenant_id))}"
+            Text.assemble(
+                ("WARNING", "yellow"),
+                f": token tid {claims['tid']!r} does not match expected {tenant_id!r}",
+            )
         )
 
     report = build_report(
@@ -253,7 +255,7 @@ def _emit(output: str, report: dict, *, error: str | None = None) -> None:
         payload = dict(report)
         if error:
             payload["error"] = error
-        console.print(json.dumps(payload, indent=2), markup=False, highlight=False, soft_wrap=True)
+        typer.echo(json.dumps(payload, indent=2))
         return
 
     tbl = Table(title="diagnose-auth")
@@ -261,29 +263,29 @@ def _emit(output: str, report: dict, *, error: str | None = None) -> None:
     tbl.add_column("Status")
     tbl.add_column("Detail")
 
-    tbl.add_row("credential_used", "-", escape(str(report.get("credential_used") or "unknown")))
-    tbl.add_row("scope", "-", escape(str(report["scope"])))
+    tbl.add_row("credential_used", "-", Text(str(report.get("credential_used") or "unknown")))
+    tbl.add_row("scope", "-", Text(str(report["scope"])))
     claims = report.get("token_claims") or {}
     for key in ("aud", "tid", "oid", "appid", "exp"):
         if key in claims:
-            tbl.add_row(f"claim.{key}", "-", escape(str(claims[key])))
+            tbl.add_row(f"claim.{key}", "-", Text(str(claims[key])))
 
     toggles = report.get("tenant_toggles")
     if toggles:
         tbl.add_row(
             "tenant_toggles",
-            escape(str(toggles.get("status", "?"))),
-            escape(str(toggles.get("detail", ""))),
+            Text(str(toggles.get("status", "?"))),
+            Text(str(toggles.get("detail", ""))),
         )
     groups = report.get("entra_groups")
     if groups:
         tbl.add_row(
             "entra_groups",
-            escape(str(groups.get("status", "?"))),
-            escape(str(groups.get("detail", ""))),
+            Text(str(groups.get("status", "?"))),
+            Text(str(groups.get("detail", ""))),
         )
     if error:
-        tbl.add_row("error", "broken", escape(error))
+        tbl.add_row("error", "broken", Text(error))
     tbl.add_row("exit_code", str(report["exit_code"]), "")
 
     console.print(tbl)

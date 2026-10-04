@@ -109,9 +109,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and does not change the exit code. If the settings cannot be loaded and no
   `--expected-group` is given, the check is reported as `error` (exit code 2)
   rather than skipped, because a group set in the environment is lost when the
-  file fails to parse. The command also prints values literally: a group name
-  containing square brackets no longer loses text or crashes the output, and
-  `--output json` no longer wraps long lines inside JSON strings.
+  file fails to parse. `--output json` is now written with plain `json.dumps`
+  and table values are rendered as plain text, so a group name containing
+  square brackets or an emoji code such as `:fire:` is printed unchanged, and
+  long values are no longer wrapped inside JSON strings.
 - **Workspace bootstrap creates new folder names for the `minimal_starter`
   and `medallion` blueprints:** `00_control`, `10_intake`, `20_storage`,
   `30_transform`, `40_semantic`, `50_reporting`, `90_shared` and
