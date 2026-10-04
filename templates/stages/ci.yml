@@ -46,9 +46,9 @@ parameters:
     default: 'sigantry_core/ scripts/'
   - name: pythonVersionMatrix
     # 08.1 P1-2: exercise the supported range. pyproject.toml declares
-    # requires-python = ">=3.11" with an upper bound on neither side, and
-    # classifiers through 3.13, so this matrix is a floor CI actually runs --
-    # not the full set of versions the package claims to install on.
+    # requires-python = ">=3.11" with no upper bound, so the package installs
+    # on newer versions than this matrix runs; its classifiers name only the
+    # versions tested here, 3.11 and 3.12.
     type: object
     default:
       py311:

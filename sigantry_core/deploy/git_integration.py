@@ -104,10 +104,9 @@ def initialize_connection(
 
     Note for callers reading the response body: Fabric returns the result with
     *camelCase* keys (``requiredAction``, ``remoteCommitHash``, ``workspaceHead``).
-    PascalCase access silently defaults to ``"None"`` on miss — usf_fabric_cli_cicd
-    paid for this in v1.8.0 (CHANGELOG API-H3). Tests at
-    ``tests/sigantry_core/deploy/test_git_integration.py:125-129,155`` assert
-    the camelCase contract.
+    PascalCase access silently defaults to ``"None"`` on a miss. ``TestInit`` and
+    ``TestUpdateFromGit`` in ``tests/sigantry_core/deploy/test_git_integration.py``
+    assert the camelCase contract.
     """
     return cast(
         dict[str, Any] | None,
@@ -139,9 +138,7 @@ def connect_or_reconnect(
     when the workspace is already bound, but if the existing binding points
     at a *different* repo/branch/dir, the next ``initialize_connection`` call
     fails with a 400 Bad Request because the workspace state still reflects
-    the old config. This is the most common failure mode of `scaffold -> deploy`
-    against existing workspaces. Pattern lifted from usf_fabric_cli_cicd v1.8.1
-    (services/deployer.py:1044-1133).
+    the old config.
 
     Returns one of:
       - ``"connected"`` — workspace was NotConnected; new connection POSTed.

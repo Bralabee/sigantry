@@ -17,7 +17,7 @@
 
 ## Prerequisites
 
-- **Python 3.11, 3.12 or 3.13** (`requires-python` is `>=3.11`; there is no upper bound)
+- **Python 3.11 or 3.12** (`requires-python` is `>=3.11` with no upper bound; CI tests 3.11 and 3.12)
 - **gh CLI** for the clone (`gh --version`)
 - **A demo Fabric tenant** -- operator-provisioned per
   [docs/runbooks/demo-tenant-operator.md](../runbooks/demo-tenant-operator.md).

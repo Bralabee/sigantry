@@ -225,9 +225,8 @@ class TestMaxPages:
 
 
 class TestDuplicateContinuationToken:
-    """Defence-in-depth against a known Fabric API loop bug — same
-    continuationToken returned twice in the token-only fallback path. See
-    ``docs/RELATED-WORK.md`` gotcha #10 (lifted from usf_fabric_cli_cicd v1.8.4).
+    """Defence-in-depth against a known Fabric API loop bug — the same
+    continuationToken returned twice in the token-only fallback path.
     """
 
     def test_same_token_twice_raises_pagination_error(self, client: BaseRestClient) -> None:

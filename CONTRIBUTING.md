@@ -5,7 +5,7 @@ Thank you for your interest in contributing to **Sigantry**, the governance, syn
 ## Ground Rules
 
 - **Feature branches + PR for every change:** Never commit directly to `main` or `master`.
-- **Python 3.11+:** Support Python 3.11, 3.12, and 3.13.
+- **Python 3.11+:** CI tests Python 3.11 and 3.12. Newer versions are not blocked (no upper bound) but are untested.
 - **Strict Quality Gates:** All tests, Ruff lint/formatting, and Mypy strict checks must pass.
 - **One HTTP Client:** `sigantry_core.client` is the single centralized gateway for HTTP communication (`httpx`).
 - **Read-Only / Safe by Default:** Any CLI command or API function that mutates remote Fabric resources must require explicit user intent and emit a cryptographic audit ledger entry.

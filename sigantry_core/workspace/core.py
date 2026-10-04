@@ -106,11 +106,10 @@ def delete_workspace(
     the workspace_id argument itself identifies the resource.
 
     With ``pbi_fallback=True``, when the Fabric DELETE returns the intermittent
-    ``UnknownError`` (a transient 400 we've observed in production), this
-    transparently falls back to ``DELETE https://api.powerbi.com/v1.0/myorg/groups/{id}``
-    which is more reliable for this single operation. Pattern lifted from
-    usf_fabric_cli_cicd v1.7.16 (services/fabric_wrapper.py:573-662). Default
-    ``False`` preserves the strict single-API behaviour.
+    ``UnknownError`` (a transient 400), this transparently falls back to
+    ``DELETE https://api.powerbi.com/v1.0/myorg/groups/{id}`` which is more
+    reliable for this single operation. Default ``False`` preserves the strict
+    single-API behaviour.
     """
     try:
         client.send("DELETE", f"/v1/workspaces/{workspace_id}")
@@ -129,9 +128,8 @@ def _is_unknown_error(exc: HttpError) -> bool:
     """Detect Fabric's intermittent ``UnknownError`` 400 in a structured body.
 
     Fabric returns ``{"errorCode": "UnknownError", "message": "..."}`` on the
-    transient delete failure pattern (see usf_fabric_cli_cicd v1.7.16
-    services/fabric_wrapper.py:620). Some error paths flatten the body to a
-    plain string before it reaches us, so we accept either shape.
+    transient delete failure. Some error paths flatten the body to a plain
+    string before it reaches us, so we accept either shape.
     """
     body = exc.body
     if isinstance(body, dict):

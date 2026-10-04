@@ -8,13 +8,14 @@ import respx
 
 from sigantry_core.auth.audiences import FABRIC_AUDIENCE, GRAPH_AUDIENCE
 from sigantry_core.auth.diagnose import (
-    ExpectedEntraGroup,
     build_report,
     check_entra_group,
     check_tenant_toggles,
     classify_http_error,
     decode_token_claims,
 )
+
+_GROUP = "fabric-deployers"
 
 
 class TestClassifyHttpError:
@@ -106,36 +107,35 @@ class TestCheckEntraGroup:
                 200,
                 json={
                     "value": [
-                        {"displayName": "sg-fabric-automation"},
+                        {"displayName": _GROUP},
                         {"displayName": "sg-other"},
                     ]
                 },
             )
         )
         with httpx.Client() as client:
-            result = check_entra_group("fake-token", client=client)
+            result = check_entra_group("fake-token", expected_group=_GROUP, client=client)
         assert result["status"] == "ok"
-        assert ExpectedEntraGroup in result["groups"]
+        assert _GROUP in result["groups"]
+        assert result["expected"] == _GROUP
 
     def test_missing_when_group_not_found(self, respx_router: respx.MockRouter) -> None:
         respx_router.get(f"{GRAPH_AUDIENCE}/v1.0/me/memberOf").mock(
             return_value=httpx.Response(200, json={"value": [{"displayName": "sg-other"}]})
         )
         with httpx.Client() as client:
-            result = check_entra_group("fake-token", client=client)
+            result = check_entra_group("fake-token", expected_group=_GROUP, client=client)
         assert result["status"] == "missing"
 
     def test_service_principal_path_with_principal_id(self, respx_router: respx.MockRouter) -> None:
         respx_router.get(
             f"{GRAPH_AUDIENCE}/v1.0/servicePrincipals/oid-xyz/memberOf",
             params={"$select": "displayName"},
-        ).mock(
-            return_value=httpx.Response(
-                200, json={"value": [{"displayName": "sg-fabric-automation"}]}
-            )
-        )
+        ).mock(return_value=httpx.Response(200, json={"value": [{"displayName": _GROUP}]}))
         with httpx.Client() as client:
-            result = check_entra_group("fake-token", principal_id="oid-xyz", client=client)
+            result = check_entra_group(
+                "fake-token", principal_id="oid-xyz", expected_group=_GROUP, client=client
+            )
         assert result["status"] == "ok"
 
     def test_403_is_error(self, respx_router: respx.MockRouter) -> None:
@@ -143,8 +143,20 @@ class TestCheckEntraGroup:
             return_value=httpx.Response(403)
         )
         with httpx.Client() as client:
-            result = check_entra_group("fake-token", client=client)
+            result = check_entra_group("fake-token", expected_group=_GROUP, client=client)
         assert result["status"] == "error"
+
+    def test_no_expected_group_is_skipped_without_a_request(
+        self, respx_router: respx.MockRouter
+    ) -> None:
+        route = respx_router.get(f"{GRAPH_AUDIENCE}/v1.0/me/memberOf").mock(
+            return_value=httpx.Response(200, json={"value": [{"displayName": _GROUP}]})
+        )
+        with httpx.Client() as client:
+            result = check_entra_group("fake-token", client=client)
+        assert result["status"] == "skipped"
+        assert result["expected"] is None
+        assert not route.called
 
 
 class TestBuildReport:
@@ -167,6 +179,26 @@ class TestBuildReport:
             token=tok,
             tenant_toggles={"status": "blocked"},
             entra_groups={"status": "ok"},
+        )
+        assert rpt["exit_code"] == 2
+
+    def test_skipped_group_check_does_not_degrade(self, make_jwt) -> None:
+        rpt = build_report(
+            scope="x",
+            credential_used="X",
+            token=make_jwt({"tid": "t"}),
+            tenant_toggles={"status": "ok"},
+            entra_groups={"status": "skipped"},
+        )
+        assert rpt["exit_code"] == 0
+
+    def test_missing_group_degrades(self, make_jwt) -> None:
+        rpt = build_report(
+            scope="x",
+            credential_used="X",
+            token=make_jwt({"tid": "t"}),
+            tenant_toggles={"status": "ok"},
+            entra_groups={"status": "missing"},
         )
         assert rpt["exit_code"] == 2
 

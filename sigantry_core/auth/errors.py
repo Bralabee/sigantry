@@ -42,7 +42,7 @@ class TenantSettingError(FabricAuthError):
 
 
 class GroupMembershipError(FabricAuthError):
-    """Raised when the calling principal is not a member of sg-fabric-automation."""
+    """Raised when the calling principal is not a member of the expected Entra group."""
 
 
 class KeyVaultResolutionError(FabricAuthError):

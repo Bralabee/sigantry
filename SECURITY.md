@@ -46,8 +46,9 @@ If you discover a security vulnerability within Sigantry, please report it respo
 
 ### Reporting Channel
 
-Please email security reports to **bralabala@gmail.com** with the subject line:
-`[SECURITY] Vulnerability in Sigantry`.
+Report vulnerabilities privately through GitHub's private vulnerability reporting form:
+<https://github.com/Bralabee/sigantry/security/advisories/new>
+(the **Report a vulnerability** button on the repository's **Security** tab).
 
 Please include in your report:
 1. A clear description of the vulnerability and affected versions.

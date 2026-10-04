@@ -10,10 +10,6 @@ Phase 7 Plan 07-01 removes the historical ``sys.path.insert`` call to
 satisfy the Pitfall 6 invariant enforced by
 ``scripts/ci/check-no-sys-path.py``.
 
-Also skips smoke tests during collection unless ``PYTEST_RUN_SMOKE=1``,
-because the smoke module imports ``scripts.smoke.deploy_matrix`` which is
-picked up correctly at runtime but can surprise offline lint passes.
-
 Hosts the ``repo_files`` fixture: the single file inventory every repo-wide
 guard test scans (see :func:`repo_tracked_files`).
 
@@ -34,10 +30,6 @@ import pytest
 os.environ["NO_COLOR"] = "1"
 os.environ["TERM"] = "dumb"
 os.environ.pop("FORCE_COLOR", None)
-
-collect_ignore: list[str] = []
-if os.environ.get("PYTEST_RUN_SMOKE") != "1":
-    collect_ignore.append("tests/smoke/test_deploy_matrix.py")
 
 _REPO_ROOT = Path(__file__).resolve().parent
 

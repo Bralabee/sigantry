@@ -23,8 +23,8 @@ def _make_record(**overrides: object) -> BootstrapRecord:
         "stage": "DEV",
         "capacity_id": "22222222-2222-2222-2222-222222222222",
         "blueprint": "minimal_starter",
-        "folders_created": ["000 Orchestrate", "100 Ingest"],
-        "folders_present": ["000 Orchestrate", "100 Ingest", "200 Store"],
+        "folders_created": ["00_control", "10_intake"],
+        "folders_present": ["00_control", "10_intake", "20_storage"],
         "git_target": None,
         "step_outcomes": {
             "workspace": "created",

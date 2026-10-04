@@ -28,7 +28,7 @@ def test_workspace_example_yml_validates_clean() -> None:
     assert cfg.workspace_name, "example must set a workspace name"
     # Ships with the minimal_starter blueprint -> the 8-folder medallion layout.
     assert cfg.blueprint == "minimal_starter"
-    assert cfg.folder_list[0] == "000 Orchestrate"
+    assert cfg.folder_list[0] == "00_control"
     assert len(cfg.folder_list) == 8
     # Ships Git-disabled (no repo assumed at bootstrap time).
     assert cfg.git_enabled is False
