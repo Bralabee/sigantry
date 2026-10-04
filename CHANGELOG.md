@@ -456,8 +456,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   comment was newer than the head commit's committer date. That date is set by
   whoever makes the commit, so a contributor could push a back-dated,
   unreviewed commit after any such comment and the status would pass. Such a
-  comment now counts for nothing: only a review or inline comment made on the
-  head, or a record comment naming it as `on <12-hex SHA>`, counts. Copilot
+  comment no longer counts: a record comment must name the head as
+  `on <12-hex SHA>`. Reviews and inline comments still count when made on the
+  head, and the owner's head-scoped waiver is unchanged. Copilot
   reviews now count only from the `copilot-pull-request-reviewer[bot]` account
   of type `Bot`; the plain `copilot-pull-request-reviewer` login belongs to a
   separate organization account and no longer counts.
