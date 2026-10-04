@@ -75,9 +75,7 @@ published on PyPI on 2026-09-19. The version line restarted at 1.0.0
 for the public release; the internal 3.x line this guide was first
 written against is its ancestor, not a later version. The CLI
 contracts, manifest schemas, and audit-record shapes in this document
-are stable for the 1.x line and will not break-change before 2.0. The
-plugin packages `sigantry-hs2` and `sigantry-jtoye` are versioned
-independently.
+are stable for the 1.x line and will not break-change before 2.0.
 
 ---
 
@@ -127,8 +125,8 @@ maturity.
 It is not a Fabric replacement, a Power BI authoring tool, a custom
 lineage engine, a cross-cloud abstraction, or a real-time preventive
 control plane. The toolkit composes Microsoft's published surface; it
-does not try to reimplement it. See the project's `OUT-OF-SCOPE`
-section in `CLAUDE.md` for the full non-goals list.
+does not try to reimplement it. See the [scope reference](reference/scope.md)
+for the full non-goals list.
 
 ## 2. Architecture at a glance
 
@@ -143,7 +141,7 @@ graph TB
         CLI["sigantry CLI"]
         API["FabricDataOps Python facade"]
     end
-    subgraph Core["sigantry-core (agnostic platform)"]
+    subgraph Core["sigantry (agnostic platform)"]
         SYNC["sync engine<br/>apply / pull / diff / snapshot"]
         DEPLOY["deploy engine<br/>run / rollback / record"]
         BOOT["workspace bootstrap"]
@@ -197,53 +195,41 @@ retry, throttling, and audit instrumentation apply uniformly. Operator
 code never imports `httpx` or `requests` directly.
 
 The *plugin registry* is the load-bearing piece. Sigantry's base
-package does not ship a single HS2-, JToye-, or customer-X-specific
-default. Every customer-shaped behaviour is loaded at startup from
-Python entry points -- which means the same `sigantry-core` wheel runs
-identically against an HS2 tenant, a JToye tenant, or a brand-new
-deployment with zero plugins installed.
+package ships no organisation-specific default. Organisation-specific
+behaviour is loaded at run time from Python entry points -- which means
+the same `sigantry` wheel runs unchanged in any tenant, with or
+without plugins installed.
 
 ## 3. The plugin model
 
-Sigantry ships as **two or more independent wheels**: the agnostic base
-package and one optional plugin package per customer or organisation.
+Sigantry ships as **one base wheel**, `sigantry`, that any organisation
+can extend with plugin packages of its own.
 
 ```mermaid
 graph LR
-    A["sigantry-core<br/>(agnostic platform)"]
-    B["sigantry-hs2<br/>(HS2 reference plugin)"]
-    C["sigantry-jtoye<br/>(JToye plugin scaffold)"]
+    A["sigantry<br/>(agnostic platform)"]
     D["sigantry-yourorg<br/>(your plugin)"]
-    A -.imports.-> NIL["(nothing customer-specific)"]
-    B -.requires.-> A
-    C -.requires.-> A
+    A -.imports.-> NIL["(nothing organisation-specific)"]
     D -.requires.-> A
-    B -.implements.-> S1["AuthProvider, DeployProfile,<br/>TelemetrySink, etc."]
-    C -.implements.-> S1
-    D -.implements.-> S1
+    D -.implements.-> S1["AuthProvider, DeployProfile,<br/>TelemetrySink, etc."]
 ```
 
 The dependency arrow only ever points from a plugin towards the core
-package. Core never imports plugin code. An automated test in
-`tests/prereqs/test_phase8_banned_apis.py` enforces this -- any HS2
-string outside `sigantry-hs2/`, or any JToye string outside
-`sigantry-jtoye/`, fails CI.
+package. Core never imports a plugin by name: the registry
+(`sigantry_core/registry.py`) loads plugins at run time from the entry
+points they declare in the `sigantry.*` groups, or in the legacy
+groups listed in the [migration note](migration/2.x-to-3.0.md#entry-point-groups).
 
 ### What this means for installation
 
-If you are an operator who has nothing to do with HS2, **install only
-`sigantry-core`**. You get the full sync / deploy / governance / audit
+**Install `sigantry`.** You get the full sync / deploy / governance / audit
 machinery, plus the in-base reference plugins for `email`, `slack`,
 `teams` notification sinks, three secret stores
 (`key_vault`, `github_secrets`, `ado_variable_group`), and three
 approval gates (`ado_environments`, `github_environments`, `opa`).
 `sigantry doctor` will report **9 plugins discovered across 11 seam
-groups**.
-
-If you are working inside HS2 and need the AIMS deploy profile, the
-DQ-framework gate, the Log Analytics telemetry sink, or the HS2 Entra
-group auth provider, additionally install `sigantry-hs2`. Doctor will
-then report **15 plugins**.
+groups**. A plugin package you install on top adds a row for each
+entry point it declares.
 
 To author your own plugin pack, see Part V.
 
@@ -311,8 +297,6 @@ Some workflows are smoother with these installed; none are mandatory:
 
 - **`az` CLI** -- if you plan to authenticate interactively.
 - **`gh` CLI** -- for the work-item-traceability seam against GitHub.
-- **`pwsh` (PowerShell 7.4 LTS)** -- if you want to use the
-  `Sigantry` PowerShell module alongside the Python CLI.
 
 ## 5. Installation
 
@@ -325,7 +309,6 @@ canonical Python one-liner:
 
 ```bash
 pip install sigantry
-pip install sigantry-hs2            # optional, only for HS2 sites
 ```
 
 > The distribution name is `sigantry`, not `sigantry-core`: the
@@ -346,16 +329,16 @@ sha256sum sigantry-1.0.0-py3-none-any.whl
 pip install /path/to/sigantry-1.0.0-py3-none-any.whl
 ```
 
-If you also received the HS2 plugin wheel and need its capabilities:
+If you also received a plugin wheel built against Sigantry, install
+both files in one invocation:
 
 ```bash
 pip install /path/to/sigantry-1.0.0-py3-none-any.whl \
-            /path/to/sigantry_hs2-<version>-py3-none-any.whl
+            /path/to/<plugin>-<version>-py3-none-any.whl
 ```
 
-Install both wheels in the same `pip install` invocation when you are
-installing from files rather than an index: pip can only satisfy the
-plugin's dependency on the base package when both wheel files are
+When you install from files rather than an index, pip can only satisfy
+the plugin's dependency on the base package if both wheel files are
 supplied together.
 
 ### 5.3 Editable install from a clone
@@ -366,7 +349,6 @@ For contributors and for local debugging:
 git clone <repo-url> sigantry
 cd sigantry
 pip install -e .
-pip install -e sigantry-hs2     # if you want the HS2 plugin live
 ```
 
 Editable installs pick up source-tree edits immediately, which is
@@ -469,9 +451,9 @@ Once installed and authenticated, the verification ladder is short.
 ```bash
 # Step 1: confirm the install is healthy.
 sigantry doctor
-# Expected last line:
-#   "9 plugin(s) discovered across 11 seam group(s)."   # base alone
-#   "15 plugin(s) discovered across 11 seam group(s)."  # base + sigantry-hs2
+# Expected summary line on a base install:
+#   "9 plugin(s) discovered across 11 seam group(s)."
+# Each plugin package you install adds its own entry points to the count.
 
 # Step 2: confirm Sigantry can reach Fabric.
 sigantry workspace list
@@ -662,18 +644,18 @@ sequenceDiagram
 ```yaml
 schema_version: "1.0.0"
 items:
-  - local_path: notebooks/00_AIMS_Orchestration.ipynb
+  - local_path: notebooks/00_Orders_Orchestration.ipynb
     type: Notebook
-    target_folder: AIMS/01_NOTEBOOKS_AIMS_2026_V2
-    display_name: 00_AIMS_Orchestration
-  - local_path: notebooks/01_AIMS_Bronze_Ingest.ipynb
+    target_folder: Orders/01_Notebooks
+    display_name: 00_Orders_Orchestration
+  - local_path: notebooks/01_Orders_Bronze_Ingest.ipynb
     type: Notebook
-    target_folder: AIMS/01_NOTEBOOKS_AIMS_2026_V2
-    display_name: 01_AIMS_Bronze_Ingest
+    target_folder: Orders/01_Notebooks
+    display_name: 01_Orders_Bronze_Ingest
   # ... more items
 folders:
-  - AIMS                       # preservation set (Council D #5)
-  - AIMS/01_NOTEBOOKS_AIMS_2026_V2
+  - Orders                     # preservation set
+  - Orders/01_Notebooks
 ```
 
 The `folders[]` preservation set declares paths that the engine must
@@ -714,9 +696,7 @@ a staging tempdir but never POSTs to `/v1/workspaces/{id}/items`.
 
 When you want folder reconcile **and** first-time publish in one verb,
 add `--with-publish`. This was introduced in May 2026 (ADR-0013) to
-close the boundary surfaced by the `COE_F_SBDEVOPS_POC` brownfield UAT
-on 2026-05-01, and is the path the first production utilisation run
-used in June 2026.
+close that gap.
 
 ```bash
 sigantry sync apply \
@@ -1003,7 +983,7 @@ schedule. Any consumer can re-verify the hashes on the copy.
 ## 16. Why you might write a plugin
 
 Sigantry's eleven *protocol seams* exist to capture exactly the points
-where customer-shaped behaviour belongs. The base package has no
+where organisation-specific behaviour belongs. The base package has no
 opinions about which Teams channel to notify, which Key Vault to read
 secrets from, which capacity policy to enforce, or which work-item
 system to attach a release to. If you want any of those decisions to
@@ -1011,10 +991,8 @@ fire automatically on a workflow, you write a small plugin that
 implements one or more seams.
 
 The dependency arrow is one-way. Your plugin imports
-`sigantry_core.protocols`; core never imports your plugin. This is
-enforced by a CI test (`tests/prereqs/test_phase8_banned_apis.py`)
-that fails if any HS2 string appears in the base package, and the
-same shape applies to JToye, your-org, and any future plugin author.
+`sigantry_core.protocols`; core never imports your plugin by name. The
+registry loads it at run time from the entry points it declares.
 
 ## 17. Plugin discovery
 
@@ -1059,7 +1037,7 @@ up the new rows automatically; no configuration step is needed.
 The original v2 surface; you almost certainly extend one of these:
 
 - `AuthProvider` -- credential resolution and token broking.
-- `DeployProfile` -- per-customer deploy orchestration.
+- `DeployProfile` -- per-organisation deploy orchestration.
 - `DataQualityGate` -- runs a DQ suite, returns pass/fail.
 - `TelemetrySink` -- structured telemetry emission.
 - `RunbookRegistry` -- maps event names to runbook URLs.

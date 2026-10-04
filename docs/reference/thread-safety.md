@@ -1,6 +1,6 @@
 # Thread-safety contract
 
-`sigantry-core` has **per-component** thread-safety. This doc
+`sigantry` has **per-component** thread-safety. This doc
 spells out which surfaces are safe to share across threads, which are
 not, and how plugin authors should reason about it.
 
@@ -72,15 +72,11 @@ and the entry-point description.
 | `FakeAuth` (double) | Yes | Returns an immutable `Secret`. |
 | `StaticRunbookRegistry` (double) | Yes | Read-only dict after init. |
 | `NoopCapacityPolicy` (double) | Yes | Stateless. |
-| `LogAnalyticsSink` (HS2 plugin) | **Per-sink safe** | `LogsIngestionClient` is httpx-backed and thread-safe; lazy client-cache is initialised under GIL. Multiple `emit` calls in parallel are OK. |
-| `AimsDeployProfile` (HS2 plugin) | Documented as per-call (single-threaded deploy assumed) | `fabric-cicd` wrapped client; no formal guarantee for parallel `plan`/`apply` on one profile instance. |
-| `DqFrameworkGate` (HS2 plugin) | Per-call | `dq_framework` itself serialises through its Data Context. |
-| `Hs2EntraGroupAuth` | Yes | Wraps `DefaultAzureCredential`, which is thread-safe in `azure-identity >=1.15`. |
-| `Hs2TeamsRunbookRegistry` | Yes | Read-only dict after init. |
-| `Hs2CapacityPolicy` | Per-call | Stateless. |
+
+The base package registers no deploy profile, DQ gate, telemetry sink,
+auth provider, runbook registry or capacity policy. A plugin that
+supplies one should document its own thread-safety (see the checklist above).
 
 ## Related
 
-- `.planning/phases/08-platform-base-refactor/08-SECURITY.md` (internal
-  threat model; not published to the wiki)
 - [observation-planes.md](observation-planes.md)
