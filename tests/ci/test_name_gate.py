@@ -569,6 +569,97 @@ def test_workflow_checkout_does_not_persist_credentials() -> None:
         assert step.get("with", {}).get("persist-credentials") is False
 
 
+# The check-run name branch protection matches. GitHub names a job's check
+# run after its `name:`, and a matrix adds its values to that name.
+_CHECK_RUN = "Name gate"
+
+
+def _gate_job() -> dict:
+    jobs = [j for j in _workflow()["jobs"].values() if j.get("name") == _CHECK_RUN]
+    assert len(jobs) == 1, (
+        f"exactly one job must be named {_CHECK_RUN!r}, the check-run name branch "
+        f"protection matches; found {len(jobs)}. A renamed job reports under "
+        f"another name, so no check run named {_CHECK_RUN!r} ever reports."
+    )
+    return jobs[0]
+
+
+def _scan_step(job: dict) -> dict:
+    scans = [s for s in job["steps"] if "scripts/ci/check-name-gate.py" in str(s.get("run", ""))]
+    assert len(scans) == 1, f"the {_CHECK_RUN!r} job must run the scan exactly once"
+    return scans[0]
+
+
+def test_the_gate_check_is_the_job_that_scans() -> None:
+    """The job named for the check is the one that runs the scan.
+
+    Moving the scan to another job would leave a check with this name
+    reporting green having scanned nothing, and a matrix would rename the
+    check run so a check with this name never reports.
+    """
+    job = _gate_job()
+    assert "strategy" not in job, "a matrix renames the check run"
+    _scan_step(job)
+
+
+def test_the_gate_check_cannot_be_skipped() -> None:
+    """Nothing can turn the gate into a skipped run.
+
+    GitHub counts a skipped check run as satisfying a required check, so
+    an `if:` on the job or on any of its steps, or a `needs:` whose failure
+    skips the job, would let a skipped run stand in for a scan. A path or
+    branch filter on `pull_request` would leave pull requests unscanned.
+    """
+    on = _workflow()[True]  # PyYAML reads the bare key `on` as True
+    pull_request = on["pull_request"] or {}
+    for key in ("paths", "paths-ignore", "branches-ignore"):
+        assert key not in pull_request, f"on.pull_request.{key} leaves pull requests unscanned"
+    assert pull_request.get("branches") == ["main"]
+    job = _gate_job()
+    assert "if" not in job, "a job-level `if:` can skip the check"
+    assert not job.get("needs"), "a failed `needs:` skips the job, which satisfies the check"
+    for step in job["steps"]:
+        assert "if" not in step, f"step {step.get('name') or step.get('uses')!r} has an `if:`"
+
+
+def test_the_gate_scans_the_whole_checkout() -> None:
+    """The scan command, the checkout inputs and each step's action or command are pinned.
+
+    The gate lists files with `git -C <root> ls-files` and skips the content
+    of a tracked file that is missing from the work tree. A narrower
+    `--root`, a working directory with the script path adjusted to match, a
+    checkout input such as `ref` or `sparse-checkout`, or a step that removes
+    files before the scan can each let the check pass without reading the
+    pull request's whole tree.
+    """
+    wf = _workflow()
+    job = _gate_job()
+    scan = _scan_step(job)
+    assert scan["run"].strip() == "python scripts/ci/check-name-gate.py --root ."
+    assert "working-directory" not in scan, "a step working directory can narrow the scan"
+    assert "defaults" not in job, "job defaults can set a working directory for the scan"
+    assert "defaults" not in wf, "workflow defaults can set a working directory for the scan"
+    shape = [
+        (str(s.get("uses", "")).split("@")[0], str(s.get("run", "")).strip()) for s in job["steps"]
+    ]
+    assert shape == [
+        ("actions/checkout", ""),
+        ("actions/setup-python", ""),
+        (
+            "",
+            "sudo apt-get update -q && sudo apt-get install -y -q "
+            "--no-install-recommends poppler-utils",
+        ),
+        ("", "python scripts/ci/check-name-gate.py --root ."),
+    ], (
+        "each step's action or command is pinned: "
+        "a step added before the scan can change the tree it reads"
+    )
+    assert job["steps"][0].get("with") == {"persist-credentials": False}, (
+        "a checkout input such as ref or sparse-checkout changes the tree the scan reads"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Pre-check hardening: each case with the control that shows the harness bites
 # ---------------------------------------------------------------------------
