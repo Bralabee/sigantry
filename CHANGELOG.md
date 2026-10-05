@@ -97,11 +97,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   names; query values, userinfo and the fragment print as `<redacted>`
   (`sigantry_core.client.logging.redact_url`). This matters because a URL the
   client follows can come from a response, such as an LRO `Location` header
-  or a pagination cursor. A `credential` field prints only when the client
-  set it as a credential class name (`client_credential_resolved` still
-  names the credential class); a `credential` value logged by other code
-  through the `sigantry_core.client` logger prints as `<redacted>`. Header
-  redaction is unchanged.
+  or a pagination cursor. The same masking applies to `operation_id`. An ARM
+  long-running operation (`sigantry capacity pause` and `resume`) is
+  identified by its polling URL, so `FabricArmRestClient.send_arm_lro` now
+  uses that URL with its query values masked as the operation identity: that
+  is what the logs, `LROTimeoutError` and `OperationFailedError` carry, and
+  the poll itself still requests the full URL. A `credential` field prints
+  only when the client set it as a credential class name
+  (`client_credential_resolved` still names the credential class); a
+  `credential` value logged by other code through the `sigantry_core.client`
+  logger prints as `<redacted>`. Header redaction is unchanged.
 - The workspace delete fallback is described as what it does. With
   `pbi_fallback=True`, a Fabric `DELETE` that fails with `UnknownError` is
   tried again through the Power BI groups endpoint. The docstring, the

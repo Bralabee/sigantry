@@ -240,6 +240,42 @@ class TestUrlRedaction:
         assert "PLANTEDQS" not in out
 
 
+class TestOperationIdRedaction:
+    """An ARM operation is identified by its polling URL, so the field is masked too."""
+
+    ARM_STATE_URL = (
+        "https://management.azure.com/subscriptions/s/providers/Microsoft.Fabric"
+        "/locations/westeurope/operationStatuses/op-1?api-version=2023-11-01&sig=PLANTED-OP"
+    )
+    MASKED = (
+        "https://management.azure.com/subscriptions/s/providers/Microsoft.Fabric"
+        "/locations/westeurope/operationStatuses/op-1?api-version=<redacted>&sig=<redacted>"
+    )
+
+    def test_operation_id_extra_is_masked(self, formatter: JsonFormatter) -> None:
+        out = formatter.format(_make_record("lro_poll", extra={"operation_id": self.ARM_STATE_URL}))
+        assert "PLANTED-OP" not in out
+        assert json.loads(out)["operation_id"] == self.MASKED
+
+    def test_operation_id_from_the_contextvar_is_masked(self, formatter: JsonFormatter) -> None:
+        token = set_operation_id(self.ARM_STATE_URL)
+        try:
+            out = formatter.format(_make_record("request_completed"))
+        finally:
+            reset_operation_id(token)
+        assert "PLANTED-OP" not in out
+        assert json.loads(out)["operation_id"] == self.MASKED
+
+    @pytest.mark.parametrize(
+        "op_id", ["5f0c2b1e-8a5d-4c1e-9f6a-0d7e3b2a1c4f", "<arm-no-polling-url>", None]
+    )
+    def test_plain_operation_ids_print_unchanged(
+        self, formatter: JsonFormatter, op_id: str | None
+    ) -> None:
+        record = _make_record("lro_poll", extra={"operation_id": op_id} if op_id else None)
+        assert json.loads(formatter.format(record))["operation_id"] == op_id
+
+
 class TestCredentialExtra:
     def test_unmarked_credential_value_is_redacted(self, formatter: JsonFormatter) -> None:
         record = _make_record("plugin_event", extra={"credential": "PLANTED-CRED"})

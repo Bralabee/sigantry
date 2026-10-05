@@ -310,3 +310,93 @@ class TestAuth:
         client = _make_client(mock_token_provider)
         client.send_arm_lro("POST", _suspend_path())
         mock_token_provider.get_token.assert_called_with(AZURE_RM_SCOPE)
+
+
+class TestOperationIdentityMasking:
+    """The polling URL is the operation identity; its query values stay out of it.
+
+    The identity is logged on every poll and carried by the LRO errors, so a
+    signature or token in the URL's query would otherwise be printed. The
+    poll itself must still request the full URL.
+    """
+
+    STATE_URL = (
+        "https://management.azure.com/subscriptions/s/providers/Microsoft.Fabric"
+        "/locations/westeurope/operationStatuses/op-1?api-version=2023-11-01&sig=PLANTED-OP"
+    )
+    MASKED = (
+        "https://management.azure.com/subscriptions/s/providers/Microsoft.Fabric"
+        "/locations/westeurope/operationStatuses/op-1?api-version=<redacted>&sig=<redacted>"
+    )
+
+    @pytest.mark.parametrize("header", ["Azure-AsyncOperation", "Location"])
+    def test_identity_is_masked_and_state_url_is_not(
+        self,
+        header: str,
+        mock_token_provider: MagicMock,
+        respx_router: respx.Router,
+    ) -> None:
+        respx_router.post(_suspend_url()).mock(
+            return_value=httpx.Response(202, headers={header: self.STATE_URL}, json={})
+        )
+        client = _make_client(mock_token_provider)
+        with patch("sigantry_core.client.arm.poll_operation", return_value=None) as poll:
+            client.send_arm_lro("POST", _suspend_path())
+        assert poll.call_args.kwargs["state_url"] == self.STATE_URL
+        assert poll.call_args.kwargs["operation_id"] == self.MASKED
+
+    def test_logs_and_timeout_error_carry_no_query_values(
+        self,
+        mock_token_provider: MagicMock,
+        respx_router: respx.Router,
+    ) -> None:
+        import io
+        import logging
+
+        from sigantry_core.client.logging import JsonFormatter
+
+        respx_router.post(_suspend_url()).mock(
+            return_value=httpx.Response(
+                202, headers={"Azure-AsyncOperation": self.STATE_URL}, json={}
+            )
+        )
+        poll_route = respx_router.get(
+            host="management.azure.com",
+            path="/subscriptions/s/providers/Microsoft.Fabric/locations/westeurope"
+            "/operationStatuses/op-1",
+        ).mock(return_value=httpx.Response(200, json={"status": "Running"}))
+
+        records: list[logging.LogRecord] = []
+
+        class _Capture(logging.Handler):
+            def emit(self, record: logging.LogRecord) -> None:
+                records.append(record)
+
+        json_out = io.StringIO()
+        json_handler = logging.StreamHandler(json_out)
+        json_handler.setFormatter(JsonFormatter())
+        capture = _Capture()
+        client_logger = logging.getLogger("sigantry_core.client")
+        client_logger.addHandler(json_handler)
+        client_logger.addHandler(capture)
+        client = _make_client(mock_token_provider)
+        try:
+            with (
+                patch("sigantry_core.client.lro.time.sleep"),
+                pytest.raises(LROTimeoutError) as exc,
+            ):
+                client.send_arm_lro("POST", _suspend_path(), max_polls=1)
+        finally:
+            client_logger.removeHandler(json_handler)
+            client_logger.removeHandler(capture)
+
+        # Control: the poll went to the full URL, query included.
+        assert poll_route.call_count == 1
+        assert "sig=PLANTED-OP" in str(poll_route.calls.last.request.url)
+        # The identity the caller and the logs see has no query values.
+        assert exc.value.operation_id == self.MASKED
+        polled = [r for r in records if r.getMessage() == "lro_poll"]
+        assert [getattr(r, "operation_id", None) for r in polled] == [self.MASKED]
+        assert not any("PLANTED-OP" in str(getattr(r, "operation_id", "")) for r in records)
+        assert "PLANTED-OP" not in json_out.getvalue()
+        assert self.MASKED in json_out.getvalue()

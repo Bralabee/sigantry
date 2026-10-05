@@ -10,7 +10,9 @@ CLIENT-06:
 - A logged ``url`` keeps its scheme, host, path and query parameter NAMES;
   query values, userinfo and the fragment are replaced with ``"<redacted>"``
   (see :func:`redact_url`). A response can hand the client a URL whose query
-  carries a signature or token, and the URL is logged on every request.
+  carries a signature or token, and the URL is logged on every request. The
+  same applies to ``operation_id``: an ARM operation is identified by its
+  polling URL.
 - A ``credential`` extra is printed only when the client itself set it, as a
   :class:`CredentialClassName`; any other value is replaced with
   ``"<redacted>"``. Third-party code logging through this tree cannot put a
@@ -148,7 +150,7 @@ class JsonFormatter(logging.Formatter):
       schema stability.
     - If the record carries ``headers`` in extras the dict is redacted before
       serialisation.
-    - ``url`` is passed through :func:`redact_url`.
+    - ``url`` and ``operation_id`` are passed through :func:`redact_url`.
     - If the record carries ``body`` it is stringified and truncated at
       ``BODY_LOG_MAX_BYTES`` bytes with a ``"...[truncated]"`` suffix.
     """
@@ -165,6 +167,9 @@ class JsonFormatter(logging.Formatter):
         for key in _LOG_FIELDS:
             payload[key] = getattr(record, key, None)
         payload["url"] = redact_url(payload["url"])
+        # An ARM operation's identity is its polling URL (see client.arm).
+        # A plain operation id has no query, so it prints unchanged.
+        payload["operation_id"] = redact_url(payload["operation_id"])
         headers = getattr(record, "headers", None)
         if isinstance(headers, dict):
             payload["headers"] = _redact_headers(headers)
