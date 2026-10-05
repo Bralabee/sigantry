@@ -875,11 +875,22 @@ def test_a_record_line_is_read_as_empty_only_when_it_checks_out(
         assert proc.returncode == 0, proc.stdout
 
 
-@pytest.mark.parametrize("self_row", ["sha256=zqplant,7", ",zqplant"])
+@pytest.mark.parametrize(
+    "self_row",
+    [
+        "sha256=zqplant,7",  # a digest and a size
+        ",zqplant",  # a size only
+        "sha256=zqplant,",  # a digest only
+    ],
+)
 def test_the_record_row_for_record_itself_is_read_unless_it_is_empty(
     tmp_path: Path, self_row: str
 ) -> None:
-    """RECORD lists itself with no digest and no size; anything on that row is read."""
+    """RECORD lists itself with no digest and no size; anything on that row is read.
+
+    The row is blank only when both fields are: a check of either field
+    alone passes the row whose other field carries the token.
+    """
     root = _tree(tmp_path, BASE)
     body = b"x = 1\n"
     first = f"demo/__init__.py,sha256={_record_digest(body)},{len(body)}\n"
