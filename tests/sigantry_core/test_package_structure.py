@@ -9,8 +9,11 @@ from __future__ import annotations
 
 import importlib
 import pathlib
+import re
 
 import pytest
+
+_VERSION_RE = re.compile(r'^__version__\s*=\s*"(\d+\.\d+\.\d+[^"]*)"$', re.MULTILINE)
 
 EXPECTED_SUBMODULES = [
     "sigantry_core.auth",
@@ -32,11 +35,18 @@ def test_submodule_is_importable(module_name: str) -> None:
     importlib.import_module(module_name)
 
 
-def test_top_level_exports_version() -> None:
+def test_top_level_exports_version(package_root: pathlib.Path) -> None:
+    """The package exports the version ``_version.py`` declares.
+
+    Read from the file, never restated: a literal here is a second copy of
+    the version, which goes red on a correct release bump.
+    """
     import sigantry_core
 
+    match = _VERSION_RE.search((package_root / "_version.py").read_text(encoding="utf-8"))
+    assert match is not None, "_version.py must declare __version__ as a quoted SemVer string"
     assert isinstance(sigantry_core.__version__, str)
-    assert sigantry_core.__version__ == "1.0.0"
+    assert sigantry_core.__version__ == match.group(1)
 
 
 def test_py_typed_marker_exists(package_root: pathlib.Path) -> None:
