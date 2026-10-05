@@ -353,7 +353,7 @@ apply_reconcile(plan, apply=True, unpublish_orphans, force)
 shell ─▶ sigantry workspace list --tenant-id <...>
             │
             ▼ (pyproject [project.scripts])
-     sigantry_core.cli:app  (Typer, 18 subapps)
+     sigantry_core.cli:main -> app  (Typer, 18 subapps)
             │
             ▼  app.add_typer(workspace_app, name="workspace")
      workspace.cli.list_cmd

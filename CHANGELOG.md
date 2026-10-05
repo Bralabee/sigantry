@@ -247,6 +247,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `expected_group=`, or configure the group as described under Changed.
 
 ### Fixed
+- **Audit-trail warnings now reach stderr on the command line.** Importing
+  the package imports fabric-cicd, which sets the root logger to ERROR, so the
+  WARNING records that report a ledger line failing its hash check
+  (`ledger_line_tampered`), an unreadable ledger line, or a failed audit
+  write (`destructive_op_audit_write_failed`) were dropped before any handler
+  saw them, and `sigantry release list` on an edited ledger printed nothing.
+  The console script and both `python -m` forms now start through
+  `sigantry_core.cli:main`, which gives the `sigantry_core.release.ledger`
+  and `sigantry_core.governance.audit` loggers a WARNING level and a stderr
+  handler, and changes nothing else: other libraries' warnings stay off
+  stderr, and a run whose audit trail is intact prints nothing new. Programs
+  that import the package keep their own logging configuration; they see
+  these records only if they set a level on those loggers themselves.
 - **`.github/workflows/drift-check.yml` failed every day.** Its `schedule:`
   trigger ran the workflow with an empty `inputs` context (declared defaults are
   not applied to scheduled runs either), so `sigantry diff` got no workspace and

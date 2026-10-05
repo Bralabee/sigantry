@@ -31,9 +31,18 @@ PR-review bot's CLI entry point: auto-detects CI provider from env
 (``GITHUB_ACTIONS=true`` -> github / ``TF_BUILD=True`` -> ado),
 diffs TMDL + Lakehouse metadata, and posts a byte-identical comment
 through :class:`GithubProvider` or :class:`AdoProvider`.
+
+The console script and both ``python -m`` forms run :func:`main`, which
+routes the audit-trail warnings to stderr before handing over to ``app``.
+Importing this module, as the tests and library hosts do, changes no
+logging configuration.
 """
 
 from __future__ import annotations
+
+import logging
+import sys
+import traceback
 
 import typer
 
@@ -84,5 +93,75 @@ app.add_typer(pr_bot_app, name="pr-bot")
 app.add_typer(preflight_app, name="preflight")
 
 
-if __name__ == "__main__":
+#: Loggers whose WARNING records describe the operator's own audit trail:
+#: a ledger line that fails its hash check or cannot be parsed, and an audit
+#: record that could not be written. ``import sigantry_core`` imports
+#: fabric-cicd, which sets the ROOT logger to ERROR, so without a level of
+#: their own these records are dropped before any handler sees them.
+_INTEGRITY_LOGGERS: tuple[str, ...] = (
+    "sigantry_core.release.ledger",
+    "sigantry_core.governance.audit",
+)
+
+_HANDLER_MARK = "_sigantry_cli_integrity"
+
+
+class _IntegrityFormatter(logging.Formatter):
+    """One line per record; an exception is reduced to its type and message."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        line = f"{record.levelname} {record.name}: {record.getMessage()}"
+        if record.exc_info and record.exc_info[1] is not None:
+            exc = record.exc_info[1]
+            detail = "".join(traceback.format_exception_only(type(exc), exc)).strip()
+            line = f"{line} ({detail})"
+        return line
+
+
+class _IntegrityStderrHandler(logging.Handler):
+    """Write to whatever ``sys.stderr`` is at emit time.
+
+    A plain ``StreamHandler`` keeps the stream it was built with, which is
+    wrong once a caller has swapped ``sys.stderr`` (as test runners do).
+    """
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.WARNING)
+        self.setFormatter(_IntegrityFormatter())
+        setattr(self, _HANDLER_MARK, True)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            stream = sys.stderr
+            stream.write(self.format(record) + "\n")
+            stream.flush()
+        except Exception:
+            self.handleError(record)
+
+
+def _install_integrity_log_handler() -> None:
+    """Send WARNING and above from the two audit-trail loggers to stderr.
+
+    Scoped to those two loggers on purpose: every other library logger
+    (azure, msal, httpx, fabric-cicd, the rest of sigantry_core) keeps the
+    configuration it had, so a run that printed nothing to stderr before
+    still prints nothing unless the audit trail itself has a problem.
+    Records still propagate, so a host's own handlers see them as before.
+    Idempotent.
+    """
+    for name in _INTEGRITY_LOGGERS:
+        target = logging.getLogger(name)
+        if not any(getattr(h, _HANDLER_MARK, False) for h in target.handlers):
+            target.addHandler(_IntegrityStderrHandler())
+        if target.level == logging.NOTSET or target.level > logging.WARNING:
+            target.setLevel(logging.WARNING)
+
+
+def main() -> None:
+    """Entry point for the ``sigantry`` console script and ``python -m``."""
+    _install_integrity_log_handler()
     app()
+
+
+if __name__ == "__main__":
+    main()

@@ -89,7 +89,7 @@ render = [
 
 [project.scripts]
 diagnose-auth = "sigantry_core.auth.cli:app"
-sigantry = "sigantry_core.cli:app"
+sigantry = "sigantry_core.cli:main"
 
 # Entry-point groups for plugin discovery (11 protocol seams).
 [project.entry-points."sigantry.deploy_profiles"]
