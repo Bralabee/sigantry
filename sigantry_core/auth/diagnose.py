@@ -10,8 +10,16 @@ exceptions are listed in pyproject.toml: the ``httpx`` banned-api message and
 - ``decode_token_claims`` surfaces the token's tenant (``tid``) so a login to
   the wrong tenant is visible. Raw tokens are never logged or returned; only
   whitelisted claims are.
-- ``check_entra_group`` checks membership of an expected group only when it
-  is given one; otherwise it reports the check as ``skipped``.
+- ``check_entra_group`` sends a request only when it is given an expected
+  group. It needs a Microsoft Graph token (scope ``GRAPH_SCOPE``), not the
+  Fabric token used by ``check_tenant_toggles``, and never sends a token
+  whose ``aud`` claim names only other resources. A response from Graph
+  other than 200 is an ``error`` with a ``classification``, not ``missing``.
+  Called without ``expected_group`` it emits a ``FutureWarning``: sigantry
+  1.0.0 checked a built-in group there, which has been removed.
+- Importing ``ExpectedEntraGroup`` by name, as code written against sigantry
+  1.0.0 may do, emits a ``FutureWarning`` (see ``__getattr__``). ``import *``
+  does not bind it.
 """
 
 from __future__ import annotations
@@ -19,13 +27,14 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import warnings
 from typing import TYPE_CHECKING, Any, Literal
 
 # TID251 (ban httpx) is silenced for this file in pyproject.toml
 # [tool.ruff.lint.per-file-ignores]; see the module docstring.
 import httpx
 
-from sigantry_core.auth.audiences import FABRIC_AUDIENCE, GRAPH_AUDIENCE
+from sigantry_core.auth.audiences import FABRIC_AUDIENCE, GRAPH_AUDIENCE, GRAPH_SCOPE
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -35,7 +44,77 @@ logger = logging.getLogger(__name__)
 #: ``check_entra_group`` detail when no expected group was given.
 _GROUP_CHECK_SKIPPED_DETAIL = "not checked: no expected group configured"
 
+#: ``FutureWarning`` for ``check_entra_group()`` called without a group.
+_NO_GROUP_WARNING = (
+    "check_entra_group() was called without expected_group, so no request is sent. "
+    "sigantry 1.0.0 checked a built-in group name, which has been removed. Pass "
+    "expected_group=<group display name>."
+)
+
+#: ``FutureWarning`` for an import of the deprecated ``ExpectedEntraGroup`` name.
+_EXPECTED_ENTRA_GROUP_WARNING = (
+    "sigantry_core.auth.diagnose.ExpectedEntraGroup is deprecated: the built-in Entra "
+    "group it named has been removed. Configure the group with [auth] expected_group, "
+    "SIGANTRY_AUTH__EXPECTED_GROUP or --expected-group, or pass expected_group= to "
+    "check_entra_group()."
+)
+
+if TYPE_CHECKING:
+    #: Deprecated. See ``__getattr__`` below.
+    ExpectedEntraGroup: str
+else:
+
+    def __getattr__(name: str) -> str:
+        """Serve the deprecated ``ExpectedEntraGroup`` name (PEP 562).
+
+        sigantry 1.0.0 exported it as the built-in group ``check_entra_group``
+        checked. That value is gone: the name emits a ``FutureWarning`` and then
+        returns an empty string, which ``check_entra_group`` treats as no group.
+        A warnings filter set to ``error`` raises the warning instead, so
+        nothing is returned. Under the default filters a ``FutureWarning`` is
+        shown, also when the importer is a package module, where a
+        ``DeprecationWarning`` is hidden. Every other unknown name raises
+        ``AttributeError`` as before.
+        """
+        if name == "ExpectedEntraGroup":
+            warnings.warn(_EXPECTED_ENTRA_GROUP_WARNING, FutureWarning, stacklevel=2)
+            return ""
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+#: ``aud`` values a Microsoft Graph access token carries: the resource URI,
+#: with or without a trailing slash, or Graph's well-known application id.
+_GRAPH_TOKEN_AUDIENCES = frozenset(
+    {GRAPH_AUDIENCE, f"{GRAPH_AUDIENCE}/", "00000003-0000-0000-c000-000000000000"}
+)
+
+#: Most ``memberOf`` pages ``check_entra_group`` reads before it gives up.
+_MAX_MEMBER_OF_PAGES = 50
+
 ErrorClassification = Literal["ok", "token_rejected", "api_not_enabled", "other"]
+
+GroupCheckClassification = Literal[
+    "ok",
+    "missing",
+    "skipped",
+    "settings_unreadable",
+    "token_unavailable",
+    "wrong_audience",
+    "token_rejected",
+    "permission_denied",
+    "delegated_only",
+    "names_hidden",
+    "incomplete",
+    "other",
+]
+"""Why a group check ended as it did.
+
+``ok``, ``missing`` and ``skipped`` decide the membership (or say there was
+none to decide); ``missing`` decides only direct membership, because
+``memberOf`` does not list a group joined through another group. Every other
+value has ``status="error"``: the membership is unknown, and the value names
+what stopped the check.
+"""
 
 
 def classify_http_error(resp: httpx.Response) -> ErrorClassification:
@@ -63,7 +142,8 @@ def decode_token_claims(token: str) -> dict[str, Any]:
 
     Returns a dict of claims (subset if any are missing). Never returns the
     raw token. Never logs the raw token. If the token is malformed, returns
-    an empty dict rather than raising.
+    an empty dict rather than raising; a payload that is JSON but not an
+    object carries no claims.
     """
     try:
         parts = token.split(".")
@@ -74,6 +154,8 @@ def decode_token_claims(token: str) -> dict[str, Any]:
         padded = payload_b64 + "=" * (-len(payload_b64) % 4)
         payload = json.loads(base64.urlsafe_b64decode(padded).decode("utf-8"))
     except Exception:  # malformed token, return empty
+        return {}
+    if not isinstance(payload, dict):
         return {}
     # Whitelist claims we explicitly surface; do NOT return arbitrary fields
     # that might contain surprise PII.
@@ -147,6 +229,98 @@ def check_tenant_toggles(
     }
 
 
+def group_check_result(
+    status: str,
+    classification: GroupCheckClassification,
+    *,
+    expected: str | None,
+    detail: str,
+    groups: list[str] | None = None,
+) -> dict[str, Any]:
+    """Build one ``entra_groups`` result in the shape ``check_entra_group`` returns."""
+    return {
+        "status": status,
+        "classification": classification,
+        "groups": list(groups or []),
+        "expected": expected,
+        "detail": detail,
+    }
+
+
+def _graph_error_message(resp: httpx.Response) -> str:
+    """Return Graph's ``error.message``, or ``""`` when the body has none."""
+    try:
+        error = resp.json().get("error") or {}
+        message = error.get("message") if isinstance(error, dict) else None
+    except Exception:  # not JSON, or not an object
+        return ""
+    return message if isinstance(message, str) else ""
+
+
+def _graph_refusal(
+    resp: httpx.Response, *, expected_group: str, principal_id: str | None
+) -> dict[str, Any]:
+    """Explain a non-200 ``memberOf`` response; the membership stays unknown."""
+    code = resp.status_code
+    if code == 401:
+        return group_check_result(
+            "error",
+            "token_rejected",
+            expected=expected_group,
+            detail=(
+                "401: Microsoft Graph rejected the token; the membership is unknown. "
+                f"The token must be issued for {GRAPH_SCOPE}."
+            ),
+        )
+    if code == 403:
+        if principal_id:
+            need = "Application.Read.All (or Directory.Read.All)"
+            whose = "the service principal's"
+        else:
+            need = "the User.Read delegated permission (or GroupMember.Read.All)"
+            whose = "the signed-in user's"
+        return group_check_result(
+            "error",
+            "permission_denied",
+            expected=expected_group,
+            detail=(
+                f"403: Microsoft Graph refused to list {whose} memberships; "
+                f"the membership is unknown. Grant {need}."
+            ),
+        )
+    if code == 400 and not principal_id and "delegated" in _graph_error_message(resp).lower():
+        return group_check_result(
+            "error",
+            "delegated_only",
+            expected=expected_group,
+            detail=(
+                "400: /me/memberOf needs a signed-in user; the membership is unknown. "
+                "For a service principal, pass its object id with --principal-id."
+            ),
+        )
+    return group_check_result(
+        "error",
+        "other",
+        expected=expected_group,
+        detail=f"{code}: {resp.reason_phrase} from Microsoft Graph; the membership is unknown",
+    )
+
+
+def _issued_for_another_resource(audience: object) -> bool:
+    """Whether a decoded ``aud`` claim names only resources other than Graph.
+
+    ``aud`` is usually a string but may be a list. An absent claim, or one of
+    another type, decides nothing: such a token is sent, as an opaque token is.
+    """
+    if isinstance(audience, str):
+        audiences = [audience]
+    elif isinstance(audience, list):
+        audiences = [a for a in audience if isinstance(a, str)]
+    else:
+        return False
+    return bool(audiences) and _GRAPH_TOKEN_AUDIENCES.isdisjoint(audiences)
+
+
 def check_entra_group(
     token: str,
     *,
@@ -156,23 +330,49 @@ def check_entra_group(
 ) -> dict[str, Any]:
     """Probe MS Graph for membership of ``expected_group``. Read-only.
 
-    With no ``expected_group`` there is nothing to check: no request is sent
-    and the result has ``status="skipped"`` -- never ``"ok"``, so an
-    unconfigured check cannot read as a passed one.
+    With no ``expected_group`` there is nothing to check and no request is
+    sent. The call emits a ``FutureWarning``, because sigantry 1.0.0 checked a
+    built-in group there; a warnings filter set to ``error`` raises it, and
+    otherwise the result has ``status="skipped"`` -- never ``"ok"``, so an
+    unconfigured check cannot read as a passed one. The ``diagnose-auth``
+    command builds its skipped result without calling this function, so it
+    does not emit that warning.
+
+    ``token`` must be a Microsoft Graph token (scope ``GRAPH_SCOPE``). A token
+    whose ``aud`` claim names only other resources, such as the Fabric token,
+    is never sent; ``wrong_audience`` means a token was held back for that
+    reason.
 
     When `principal_id` is provided, use /servicePrincipals/{id}/memberOf.
-    Otherwise use /me/memberOf (user token path).
+    Otherwise use /me/memberOf (user token path). Later pages
+    (``@odata.nextLink``) are followed on the Graph host only.
 
-    Returns: `{"status", "groups", "expected", "detail"}`, where status is
-    one of ``ok`` / ``missing`` / ``error`` / ``skipped``.
+    Returns: `{"status", "classification", "groups", "expected", "detail"}`,
+    where status is one of ``ok`` / ``missing`` / ``error`` / ``skipped`` and
+    ``classification`` (a ``GroupCheckClassification``) says why. ``missing``
+    means the pages were read to the last one, every group entry had a name and
+    none was ``expected_group``. A response other than 200 is an ``error``.
+    ``names_hidden`` marks an ``error`` in which some entries had no name and
+    none of the named ones was ``expected_group``. ``incomplete`` marks an
+    ``error`` in which ``_MAX_MEMBER_OF_PAGES`` pages were read, each with a
+    link to a next one, and none of their named entries was ``expected_group``.
     """
     if not expected_group:
-        return {
-            "status": "skipped",
-            "groups": [],
-            "expected": None,
-            "detail": _GROUP_CHECK_SKIPPED_DETAIL,
-        }
+        warnings.warn(_NO_GROUP_WARNING, FutureWarning, stacklevel=2)
+        return group_check_result(
+            "skipped", "skipped", expected=None, detail=_GROUP_CHECK_SKIPPED_DETAIL
+        )
+    audience = decode_token_claims(token).get("aud")
+    if _issued_for_another_resource(audience):
+        return group_check_result(
+            "error",
+            "wrong_audience",
+            expected=expected_group,
+            detail=(
+                f"not checked: the token was issued for {audience!r}, not Microsoft Graph; "
+                f"a token for {GRAPH_SCOPE} is required"
+            ),
+        )
     if principal_id:
         url = f"{GRAPH_AUDIENCE}/v1.0/servicePrincipals/{principal_id}/memberOf?$select=displayName"
     else:
@@ -182,38 +382,106 @@ def check_entra_group(
     if client is None:
         client = httpx.Client(timeout=10.0)
         close_client = True
+
+    groups: list[str] = []
+    unnamed = 0
     try:
-        resp = client.get(url, headers=headers)
+        for page in range(_MAX_MEMBER_OF_PAGES):
+            try:
+                resp = client.get(url, headers=headers)
+            except httpx.HTTPError as exc:
+                if page == 0:
+                    raise  # the first request fails as it did in 1.0.0
+                return group_check_result(
+                    "error",
+                    "other",
+                    expected=expected_group,
+                    detail=(
+                        f"{type(exc).__name__} reading memberOf page {page + 1} from "
+                        "Microsoft Graph; the membership is unknown"
+                    ),
+                    groups=groups,
+                )
+            if resp.status_code != 200:
+                return _graph_refusal(
+                    resp, expected_group=expected_group, principal_id=principal_id
+                )
+            try:
+                body = resp.json()
+                for entry in body.get("value", []):
+                    name = entry.get("displayName")
+                    if name:
+                        groups.append(name)
+                    elif entry.get("@odata.type", "#microsoft.graph.group") == (
+                        "#microsoft.graph.group"
+                    ):
+                        unnamed += 1
+                next_link = body.get("@odata.nextLink")
+            except Exception:
+                return group_check_result(
+                    "error",
+                    "other",
+                    expected=expected_group,
+                    detail="unparseable 200 from Microsoft Graph",
+                    groups=groups,
+                )
+            if expected_group in groups:
+                return group_check_result(
+                    "ok",
+                    "ok",
+                    expected=expected_group,
+                    detail=f"member of {expected_group}",
+                    groups=groups,
+                )
+            if not next_link:
+                break
+            if not isinstance(next_link, str) or not next_link.startswith(f"{GRAPH_AUDIENCE}/"):
+                return group_check_result(
+                    "error",
+                    "other",
+                    expected=expected_group,
+                    detail=(
+                        f"Microsoft Graph returned a next page outside {GRAPH_AUDIENCE}; "
+                        "it was not followed and the membership is unknown"
+                    ),
+                    groups=groups,
+                )
+            url = next_link
+        else:
+            return group_check_result(
+                "error",
+                "incomplete",
+                expected=expected_group,
+                detail=(
+                    "not decided: none of the named memberships on the first "
+                    f"{_MAX_MEMBER_OF_PAGES} pages is {expected_group}, and Microsoft "
+                    "Graph returned a link to more pages"
+                ),
+                groups=groups,
+            )
     finally:
         if close_client:
             client.close()
 
-    if resp.status_code != 200:
-        return {
-            "status": "error",
-            "groups": [],
-            "expected": expected_group,
-            "detail": f"{resp.status_code}: {resp.reason_phrase}",
-        }
-
-    try:
-        body = resp.json()
-        groups = [g.get("displayName", "") for g in body.get("value", []) if g.get("displayName")]
-    except Exception:
-        return {
-            "status": "error",
-            "groups": [],
-            "expected": expected_group,
-            "detail": "unparseable 200",
-        }
-
-    is_member = expected_group in groups
-    return {
-        "status": "ok" if is_member else "missing",
-        "groups": groups,
-        "expected": expected_group,
-        "detail": f"member of {expected_group}" if is_member else f"not in {expected_group}",
-    }
+    if unnamed:
+        return group_check_result(
+            "error",
+            "names_hidden",
+            expected=expected_group,
+            detail=(
+                "not decided: Microsoft Graph returned membership(s) without a name, "
+                f"so {expected_group} may be one of them. Grant GroupMember.Read.All "
+                "(or Directory.Read.All) to read group names."
+            ),
+            groups=groups,
+        )
+    return group_check_result(
+        "missing",
+        "missing",
+        expected=expected_group,
+        detail=f"not in {expected_group}",
+        groups=groups,
+    )
 
 
 def build_report(

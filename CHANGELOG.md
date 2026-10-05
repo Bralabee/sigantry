@@ -11,11 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Upgrading from 1.0.0
 - **The bullets below describe ways this release differs from 1.0.0** when
-  it reads settings or bootstraps a workspace, one subject each: Config
-  file; Env prefix; Invalid values in the new inputs; Settings keys;
-  `ToolkitSettings()` built directly; `auth.expected_group`; Unprefixed
-  variables (and see Security); Settings classes; Warnings as errors;
-  pytest plugin; Workspace bootstrap.
+  it reads settings, bootstraps a workspace or checks Entra group
+  membership, one subject each: Config file; Env prefix; Invalid values in
+  the new inputs; Settings keys; `ToolkitSettings()` built directly;
+  `auth.expected_group`; Unprefixed variables (and see Security); Settings
+  classes; Warnings as errors; pytest plugin; Workspace bootstrap;
+  `diagnose-auth`.
 - **Config file.** `.sigantry.toml` is now read. When it and the legacy config
   file both exist and differ, the legacy file is still the one read, as in
   1.0.0, with a `UserWarning`; two identical files are read without one. A
@@ -151,6 +152,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `folders` as `already-converged`. Bootstrap warns when a blueprint would
   add folders beside a workspace's existing top-level folders (see
   Changed).
+- **`diagnose-auth`.** The Entra group check has no built-in group name;
+  set one as described under Changed. In `diagnose-auth` output, a
+  `skipped` group check means neither `--expected-group` nor the loaded
+  settings named a group; it does not change the exit code. In 1.0.0 the
+  group check took the group name from the code and sent the Fabric token
+  to Microsoft Graph (see Fixed). Each `entra_groups` result gains a
+  `classification` field.
+  Importing `ExpectedEntraGroup` from `sigantry_core.auth.diagnose` by name,
+  or calling `check_entra_group()` with no `expected_group` or an empty one,
+  now emits a `FutureWarning`, which a warnings filter that makes it an
+  error raises as an exception; otherwise the name gives an empty string and
+  the call returns a `skipped` result without sending a request.
 
 ### Added
 - **A name gate** (`scripts/ci/check-name-gate.py`, run by
@@ -433,6 +446,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   read for one more minor release and each emits a `DeprecationWarning` naming
   its replacement. Through 1.0.x, where a setting is supplied under both
   prefixes, the `FDT_` value is used, as in 1.0.0.
+- `sigantry_core.auth.diagnose.ExpectedEntraGroup`. Importing it by name
+  emits a `FutureWarning` (see Upgrading from 1.0.0), and
+  `from sigantry_core.auth.diagnose import *` no longer binds it. Configure
+  the group instead (see Changed).
 
 ### Removed
 - `docs/migration/3.x-pr-bot.md`, a PR-bot "migration" page that told
@@ -495,11 +512,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   3.2.1. The Markdown stays the canonical source:
   `scripts/userguide/render.py` and `scripts/tutorials/render.py` now write
   to `build/docs/`, which is gitignored.
-- `sigantry_core.auth.diagnose.ExpectedEntraGroup`, and the default group of
-  `check_entra_group()`. Both carried one deployment's group name; pass
-  `expected_group=`, or configure the group as described under Changed.
+- The value of `sigantry_core.auth.diagnose.ExpectedEntraGroup`, and the
+  default group of `check_entra_group()`. Both carried one deployment's group
+  name; Upgrading from 1.0.0 describes what the name and a call without
+  `expected_group` do now. Pass `expected_group=`, or configure the group as
+  described under Changed.
 
 ### Fixed
+- **The `diagnose-auth` group check sent the Fabric token to Microsoft
+  Graph**, which accepts only a token issued for Graph; 1.0.0 reported
+  Graph's refusal as an error, exit code 2, for member and non-member alike.
+  The command now sends Graph only a second token, which it requests from
+  the same credential for `https://graph.microsoft.com/.default`, and only
+  for a group check that has a group to check; the `--scope` token goes only
+  to the Fabric probe. `check_entra_group()` never sends a token whose `aud`
+  claim names only resources other than Graph. Each `entra_groups` result
+  now has a `classification` field; with `status` `error` it is one of
+  `token_unavailable`, `wrong_audience`, `token_rejected`,
+  `permission_denied`, `delegated_only`, `names_hidden`, `incomplete`,
+  `settings_unreadable` or `other`, and `detail` describes it.
+  `token_unavailable` means the second token could not be obtained; like any
+  group check reported as `error`, it makes the exit code 2, and exit code 3
+  still means no token for `--scope`. `missing` now means the `memberOf`
+  pages, which list direct memberships only, were read to the last one,
+  every group entry had a name and none was the group; before, only the first
+  page was read and entries without a name were dropped. Later `memberOf`
+  pages are followed only on the Graph host.
 - **`.github/workflows/drift-check.yml` failed every day.** Its `schedule:`
   trigger ran the workflow with an empty `inputs` context (declared defaults are
   not applied to scheduled runs either), so `sigantry diff` got no workspace and
@@ -646,12 +684,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `sigantry` (`pyproject.toml` declares it; no sigantry release was ever
   published as `sigantry-core`, and since 2026-10-04 that name on PyPI holds
   only a yanked, code-free 0.0.1 placeholder that points to `sigantry` —
-  ADR-0017 records the amendment to ADR-0011). Every consumer following a
-  shipped ADO step template, starter workflow or demo quickstart hit a package
-  that is not there. 49 references corrected across `templates/`,
-  `.github/workflows/`, `scripts/` and `.pre-commit-config.yaml`. Because the
-  old name installs no code for anyone, this fix cannot break an existing
-  install.
+  ADR-0017 records the amendment to ADR-0011). A consumer following a
+  shipped ADO step template, starter workflow or demo quickstart got no code
+  from PyPI. 49 references corrected across `templates/`,
+  `.github/workflows/`, `scripts/` and `.pre-commit-config.yaml`. CI
+  templates: the step templates now ask pip for `sigantry`, so a pipeline
+  whose `artifactsFeed` holds its build only as `sigantry-core` no longer
+  installs that build, and pip can take `sigantry` from PyPI instead. Such a
+  pipeline should publish its build to that feed as `sigantry`, or set
+  `fabricDataopsVersion` to a version published as `sigantry`.
 - `sigantry --help` announced the tool as "Fabric DataOps Toolkit", a name the
   project left behind in v3.0, and `sigantry doctor` titled its plugin table
   "sigantry-core plugins".
@@ -697,14 +738,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   published GitHub Release is now the only trigger, and a failed release is
   recovered by re-running all jobs of its run. `docs/release-process.md` no
   longer presents the manual run as a fallback.
-- Settings env overrides are now restricted to `<PREFIX><SECTION>__<KEY>` forms
-  whose section names a real settings field, and **no** model in the tree
-  enables pydantic-settings' own env source. `SIGANTRY_` is shared with ~70
-  operational variables, several of them credentials
-  (`SIGANTRY_SMTP_PASSWORD`, `SIGANTRY_GITHUB_TEST_PAT`,
-  `SIGANTRY_FABRIC_TOKEN`). Because `ToolkitSettings` allows extra fields, an
-  unfiltered sweep under the new prefix would have bound those onto the
-  settings object and exposed them through `model_dump()`.
+- A `SIGANTRY_` variable that names no settings section, such as
+  `SIGANTRY_PROVIDER` or one of the operational variables that share the
+  prefix, is not read as a setting and is not added to the settings object,
+  and **no** model in the tree enables pydantic-settings' own env source.
+  With the next bullet, this keeps such names, and the unprefixed
+  `PROVIDER`, `GATE`, `STORE` and `REGISTRY`, from choosing a plugin or
+  setting a field through the settings: in 1.0.0 an unprefixed `PROVIDER`
+  chose the auth and work-item provider plugins, `GATE` the data-quality and
+  approval gates, `STORE` the secret store and `REGISTRY` the runbook
+  registry.
 - **Unprefixed environment variables no longer bind to settings.** Dropping the
   env source on the root model closed only one of fourteen: each seam section is
   a `Field(default_factory=...)`, and while those sub-models were `BaseSettings`

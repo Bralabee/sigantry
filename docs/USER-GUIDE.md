@@ -442,6 +442,7 @@ the wrong scope**. The full list of scopes Sigantry requests:
 | `sigantry deploy run` | the same as `sync apply --with-publish` |
 | `sigantry rbac-audit` | the Fabric scope and the Power BI **admin** scope -- SPNs without admin role get a `forbidden-admin-only` row, not a crash |
 | `sigantry workspace bootstrap` | the Fabric scope, plus `vso.work` if Git connect is enabled |
+| `diagnose-auth` | the `--scope` value (default: the Fabric scope), plus `https://graph.microsoft.com/.default` only when the group check has a group |
 
 To debug which credential resolved and whether the tenant toggle is
 visible, run the bundled auth doctor -- a standalone console script
@@ -452,6 +453,19 @@ diagnose-auth
 # exit 0 = healthy; 2 = degraded (token works but a prerequisite such
 # as the tenant toggle is missing); 3 = no credential produced a token
 ```
+
+Only a run with the Fabric scope (the default, `--scope fabric`) checks
+Entra group membership, and only of a group named by `--expected-group` or by
+the loaded settings (`[auth] expected_group`, `SIGANTRY_AUTH__EXPECTED_GROUP`);
+`skipped` means neither named one. Before it calls Microsoft Graph, the
+command asks the same credential for a second token, for
+`https://graph.microsoft.com/.default`. Listing the principal's memberships
+takes a Graph permission: for a user, at least delegated `User.Read`; for a
+service principal (pass `--principal-id`), at least `Application.Read.All`. A
+group check reported as `error` carries an `entra_groups.classification`, such
+as `permission_denied` or `token_unavailable`, and a detail. `names_hidden`
+means some memberships came back without their names and none of the named
+ones is the group; its detail asks for `GroupMember.Read.All`.
 
 ## 7. First steps
 
