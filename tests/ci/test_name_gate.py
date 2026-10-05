@@ -807,6 +807,10 @@ _OTHER_METADATA = "Metadata-Version: 2.4\nName: other\nSummary: zqplant\n\nbody\
             "wheel!inner.zip!other.dist-info/METADATA",
         ),
     ],
+    # Named here: pytest would build the ids from the values, and the zip's
+    # bytes carry the local time it was built at, so the node id of the
+    # nested case would change between two runs.
+    ids=["sdist-deeper-pkg-info", "wheel-deeper-metadata", "wheel-nested-zip"],
 )
 def test_only_the_top_level_core_metadata_is_keyed_by_field(
     tmp_path: Path, kind: str, member: str, content: str | bytes, unit: str
