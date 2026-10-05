@@ -73,6 +73,7 @@ def _run(
     list_text: str | None = LIST,
     *extra: str,
     env_value: str | None = None,
+    cwd: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     env = {k: v for k, v in os.environ.items() if k != "NAME_GATE_TOKENS"}
     args = [sys.executable, str(GATE), "--root", str(root), *extra]
@@ -82,7 +83,7 @@ def _run(
         list_file = tmp_path / "list.txt"
         list_file.write_text(list_text, encoding="utf-8")
         args += ["--list-file", str(list_file)]
-    return subprocess.run(args, capture_output=True, text=True, env=env, check=False)
+    return subprocess.run(args, capture_output=True, text=True, env=env, check=False, cwd=cwd)
 
 
 def _hits(proc: subprocess.CompletedProcess[str]) -> list[str]:
@@ -711,6 +712,136 @@ def test_a_metadata_header_that_is_not_field_lines_is_keyed_by_line(tmp_path: Pa
     assert _hits(proc) == ["wheel!demo.dist-info/METADATA:4 S01"]
 
 
+def test_a_continuation_line_is_the_next_line_of_the_field_above(tmp_path: Path) -> None:
+    """A header line that starts with a space or a tab continues the field above it.
+
+    Read as a field of its own it is not ``Field: value``, so the whole
+    header would be keyed by line and every registered field entry would go
+    stale.
+    """
+    root = _metadata_tree(tmp_path)
+    folded = _metadata(extra="Summary: a summary\n        zqplant folded\n\tzqplant again\n")
+    dist = _dist(tmp_path, wheel={"demo-1.2.3.dist-info/METADATA": folded})
+    proc = _run(root, tmp_path, LIST + _README_ENTRY + _WHEEL_AUTHOR, "--dist", str(dist))
+    assert proc.returncode == 1
+    assert _hits(proc) == [
+        "wheel!demo.dist-info/METADATA#Summary:2 S01",
+        "wheel!demo.dist-info/METADATA#Summary:3 S01",
+    ]
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        b"Name: demo\rVersion: 1.2.3\n\rKeywords: zqplant\n\n",  # a lone CR is a line end
+        b"Name: demo\nVersion: 1.2.3\n\x0c\nKeywords: zqplant\n\n",  # a page break is not read
+    ],
+    ids=["lone CR", "page break"],
+)
+def test_a_metadata_body_is_the_readme_only_where_the_scan_reads_it_as_one(
+    tmp_path: Path, header: bytes
+) -> None:
+    """The header block ends at the first blank line the scan reads, not the first in the bytes.
+
+    In both headers the scan reads a blank line before ``Keywords``, so the
+    body starts there and ``Keywords`` is its first line, while the bytes
+    after the first ``\\n\\n`` are an exact copy of the readme. Keyed by
+    that copy, every body hit would be reported against a readme line it is
+    not on, and a registered readme line could excuse it.
+    """
+    root = _metadata_tree(tmp_path)
+    listed = LIST + _README_ENTRY
+    plain = b"Name: demo\nVersion: 1.2.3\nKeywords: zqplant\n\n" + _README.encode()
+    dist = _dist(tmp_path, wheel={"demo-1.2.3.dist-info/METADATA": plain})
+    proc = _run(root, tmp_path, listed, "--dist", str(dist))
+    # The control: with a plain header the body is the readme's copy.
+    assert _hits(proc) == ["wheel!demo.dist-info/METADATA#Keywords:1 S01"]
+    crafted = _dist(
+        tmp_path,
+        wheel={"demo-1.2.3.dist-info/METADATA": header + _README.encode()},
+        version="1.2.4",
+    )
+    proc = _run(root, tmp_path, listed, "--dist", str(crafted))
+    assert proc.returncode == 1
+    assert _hits(proc) == [
+        "wheel!demo.dist-info/METADATA#body:1 S01",
+        "wheel!demo.dist-info/METADATA#body:4 S01",
+    ]
+
+
+def test_a_readme_named_by_a_table_is_the_body_source_as_well(tmp_path: Path) -> None:
+    pyproject = (
+        '[project]\nname = "demo"\nreadme = {file = "README.md", content-type = "text/markdown"}\n'
+    )
+    root = _metadata_tree(tmp_path, pyproject=pyproject)
+    dist = _dist(tmp_path, wheel={"demo-1.2.3.dist-info/METADATA": _metadata()})
+    proc = _run(root, tmp_path, LIST + _README_ENTRY + _WHEEL_AUTHOR, "--dist", str(dist))
+    assert proc.returncode == 0, proc.stdout
+
+
+def _zip_bytes(members: dict[str, str]) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for member, content in members.items():
+            z.writestr(member, content)
+    return buf.getvalue()
+
+
+_OTHER_METADATA = "Metadata-Version: 2.4\nName: other\nSummary: zqplant\n\nbody\n"
+
+
+@pytest.mark.parametrize(
+    ("kind", "member", "content", "unit"),
+    [
+        ("sdist", "demo.egg-info/PKG-INFO", _OTHER_METADATA, "sdist!demo.egg-info/PKG-INFO"),
+        (
+            "wheel",
+            "demo/vendored-1.0.dist-info/METADATA",
+            _OTHER_METADATA,
+            "wheel!demo/vendored-1.0.dist-info/METADATA",
+        ),
+        (
+            "wheel",
+            "inner.zip",
+            _zip_bytes({"other-1.0.dist-info/METADATA": _OTHER_METADATA}),
+            "wheel!inner.zip!other.dist-info/METADATA",
+        ),
+    ],
+)
+def test_only_the_top_level_core_metadata_is_keyed_by_field(
+    tmp_path: Path, kind: str, member: str, content: str | bytes, unit: str
+) -> None:
+    """Core metadata deeper in the artifact, or inside a nested container, is any other text.
+
+    Only the artifact's own ``PKG-INFO`` or ``METADATA`` is described by the
+    build; another one is keyed by line, as any member is.
+    """
+    root = _metadata_tree(tmp_path)
+    dist = _dist(tmp_path, **{kind: {member: content}})
+    proc = _run(root, tmp_path, LIST + _README_ENTRY, "--dist", str(dist))
+    assert proc.returncode == 1
+    assert _hits(proc) == [f"{unit}:3 S01"]
+
+
+@pytest.mark.parametrize("kind", ["wheel", "sdist"])
+def test_a_member_of_a_nested_container_is_never_read_as_a_tree_file(
+    tmp_path: Path, kind: str
+) -> None:
+    """Only an artifact's own members are matched to tree paths.
+
+    The tree file ``inner.zip!README.md`` and the readme inside the member
+    ``inner.zip`` share a name as the gate writes it, and their bytes, but
+    the nested one was never a tree file, so it is read in full.
+    """
+    root = _tree(tmp_path, {**BASE, "inner.zip!README.md": _README})
+    listed = LIST + "exception inner.zip!README.md:2 S01\n"
+    dist = _dist(tmp_path, **{kind: {"inner.zip": _zip_bytes({"README.md": _README})}})
+    proc = _run(root, tmp_path, listed, "--dist", str(dist))
+    assert proc.returncode == 1
+    assert _hits(proc) == [f"{kind}!inner.zip!README.md:2 S01"]
+    assert "0 artifact member(s) identical to the tree" in proc.stdout
+
+
 def _record_digest(body: bytes) -> str:
     return base64.urlsafe_b64encode(hashlib.sha256(body).digest()).rstrip(b"=").decode()
 
@@ -742,6 +873,26 @@ def test_a_record_line_is_read_as_empty_only_when_it_checks_out(
         assert _hits(proc) == ["wheel!demo.dist-info/RECORD:1 S09"]
     else:
         assert proc.returncode == 0, proc.stdout
+
+
+@pytest.mark.parametrize("self_row", ["sha256=zqplant,7", ",zqplant"])
+def test_the_record_row_for_record_itself_is_read_unless_it_is_empty(
+    tmp_path: Path, self_row: str
+) -> None:
+    """RECORD lists itself with no digest and no size; anything on that row is read."""
+    root = _tree(tmp_path, BASE)
+    body = b"x = 1\n"
+    first = f"demo/__init__.py,sha256={_record_digest(body)},{len(body)}\n"
+    rows = ((",", []), (self_row, ["wheel!demo.dist-info/RECORD:2 S01"]))  # the control first
+    for n, (row, hits) in enumerate(rows):
+        record = f"{first}demo-1.2.3.dist-info/RECORD,{row}\n"
+        dist = _dist(
+            tmp_path / f"build{n}",
+            wheel={"demo/__init__.py": body, "demo-1.2.3.dist-info/RECORD": record},
+        )
+        proc = _run(root, tmp_path, LIST, "--dist", str(dist))
+        assert _hits(proc) == hits, row
+        assert proc.returncode == (1 if hits else 0)
 
 
 def test_a_field_entry_that_matches_no_hit_is_stale_and_a_tree_run_ignores_it(
@@ -848,6 +999,17 @@ def test_dist_and_archive_cannot_be_combined(tmp_path: Path) -> None:
     wheel = dist / "demo-1.2.3-py3-none-any.whl"
     proc = _run(root, tmp_path, LIST, "--dist", str(dist), "--archive", str(wheel))
     assert proc.returncode == 2
+
+
+def test_an_empty_dist_argument_is_an_error_not_the_working_directory(tmp_path: Path) -> None:
+    """``Path("")`` is the working directory: run from inside one, it would be scanned."""
+    root = _tree(tmp_path, BASE)
+    dist = _dist(tmp_path)
+    assert _run(root, tmp_path, LIST, "--dist", ".", cwd=dist).returncode == 0  # the control
+    proc = _run(root, tmp_path, LIST, "--dist", "", cwd=dist)
+    assert proc.returncode == 2, proc.stdout
+    assert "--dist needs a directory" in proc.stderr
+    assert "Traceback" not in proc.stderr
 
 
 def test_an_artifact_file_name_is_read_as_a_path(tmp_path: Path) -> None:

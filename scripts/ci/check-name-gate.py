@@ -73,11 +73,15 @@ What is read (no path, basename or suffix is exempt):
     reported by where it sits rather than by its line: in the header
     block as ``<unit>#<Field>:<n>``, the ``n``-th line carrying that
     field (``METADATA#Author:1``); in the body as the readme file's
-    ``<path>:<line>`` when the body is byte-identical to the file
-    ``pyproject.toml`` names as ``readme``, else as ``<unit>#body:<line>``
-    counted from the body's first line. Adding a classifier, a dependency
-    or a URL moves no key. A header block that is not ``Field: value``
-    lines is keyed by line, as any text;
+    ``<path>:<line>`` when the body (the bytes after the first blank line)
+    is byte-identical to the file ``pyproject.toml`` names as ``readme``
+    and its lines are the ones read after the header block, else as
+    ``<unit>#body:<line>`` counted from the first line after the header
+    block. Adding a classifier, a dependency or a URL moves no key. A
+    header block that is not ``Field: value`` lines is keyed by line, as
+    any text. Only the top-level core metadata is read this way: a
+    ``PKG-INFO`` or ``METADATA`` deeper in, or inside a nested container,
+    is read as any other member;
   * a line of a wheel's ``RECORD`` that names a member and carries that
     member's SHA-256 and size is read as empty: everything on it is
     recomputed from bytes the gate reads, and a random digest matches a
@@ -137,8 +141,8 @@ Exit codes:
          stale exception.
     2 -- the list is unavailable or invalid, the tree cannot be listed, an
          --archive argument or an entry of --dist is not a wheel or sdist,
-         or --dist cannot be listed or does not hold exactly one wheel and
-         one sdist.
+         or --dist is empty, cannot be listed or does not hold exactly one
+         wheel and one sdist.
 """
 
 from __future__ import annotations
@@ -698,8 +702,13 @@ def _metadata_rekey(content: bytes, report: Report) -> Callable[[str, int], tupl
         seen[current] = seen.get(current, 0) + 1
         keys.append((current, seen[current]))
     header = len(keys)
-    head, blank, body = content.partition(b"\n\n")
-    same_split = bool(blank) and head.count(b"\n") == header - 1
+    _head, blank, body = content.partition(b"\n\n")
+    # The readme's own scan numbered the lines of exactly these bytes. They
+    # are its copy only when those lines are the ones this scan numbers after
+    # the header block; a lone CR or a page break can end the header at
+    # another place than the first blank line in the bytes.
+    body_lines = _normalise(_decodings(body)[0]).split("\n")
+    same_split = bool(blank) and lines[header + 1 :] == body_lines
     readme = report.readme
     digest = hashlib.sha256(body).hexdigest()
     origin = readme if same_split and readme and report.tree.get(readme) == digest else None
@@ -858,6 +867,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         token_list = load_list(args.list_file)
         dist = args.dist
+        if dist == "":
+            # Path("") is the working directory, which would be listed instead.
+            raise GateError("--dist needs a directory")
         artifacts = dist_files(Path(dist)) if dist is not None else [Path(a) for a in args.archive]
         # The tree first, always: an artifact's members are read against it.
         scan_tree(Path(args.root), token_list.tokens, report)
