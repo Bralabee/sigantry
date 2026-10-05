@@ -1,9 +1,9 @@
 # Sigantry demo -- try it in 15 minutes
 
 > Phase 15 / DEMO-04. This walkthrough is for outside reviewers who
-> did not build Sigantry. Total time: ~15 minutes from a fresh laptop
-> to a green sync + diff against the demo Fabric tenant (the demo CI's
-> release-record step does not work yet; see Step 6). If any step takes
+> did not build Sigantry. It does not run end to end on the shipped
+> demo tree yet: Step 4's `sync apply` and the demo CI's deploy step in
+> Step 6 both exit with code 1 (see those steps). If any step takes
 > more than 3 minutes, jump to the
 > [Troubleshooting](#troubleshooting) section at the bottom.
 
@@ -104,9 +104,11 @@ sigantry sync apply \
   --workspace-id "$SIGANTRY_DEMO_WORKSPACE_ID"
 ```
 
-Expected output: 4 items deployed
-(`Sales.Lakehouse`, `LoadOrders.Notebook`,
-`RefreshOrdersDaily.DataPipeline`, `OrdersAnalytics.SemanticModel`).
+On the shipped demo tree this command exits with code 1 before it
+changes the workspace: no `sync apply` packager handles the `Lakehouse`
+item, and the notebook packager reads only `.ipynb` files. Without
+`--with-publish`, `sync apply` publishes no items in any case; it
+creates and moves folders and places items the workspace already holds.
 
 Re-running this command is idempotent -- if the workspace already
 matches the manifest, the second run is a no-op.
@@ -121,10 +123,9 @@ sigantry diff \
 
 Expected output: `no drift detected` (exit 0).
 
-If you see drift on `Sales.Lakehouse` table data, jump to the
-[Troubleshooting](#troubleshooting) section -- Lakehouse table data
-lives in OneLake (not Git), so this is correct Microsoft Fabric
-behaviour, not a Sigantry bug.
+`sigantry diff` compares item names, types and folders only, so
+Lakehouse tables, which live in OneLake rather than Git, never show as
+drift (see [Troubleshooting](#troubleshooting)).
 
 ## Step 6 -- Push a change and watch CI
 
@@ -139,24 +140,19 @@ git push -u origin feature/demo-quickstart-touch
 ```
 
 Open a PR against `main` on the demo-sigantry repo (GitHub or ADO).
-After merge, watch the `sigantry-demo-ci` workflow run on the push to
-`main`: deploy -> record -> diff. The record step does not work yet
-(see "Release record" below): when the job reaches it, it exits with
-code 2, so the diff step after it does not run. Re-run Step 5 by hand
-to check for drift after the deploy.
+After merge, the `sigantry-demo-ci` workflow runs on the push to
+`main`: deploy -> record -> diff. It does not complete yet. The deploy
+step exits with code 1, because `parameters.yml` references PREPROD and
+PROD variables that the step does not set, so the record and diff steps
+do not run. The record step would exit with code 2 in any case (see
+"Release record" below).
 
-## What you proved
+## What the walkthrough covers
 
-In about 15 minutes, you exercised three Sigantry feature surfaces
-end-to-end against a real Fabric tenant:
-
-- **Phase 4 deploy** -- `sigantry deploy` (and its `sync apply` peer)
-  pushes 4 Fabric item types (Lakehouse + Notebook + DataPipeline +
-  SemanticModel) via `fabric-cicd`.
-- **Phase 13 drift** -- `sigantry diff` catches divergence between the Git
-  source-of-truth and tenant state.
-- **Dual-CI parity** -- the same three-command demo loop ships in
-  GitHub Actions and Azure DevOps.
+By hand: `sigantry config validate`, `sigantry sync apply` and
+`sigantry diff`. In the demo CI, which ships for both GitHub Actions and
+Azure DevOps: `sigantry deploy run`, `sigantry release record` and
+`sigantry diff`. It does not complete yet (see the note at the top).
 
 **Release record** -- the demo CI's `sigantry release record` step
 writes no record yet. It passes `--workspace-id`, which `release record`
@@ -172,11 +168,11 @@ command exits with code 2 before writing anything. Run
   A `DEMO` env name fails the whitelist; this is intentional. The
   demo workspace lives behind the `DEV` slot whose `$ENV:` references
   point at the four `SIGANTRY_DEMO_*` env vars.
-- **Lakehouse drift on first run** -- Lakehouse table data lives in
-  OneLake, NOT in Git. Adding a table or column in the Fabric portal
-  surfaces as drift in `sigantry diff`. Use the demo notebook
-  (`LoadOrders.Notebook`) to create tables, so the round-trip stays
-  stable. The runbook
+- **Lakehouse tables** -- table data lives in OneLake, not in Git, and
+  `sigantry diff` does not see it: a table or column added in the
+  Fabric portal is not reported as drift. Use the demo notebook
+  (`LoadOrders.Notebook`) to create tables, so the table-creation logic
+  is in Git. The runbook
   [docs/runbooks/demo-tenant-operator.md](../runbooks/demo-tenant-operator.md)
   has the full explanation under "Lakehouse Git limitation".
 - **`SIGANTRY_DEMO_FABRIC_TOKEN` rejected** -- tokens rotate every 90

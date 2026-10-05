@@ -10,9 +10,10 @@
 #                 exposes secrets to fork PRs)
 #
 # Each secret-using step is guarded with
-# `if: ${{ secrets.SIGANTRY_DEMO_FABRIC_TOKEN != '' }}` so fork PRs
+# `if: ${{ env.SIGANTRY_DEMO_HAS_TOKEN == 'true' }}` so fork PRs
 # (where secrets are not exposed) skip cleanly to scaffold-only
-# validation rather than failing.
+# validation rather than failing. A step `if:` cannot read `secrets`,
+# so the job-level env carries only whether the token is set.
 #
 # All four SIGANTRY_DEMO_* secrets are referenced ONLY via
 # `${{ secrets.SIGANTRY_DEMO_* }}` -- no literals (RESEARCH Pitfall 8).
@@ -40,6 +41,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      SIGANTRY_DEMO_HAS_TOKEN: ${{ secrets.SIGANTRY_DEMO_FABRIC_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -49,7 +52,7 @@ jobs:
       - name: Install sigantry
         run: pip install sigantry
       - name: Deploy
-        if: ${{ secrets.SIGANTRY_DEMO_FABRIC_TOKEN != '' }}
+        if: ${{ env.SIGANTRY_DEMO_HAS_TOKEN == 'true' }}
         env:
           SIGANTRY_FABRIC_TENANT_ID: ${{ secrets.SIGANTRY_DEMO_TENANT_ID }}
           SIGANTRY_FABRIC_CAPACITY_ID: ${{ secrets.SIGANTRY_DEMO_CAPACITY_ID }}
@@ -62,7 +65,7 @@ jobs:
             --environment DEV \
             --source fabric_items
       - name: Record release
-        if: ${{ secrets.SIGANTRY_DEMO_FABRIC_TOKEN != '' }}
+        if: ${{ env.SIGANTRY_DEMO_HAS_TOKEN == 'true' }}
         env:
           SIGANTRY_FABRIC_TOKEN: ${{ secrets.SIGANTRY_DEMO_FABRIC_TOKEN }}
           SIGANTRY_DEMO_WORKSPACE_ID: ${{ secrets.SIGANTRY_DEMO_WORKSPACE_ID }}
@@ -72,7 +75,7 @@ jobs:
             --release-id "${SIGANTRY_DEMO_RELEASE_ID}" \
             --workspace-id "${SIGANTRY_DEMO_WORKSPACE_ID}"
       - name: Diff (fail on drift)
-        if: ${{ secrets.SIGANTRY_DEMO_FABRIC_TOKEN != '' }}
+        if: ${{ env.SIGANTRY_DEMO_HAS_TOKEN == 'true' }}
         env:
           SIGANTRY_FABRIC_TOKEN: ${{ secrets.SIGANTRY_DEMO_FABRIC_TOKEN }}
           SIGANTRY_DEMO_WORKSPACE_ID: ${{ secrets.SIGANTRY_DEMO_WORKSPACE_ID }}

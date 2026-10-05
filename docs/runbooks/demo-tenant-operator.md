@@ -89,14 +89,12 @@ OUTSIDE the Git source-of-truth.
 
 Implications for the demo:
 
-- Adding a table in the Fabric portal surfaces as `drift` in
-  `sigantry diff` -- this is correct Microsoft Fabric behaviour, NOT
-  a Sigantry bug.
+- A table added in the Fabric portal does not show as drift:
+  `sigantry diff` compares item names, types and folders only.
 - Use the demo notebook (`LoadOrders.Notebook`) to create tables for
   round-trip-stable demos; it commits the table-creation logic to
   Git so re-deploys reproduce the same end state.
-- Document this in any external comms / FAQ -- outside reviewers
-  will encounter it on Step 5 of the QUICKSTART. The QUICKSTART's
+- Document this in any external comms / FAQ. The QUICKSTART's
   Troubleshooting section already references this runbook.
 
 Reference: [Microsoft Learn -- Lakehouse Git deployment limitations](https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-git-deployment-pipelines).
@@ -151,7 +149,7 @@ running `sigantry sync apply` against the wrong env-var-loaded token
 deploys demo content to a production adopter tenant. The demo SPN
 being narrowly-scoped is the structural defence; least-privilege
 variable groups and per-step
-`if: ${{ secrets.SIGANTRY_DEMO_FABRIC_TOKEN != '' }}` guards in the
+`if: ${{ env.SIGANTRY_DEMO_HAS_TOKEN == 'true' }}` guards in the
 demo CI are the procedural defences.
 
 Verification:
