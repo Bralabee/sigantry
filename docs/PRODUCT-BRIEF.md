@@ -102,17 +102,20 @@ The demo IS Sigantry dogfooded in public:
 
 - A public `demo-sigantry` GitHub repo + ADO project (mirrored from
   this monorepo's `templates/demo/`).
-- A dedicated demo Fabric tenant populated with sample lakehouse +
-  notebook + data-pipeline + semantic-model items.
-- Demo CI runs `sigantry deploy` + `sigantry release record` +
-  `sigantry diff --fail-on-drift` on every push -- the same
-  three-command loop the wedge promises adopters.
+- A dedicated demo Fabric tenant, and sample lakehouse + notebook +
+  data-pipeline + semantic-model items in the repo to deploy to it.
+- Demo CI for GitHub Actions and Azure DevOps with the steps
+  `sigantry deploy`, `sigantry release record` and
+  `sigantry diff --fail-on-drift` -- the same three-command loop the
+  wedge promises adopters. It does not complete yet: its deploy step
+  exits with code 1 (see Step 6 of the quickstart).
 
 ### Try it yourself
 
-See [docs/demo/QUICKSTART.md](demo/QUICKSTART.md) -- 15 minutes from
-a fresh laptop to a green deploy + audit + diff against the demo
-tenant.
+See [docs/demo/QUICKSTART.md](demo/QUICKSTART.md) for a walkthrough
+against the demo tenant. It does not run end to end yet: on the shipped
+demo tree, `sigantry sync apply` and the demo CI's deploy step exit
+with code 1.
 
 ### Operator runbook
 

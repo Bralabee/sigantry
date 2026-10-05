@@ -43,8 +43,8 @@ curl -H "Authorization: Bearer $SIGANTRY_DEMO_FABRIC_TOKEN" \
 ```
 
 Expected: HTTP 200 with the list of items in the demo workspace
-(empty on a fresh provision; populated after the first
-`sigantry sync apply`).
+(empty on a fresh provision; the QUICKSTART's `sigantry sync apply`
+step does not add items to it, see its Step 4).
 
 ## 2. Secret rotation cadence
 
@@ -67,12 +67,10 @@ suspicion of leakage. Procedure:
      --group-id <id> --name SIGANTRY_DEMO_FABRIC_TOKEN \
      --value "<new-token>" --secret true
    ```
-4. Push a no-op commit to `main` to verify the demo CI still runs
-   green:
-   ```bash
-   git commit --allow-empty -m "ops: token rotation smoke" && git push
-   ```
-5. Revoke the old secret in Entra ID once the demo CI run goes green.
+4. The demo CI cannot confirm the new token yet: its deploy step exits
+   with code 1 before it calls Fabric (QUICKSTART, Step 6). Check the
+   token with the REST call in Section 1 instead.
+5. Revoke the old secret in Entra ID once that call succeeds.
 
 The other three env vars
 (`SIGANTRY_DEMO_TENANT_ID`, `_WORKSPACE_ID`, `_CAPACITY_ID`) are

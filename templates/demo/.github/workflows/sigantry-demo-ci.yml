@@ -45,10 +45,11 @@ jobs:
       SIGANTRY_DEMO_HAS_TOKEN: ${{ secrets.SIGANTRY_DEMO_FABRIC_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
+      # No `cache: 'pip'`: setup-python's pip cache needs a requirements.txt
+      # or pyproject.toml, and the demo tree has neither, so the step fails.
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
       - name: Install sigantry
         run: pip install sigantry
       - name: Deploy

@@ -111,11 +111,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `sigantry release verify` checks the deploy ledger only. The ledger is
   described as integrity-checked and unkeyed rather than immutable, signed or
   cryptographic, and the pipeline templates' tests and approval as gating the
-  release record, not the deployment. The demo quickstart no longer promises a
-  working run: it says which steps exit with an error on the shipped demo
-  tree, and that a Lakehouse table does not show as drift. Two entries under
-  [1.0.0] below made the same claims (continuous topology comparison, and a
-  rollback restoring historical item states) and are corrected in place.
+  release record, not the deployment. The demo pages no longer promise a
+  working run; the quickstart sets the variables `config validate` needs and
+  says Lakehouse tables never show as drift. Two entries under [1.0.0] below
+  made the same claims (continuous topology comparison, and a rollback
+  restoring historical item states) and are corrected in place.
 - The documentation says how version numbers relate: public 1.0.0
   continues an internal 3.x line (1.0.0 corresponds to internal 3.4.x),
   and the v2.x and v3.x numbers in older pages refer to that line. The
@@ -538,7 +538,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`templates/demo/.github/workflows/sigantry-demo-ci.yml`) read `secrets`
   in its step conditions, which GitHub does not allow, so GitHub rejected
   the file before any step ran. The steps now test a job-level flag that
-  records whether the token secret is set.
+  records whether the token secret is set. Its Python setup step no longer
+  asks for a pip cache: with no `requirements.txt` or `pyproject.toml` in
+  the demo tree, that failed the job before the deploy step.
 
 ### Security
 - **`publish-pypi.yml` no longer has a manual trigger.** `workflow_dispatch`

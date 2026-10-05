@@ -6,17 +6,18 @@
 
 ## What this is
 
-A reproducible, end-to-end demo of Sigantry -- Apache-2.0 open-source
+A demo of Sigantry -- Apache-2.0 open-source
 Fabric DataOps. A prospect or evaluator can:
 
-1. **Try** Sigantry on their own laptop in 15 minutes via
+1. **Try** Sigantry on their own laptop via
    `docs/demo/QUICKSTART.md`.
-2. **Inspect** the audit ledger, drift detection, rollback, and
-   PR-bot output produced by THIS repo's own CI runs against a
-   dedicated demo Fabric tenant.
+2. **Read** this repo's demo CI (deploy + record + diff against a
+   dedicated demo Fabric tenant) and its PR bot.
 
-The demo IS Sigantry dogfooded in public: every feature is
-exercised end-to-end on a real (demo) tenant.
+The demo does not run end to end yet: on this tree
+`sigantry sync apply` and the demo CI's deploy step exit with code 1,
+and the CI's record step would exit with code 2, so its runs write no
+audit record and run no drift check.
 
 ## Layout
 
@@ -28,7 +29,7 @@ exercised end-to-end on a real (demo) tenant.
 | `fabric_items/LoadOrders.Notebook/` | demo notebook (Synapse pyspark) |
 | `fabric_items/RefreshOrdersDaily.DataPipeline/` | demo data pipeline |
 | `fabric_items/OrdersAnalytics.SemanticModel/` | demo semantic model (TMDL) |
-| `.github/workflows/sigantry-demo-ci.yml` | demo CI -- runs deploy + record + diff on every push (Plan 15-03) |
+| `.github/workflows/sigantry-demo-ci.yml` | demo CI -- deploy + record + diff (does not complete yet; Plan 15-03) |
 | `.azuredevops/sigantry-demo-ci.yml` | ADO equivalent of the demo CI workflow (Plan 15-03) |
 | `.github/workflows/pr-bot.yml` | PR-bot from `sigantry-starter` (byte-equal to starter) |
 | `.azuredevops/jobs/pr-bot.yml` | ADO PR-bot job template (byte-equal to starter) |

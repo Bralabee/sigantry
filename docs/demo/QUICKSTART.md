@@ -12,8 +12,8 @@
 1. Clone the demo-sigantry repo (~1 min)
 2. Set 4 environment variables (~3 min -- operator pre-provisions the demo tenant)
 3. Validate `parameters.yml` (~1 min)
-4. Sync the 4 sample Fabric items into the demo workspace (~5 min)
-5. Confirm zero drift via `sigantry diff` (~1 min)
+4. Run `sigantry sync apply` on the 4 sample Fabric items (it exits with code 1)
+5. Compare the workspace with the manifest via `sigantry diff` (~1 min)
 6. Push a small change to `main` and watch the demo CI run (~4 min)
 
 ## Prerequisites
@@ -82,7 +82,15 @@ keys, and `source` it.
 
 ## Step 3 -- Validate parameters.yml
 
+`parameters.yml` also references four PREPROD and PROD variables. The
+demo uses only the `DEV` slot, but the validator needs every `$ENV:`
+reference set, so point them at the demo values:
+
 ```bash
+export SIGANTRY_FABRIC_WORKSPACE_ID_PREPROD="$SIGANTRY_DEMO_WORKSPACE_ID"
+export SIGANTRY_FABRIC_WORKSPACE_ID_PROD="$SIGANTRY_DEMO_WORKSPACE_ID"
+export SIGANTRY_FABRIC_CAPACITY_ID_PREPROD="$SIGANTRY_DEMO_CAPACITY_ID"
+export SIGANTRY_FABRIC_CAPACITY_ID_PROD="$SIGANTRY_DEMO_CAPACITY_ID"
 sigantry config validate parameters.yml
 ```
 
@@ -93,10 +101,11 @@ OK -- 3 environment(s) parsed: DEV, PREPROD, PROD
 ```
 
 The validator confirms every `$ENV:` reference resolves to a set
-environment variable. If you see "missing env var" errors, jump back
-to Step 2.
+environment variable. If it reports that `parameters.yml` references a
+variable that is not set, one of the four Step 2 variables or the four
+above is missing, and the command exits with code 1.
 
-## Step 4 -- Sync the demo items into the demo workspace
+## Step 4 -- Run `sync apply` on the demo items
 
 ```bash
 sigantry sync apply \
@@ -108,12 +117,10 @@ On the shipped demo tree this command exits with code 1 before it
 changes the workspace: no `sync apply` packager handles the `Lakehouse`
 item, and the notebook packager reads only `.ipynb` files. Without
 `--with-publish`, `sync apply` publishes no items in any case; it
-creates and moves folders and places items the workspace already holds.
+creates folders and moves the items the workspace already holds into
+them. Re-running it on this tree fails the same way.
 
-Re-running this command is idempotent -- if the workspace already
-matches the manifest, the second run is a no-op.
-
-## Step 5 -- Confirm zero drift
+## Step 5 -- Compare the workspace with the manifest
 
 ```bash
 sigantry diff \
@@ -121,7 +128,12 @@ sigantry diff \
   --manifest sync.yml
 ```
 
-Expected output: `no drift detected` (exit 0).
+Step 4 left the workspace as it was. On a freshly provisioned (empty)
+demo workspace, this lists the four manifest items as `removed` (in the
+manifest, missing from the workspace) and prints
+`drift summary +0 -4 ~0 =0`, with exit code 0 (`--fail-on-drift` makes
+drift exit with code 1). It prints `no drift` when the workspace holds
+the four items where the manifest puts them.
 
 `sigantry diff` compares item names, types and folders only, so
 Lakehouse tables, which live in OneLake rather than Git, never show as

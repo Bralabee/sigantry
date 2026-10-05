@@ -31,7 +31,7 @@ The base package registers its own notification sinks, secret stores and approva
 | Scaffold in this repository | Use it when |
 |---|---|
 | [`templates/starter/`](../templates/starter/) | greenfield adoption -- a dev/preprod/prod `parameters.yml`, the PR-review bot as a GitHub Actions / Azure DevOps pair, PR templates, branching strategy |
-| [`templates/demo/`](../templates/demo/) | 15-minute end-to-end walkthrough against a demo Fabric tenant |
+| [`templates/demo/`](../templates/demo/) | walkthrough against a demo Fabric tenant; it does not run end to end yet (see [docs/demo/QUICKSTART.md](demo/QUICKSTART.md)) |
 
 Copy the scaffold into your own repository. Public mirror repositories for both are planned but not provisioned. `scripts/export-starter.py` and `scripts/export-demo.py` are parity checks for those trees, not publishing tools: their live `--target-*` flags raise `NotImplementedError` deliberately.
 
@@ -41,7 +41,7 @@ From a copy of [`templates/demo/`](../templates/demo/):
 
 ```bash
 pip install sigantry
-# set 4 env vars: SIGANTRY_DEMO_{TENANT_ID,WORKSPACE_ID,CAPACITY_ID,FABRIC_TOKEN}
+# set SIGANTRY_DEMO_{TENANT_ID,WORKSPACE_ID,CAPACITY_ID,FABRIC_TOKEN} and SIGANTRY_FABRIC_{WORKSPACE,CAPACITY}_ID_{PREPROD,PROD}
 sigantry config validate parameters.yml
 sigantry sync apply --manifest sync.yml --workspace-id "$SIGANTRY_DEMO_WORKSPACE_ID"
 sigantry diff --workspace-id "$SIGANTRY_DEMO_WORKSPACE_ID" --manifest sync.yml
