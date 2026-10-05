@@ -164,6 +164,13 @@ def test_wheel_passes_twine_check(repo_root: pathlib.Path) -> None:
 
 @pytest.mark.slow
 def test_wheel_contents_match_package_tree(repo_root: pathlib.Path) -> None:
+    """A wheel built straight from the tree holds the package and only the listed members.
+
+    `python -m build --wheel`, like `pip install .` or `pip wheel .`, reads
+    the wheel target's settings from the tree; the published wheel is built
+    from the sdist (see above). Each path needs its own exclusions, so the
+    allow-list is checked on this wheel as well.
+    """
     with tempfile.TemporaryDirectory() as out:
         subprocess.run(
             [sys.executable, "-m", "build", "--wheel", "--outdir", out],
@@ -193,3 +200,6 @@ def test_wheel_contents_match_package_tree(repo_root: pathlib.Path) -> None:
         }
         missing = required - names
         assert not missing, f"wheel missing files: {sorted(missing)}"
+        stray, unused = _off_list(sorted(names), _allowed("wheel", _version(repo_root)))
+        assert not stray, f"the wheel built from the tree carries members nothing allows: {stray}"
+        assert not unused, f"the wheel built from the tree lacks expected members: {unused}"
