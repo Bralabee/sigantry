@@ -129,8 +129,12 @@ sigantry_core = "sigantry_core.testing.fixtures"
 [tool.hatch.version]
 path = "sigantry_core/_version.py"
 
+# The TODO-*.md planning notes kept beside the code are not part of either
+# distribution. tests/sigantry_core/test_wheel_build.py holds the allow-list
+# of members both may carry.
 [tool.hatch.build.targets.wheel]
 packages = ["sigantry_core"]
+exclude = ["**/TODO-*.md"]
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -140,6 +144,7 @@ include = [
     "/CHANGELOG.md",
     "/pyproject.toml",
 ]
+exclude = ["**/TODO-*.md"]
 
 [tool.pytest.ini_options]
 minversion = "9.0"
