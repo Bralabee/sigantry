@@ -148,7 +148,7 @@ workspace is the truth, re-pull and commit.
 | Symptom | Cause | Fix |
 |---|---|---|
 | `PullTargetNotEmptyError` | `--into` dir has files | use an empty dir, or `--force` deliberately |
-| `PullItemNameRefusedError` | an item's display name contains `/` or `\`, or the item's directory (its folder path plus its name) does not resolve inside `--into`, as with an item or folder named `..`; nothing is fetched or written | rename the item or folder in the workspace, then pull again |
+| `PullItemNameRefusedError` | an item being pulled has a display name that contains `/` or `\`, or a directory (its folder path plus its name) that does not resolve strictly inside `--into`, such as an item named `..` at the workspace root; nothing is fetched or written | rename the item or folder in the workspace, then pull again |
 | pulled count < portal count | unsupported item types skipped | check `--type` coverage; unsupported types stay portal-managed |
 | round-trip apply shows moves | workspace changed mid-tutorial, or manifest edited | re-pull into a fresh dir; diff the two manifests |
 | `403` on pull | Viewer role | pull fetches item definitions; you need Contributor+ |

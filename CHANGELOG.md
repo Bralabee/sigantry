@@ -30,9 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   URLs must return https or relative ones (see Changed).
 - **A `display_name` that contains `/` or `\` is refused.** In `sync.yml`
   such a name now fails manifest load with `ManifestValidationError`.
-  `sigantry sync pull` now refuses a workspace in which an item's display
-  name contains `/` or `\`, or in which an item's directory (its folder path
-  plus its name) does not resolve inside `--into`: it raises
+  `sigantry sync pull` now refuses an item it pulls whose display name
+  contains `/` or `\`, or whose directory (its folder path plus its name)
+  does not resolve strictly inside `--into`: it raises
   `sigantry_core.sync.errors.PullItemNameRefusedError` (a `SyncEngineError`;
   the CLI exits 1) before any item definition is fetched, and writes no file
   and no `sync.yml`. Rename the item or its folder in the workspace (see
