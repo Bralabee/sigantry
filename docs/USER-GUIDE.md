@@ -48,11 +48,9 @@ ship.
 
 **Division of labour with the tutorials.** This guide owns concepts,
 contracts, decision tables, and reference material. The step-by-step
-procedures — with real terminal output, troubleshooting tables, and
-success checklists, every step executed against a live tenant — live in
-[`docs/tutorials/`](tutorials/index.md). Each Part III section links its
-tutorial; when the two ever disagree, the tutorials are the verified
-ground truth.
+procedures — with expected output, troubleshooting tables, and success
+checklists — live in [`docs/tutorials/`](tutorials/index.md). Each
+Part III section links its tutorial.
 
 ## Conventions
 
@@ -1388,11 +1386,11 @@ graph TB
 
 ### Where to look next
 
-- **Tutorials.** Ten verified, hand-holding worked examples at
+- **Tutorials.** Twelve hand-holding worked examples at
   `docs/tutorials/` -- setup, sync, drift, audit trail, brownfield
-  adoption, bootstrap, rollback, scheduled alerts, PR bot,
-  governance. Every step executed against a live tenant before
-  publication. Start here if you learn by doing.
+  adoption, bootstrap, rollback, scheduled alerts, PR bot, governance,
+  Fabric Environments and config-driven auto-update. Start here if you
+  learn by doing.
 - **Operator runbooks.** Per-workflow deep-dives at
   `docs/runbooks/` -- one file per major workflow with a section
   for setup, command reference, troubleshooting table, and

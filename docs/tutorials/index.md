@@ -1,16 +1,6 @@
 # Tutorials — Learn Sigantry by Doing
 
-Each tutorial is a worked, end-to-end example you can follow verbatim; expected
-output blocks show what you should actually see. Not every tutorial was run the same
-way:
-
-- Tutorials 01 to 10: every command was executed (or, where destructive,
-  dry-run-verified) against a live Fabric tenant on 2026-06-11, except tutorial 07's
-  ledger and rollback steps, which were rewritten later and have not been run against
-  a tenant (the tutorial says which).
-- Tutorial 11 was run against a live tenant on 2026-06-14.
-- Tutorial 12's `env sync-all` commands were run locally on 2026-06-14, all in
-  `--dry-run` mode, which makes no tenant calls.
+Each tutorial is a worked, end-to-end example with expected output.
 
 If you are brand new, do tutorials 01 and 02 in order — everything else builds on
 them. After that, pick by need.

@@ -19,8 +19,7 @@ that register themselves via Python entry points under the 11 canonical
 - **[Tutorials](tutorials/index.md)** - Twelve hand-holding worked examples
   with expected output and visual walkthroughs: from first contact through
   sync, drift, audit, bootstrap, rollback, alerts, PR bot, governance and
-  Fabric Environments. The tutorials index says which of them were run
-  against a live tenant and which were not.
+  Fabric Environments.
 - **[Protocol seams](reference/protocols.md)** - Contract reference for the
   `typing.Protocol` classes plugins implement: the six v2 seams
   (`DeployProfile`, `DataQualityGate`, `TelemetrySink`, `AuthProvider`,
