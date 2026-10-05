@@ -59,11 +59,11 @@ sigantry deploy run --rollback --to-release <release-id> --rollback-force \
   --workspace-id <preprod-workspace-id>
 ```
 
-The rollback publishes the items the release record names. A record
-names items only when it is made with `--fabric-items`, so record each
-release with `--fabric-items` listing the items you deployed; a
-rollback to a record without them publishes nothing. The Sigantry
-pipeline templates record without `--fabric-items`.
+The rollback publishes items only when the release record names them.
+`sigantry release record` names items only when it is given
+`--fabric-items`, so record each release with `--fabric-items` listing
+the items you deployed. The Sigantry pipeline templates record without
+`--fabric-items`.
 
 `PROD` is the tightest gate: promote the same tagged commit that
 PREPROD validated, never a fresh build.
