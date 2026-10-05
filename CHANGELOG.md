@@ -10,6 +10,137 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Upgrading from 1.0.0
+- **The bullets below describe ways this release differs from 1.0.0** when
+  it reads settings or bootstraps a workspace, one subject each: Config
+  file; Env prefix; Invalid values in the new inputs; Settings keys;
+  `ToolkitSettings()` built directly; `auth.expected_group`; Unprefixed
+  variables (and see Security); Settings classes; Warnings as errors;
+  pytest plugin; Workspace bootstrap.
+- **Config file.** `.sigantry.toml` is now read. When it and the legacy config
+  file both exist and differ, the legacy file is still the one read, as in
+  1.0.0, with a `UserWarning`; two identical files are read without one. A
+  `.sigantry.toml` that 1.0.0 ignored because it was the only file present now
+  takes effect.
+- **Env prefix.** `SIGANTRY_<SECTION>__<KEY>` is now read. `FDT_` is still
+  read, with a `DeprecationWarning`, and through 1.0.x it outranks
+  `SIGANTRY_` for the same setting. A `SIGANTRY_` value overrides
+  `.sigantry.toml`, but over the legacy config file, or a file passed by
+  path, it only fills what the file leaves unset, because 1.0.0 read those
+  files and ignored `SIGANTRY_`; in a table
+  such as `[release.ado]` it fills the keys the table leaves unset. A
+  `UserWarning` names each `SIGANTRY_` variable that a different legacy value
+  overrides; equal values are silent. `FDT_` names in another letter case
+  (`fdt_core__tenant_id`), and `fdt_<section>` holding a JSON object, are read
+  again and ranked as in 1.0.0: below a file key spelled `tenant_id`, above
+  one spelled in another case such as `TENANT_ID`, and with
+  `<SECTION>__<KEY>` names laid over the JSON object. Where `fdt_<section>`
+  holds JSON that is not an object (`null`, `5`), that section's
+  `<SECTION>__<KEY>` names are not read, as in 1.0.0; where
+  `fdt_<section>__<table>`, for a table such as `release.ado`, holds a value
+  that is not a JSON object (`null`, `5`, an empty value), a table spelled
+  two ways in the file resolves as it did there. Where 1.0.0 failed on such
+  a value, the value is ignored with a `UserWarning`; an `fdt_<section>`
+  value that is not JSON at all, an empty one included, is ignored that way
+  and the section's `<SECTION>__<KEY>` names are read.
+  Where several `FDT_` names set one setting, the one 1.0.0 used still wins,
+  which for names that differ only in letter case depends, as in 1.0.0, on
+  the order the environment lists them. `load_settings()` again keeps an `FDT_` name whose
+  section is not a settings section (`FDT_MYPLUG__KEY`) as a top-level extra,
+  and it now reads `FDT_<SECTION>` holding a JSON object, a spelling 1.0.0's
+  `load_settings()` failed on.
+- **Invalid values in the new inputs.** A value from a `.sigantry.toml`
+  found without its path, or from a `SIGANTRY_` variable read without a
+  prefix the caller passed or declared, is validated like any other
+  wherever it takes effect, so an invalid one, such as an empty
+  `SIGANTRY_WORKFLOW__PREVIEW_APIS_ACKNOWLEDGED` or
+  `preview_apis_acknowledged = "maybe"` under `[workflow]`, now raises
+  `ValidationError`, from `load_settings()` and, for a variable, from
+  `ToolkitSettings()` built directly. 1.0.0 read neither that file nor such
+  a variable as settings. Where an input 1.0.0 read outranks a `SIGANTRY_`
+  value in the same load, that value is ignored and does not fail the load.
+- **Settings keys.** A key written in another letter case, such as `TENANT_ID`
+  under `[core]`, sets its field, with a `DeprecationWarning`, and so does a
+  section name such as `[CORE]`. 1.0.0, with pydantic-settings 2.15, set its
+  own fields from such keys too, without a warning; `auth.expected_group`,
+  which it did not have, is described below. Where one is spelled more than
+  once, the first spelling wins, as in 1.0.0. Keys that name no field keep
+  their spelling.
+- **`ToolkitSettings()` built directly** reads settings variables again:
+  `FDT_` ones from the environment, `_env_file` and `_secrets_dir`, ranked
+  in that order as in 1.0.0, and `SIGANTRY_` ones from the same three
+  inputs, which only fill what those leave unset. Given a non-empty prefix
+  of its own, passed as `_env_prefix` or declared as `env_prefix` in the
+  `model_config` of a subclass, or of a class between it and
+  `ToolkitSettings`, `SIGANTRY_` in any letter case included, it reads the
+  names under that prefix instead (a passed one over a declared one), as
+  1.0.0 read them in place of `FDT_` names, and no others. Only names whose
+  section is a settings section are read, in the forms 1.0.0 read
+  (`<PREFIX><SECTION>__<KEY>`, and `<PREFIX><SECTION>` holding a JSON object)
+  and as `SIGANTRY_<SECTION>__<KEY>`. A name in `_env_file` that sets no
+  settings field is not kept, where 1.0.0 kept names such as
+  `FDT_MYPLUG__K=v` and an unprefixed `OTHER=o` as top-level extras
+  (`fdt_myplug__k`, `other`) and `model_dump()` rendered them. Values passed to
+  the constructor outrank them all. An empty prefix, passed or declared, is
+  refused with a `UserWarning` that names it, because it would read
+  unprefixed names, and the default prefixes are read instead; under an
+  empty prefix 1.0.0 set no field from an `FDT_` name.
+- **`auth.expected_group`** is a new field, typed `str | None`, which
+  `diagnose-auth` now reads (see Changed). 1.0.0 had no such field: it kept
+  an `expected_group` key under `[auth]` as an extra, whatever its value,
+  and its `diagnose-auth` loaded no settings. A value other than null that
+  pydantic does not accept as a string now fails validation where it takes
+  effect: in a config file, a number, a boolean, a date or time, an array or
+  a table, such as `expected_group = 5` or `expected_group = true`; in JSON,
+  a number, a boolean, an array or an object; passed to the constructor,
+  `5` or `True`, for example. `load_settings()` or `ToolkitSettings()` then
+  raises `ValidationError` where 1.0.0 kept the value as an extra and set
+  the other settings. A value pydantic converts to a string, such as
+  `b"grp"` passed to the constructor, sets the field to that string
+  (`"grp"`), where 1.0.0 kept the value unchanged as an extra. Measured
+  against 1.0.0 for a key in the legacy config file or in a file passed by
+  path, a value passed to `ToolkitSettings()`, and `FDT_AUTH` holding a
+  JSON object in the environment, an `_env_file` or a `_secrets_dir` given
+  to `ToolkitSettings()` built directly; `load_settings()` on 1.0.0 failed on
+  `FDT_AUTH={"expected_group": 5}` as well. A key in a config file spelled in
+  another letter case, such as `Expected_Group`, now sets the field, with
+  the `DeprecationWarning` described under Settings keys, where 1.0.0 kept
+  it as an extra under that spelling, so a value of the kinds above there
+  fails the same way.
+- **Unprefixed variables stay unread** (see Security). A `FutureWarning` names
+  each one that 1.0.0 would have read, where nothing else sets the field, with
+  its `SIGANTRY_<SECTION>__<KEY>` replacement: `TENANT_ID`, `PROVIDER`, `SINK`,
+  `PROFILE`, `GATE`, `REGISTRY`, `POLICY`, `STORE`, `BOT`, `AUDIT_DIR` and
+  `PREVIEW_APIS_ACKNOWLEDGED`, and `STATIC_MAP`, `ADO` or `GITHUB` holding a
+  JSON object, in any letter case. `sigantry sync apply` and `sigantry sync
+  pull` still honour an unprefixed `PREVIEW_APIS_ACKNOWLEDGED`, which only
+  silences the Preview-API notice, where no file or prefixed variable sets it.
+- **Settings classes.** The section models (`CoreSettings`, `AuthSettings` and
+  the other eleven) are plain pydantic models, not `BaseSettings`, which is
+  what stops unprefixed variables binding. A subclass that relied on
+  `BaseSettings` reading the environment must read it itself or go through
+  `load_settings()`.
+- **Warnings as errors.** Library code run with `PYTHONWARNINGS=error`,
+  `-W error` or pytest's `filterwarnings = error` turns these warnings into
+  exceptions. `sigantry sync apply`, `sigantry sync pull` and `diagnose-auth`
+  record them and print none, as 1.0.0 printed none, so neither a
+  warnings-as-errors setting nor a pipeline step that fails on any stderr
+  output stops them. A `DeprecationWarning` from the settings loader is
+  attributed to the first caller outside sigantry, so Python shows it by
+  default when the script being run made the call,
+  `FabricDataOps.from_config()` included.
+- **pytest plugin.** The `fdt_settings_toml` fixture still writes only the
+  legacy file and returns its path, as in 1.0.0. While the test that asked
+  for it runs, the loader reads that file without a warning, in the test's
+  own process and in any process the test starts that inherits its
+  environment: no `DeprecationWarning` for the legacy name, and no
+  `UserWarning` if the test also writes a `.sigantry.toml` beside it, which
+  1.0.0 did not read either. A test that changes into that directory and
+  calls `FabricDataOps.from_config()`, or runs a script there that does,
+  therefore passes under warnings as errors, as it did on 1.0.0, whether it
+  edits, replaces or deletes the file first. A key the test spells in
+  another letter case, such as `core={"TENANT_ID": ...}`, still gets the
+  `DeprecationWarning` described under Settings keys. Any other legacy file
+  warns as before.
 - **Workspace bootstrap: pin your folder names before re-running a
   blueprint.** This release changes the folder names of the
   `minimal_starter` and `medallion` blueprints, and bootstrap never renames
@@ -97,7 +228,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tried again through the Power BI groups endpoint. The docstring, the
   operator runbook and a test docstring made a reliability claim for that
   endpoint that nothing in the project measures; they now say it is tried
-  instead.
+  again.
 - **One copyright statement.** ADR-0010 said copyright was held jointly by
   contributors and that a DCO sign-off check was enforced, while the guide
   cover pages named a single holder. ADR-0010 now says copyright in a
@@ -149,10 +280,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Config surface renamed to match the product (ADR-0011).** `load_settings()` and
   `FabricDataOps.from_config()` now resolve `.sigantry.toml` by default, and
-  settings env overrides use the `SIGANTRY_<SECTION>__<KEY>` prefix. Before
-  this, the documented `.sigantry.toml` filename was read by nothing: an
-  operator who followed the migration guide got a config file that was
-  silently ignored and a run on all defaults.
+  settings env overrides use the `SIGANTRY_<SECTION>__<KEY>` prefix. 1.0.0
+  read the documented `.sigantry.toml` filename only when given its path:
+  an operator who followed the migration guide and relied on the default
+  lookup got a config file that was silently ignored, and a run without the
+  settings in it. Upgrading from 1.0.0 describes ways settings are now read
+  differently from 1.0.0.
 - The workflows' action pins move to `actions/checkout` v7.0.1,
   `actions/setup-python` v7.0.0 and `actions/setup-node` v7.0.0, still pinned
   by commit SHA: 28 pins in 7 workflows, moved together because the pin test
@@ -256,8 +389,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Deprecated
 - `.fabric-dataops.toml` and the `FDT_` settings env prefix. Both are still
   read for one more minor release and each emits a `DeprecationWarning` naming
-  its replacement. Where a setting is supplied under both prefixes, `SIGANTRY_`
-  wins.
+  its replacement. Through 1.0.x, where a setting is supplied under both
+  prefixes, the `FDT_` value is used, as in 1.0.0.
 
 ### Removed
 - The wheel and the sdist no longer carry the six `TODO-*.md` planning notes
@@ -462,13 +595,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nameable instead of undiscoverable. (An earlier draft put both in `docs` and
   claimed it fixed a CI gap; review found nothing installs `.[docs]` either.)
 - **Shipped templates and workflows told consumers to `pip install
-  sigantry-core`, which 404s.** The distribution is `sigantry`
-  (`pyproject.toml` declares it; `sigantry-core` has never existed on PyPI —
+  sigantry-core`, a name with no release to install.** The distribution is
+  `sigantry` (`pyproject.toml` declares it; no sigantry release was ever
+  published as `sigantry-core`, and since 2026-10-04 that name on PyPI holds
+  only a yanked, code-free 0.0.1 placeholder that points to `sigantry` —
   ADR-0017 records the amendment to ADR-0011). Every consumer following a
   shipped ADO step template, starter workflow or demo quickstart hit a package
   that is not there. 49 references corrected across `templates/`,
   `.github/workflows/`, `scripts/` and `.pre-commit-config.yaml`. Because the
-  old name resolves for nobody, this fix cannot break an existing install.
+  old name installs no code for anyone, this fix cannot break an existing
+  install.
 - `sigantry --help` announced the tool as "Fabric DataOps Toolkit", a name the
   project left behind in v3.0, and `sigantry doctor` titled its plugin table
   "sigantry-core plugins".
@@ -489,10 +625,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   demo quickstart and the shipped demo template after a sibling link in the
   same file was corrected.
 
-- `sigantry sync` no longer swallows a config-load failure in silence. An
-  unreadable or malformed config is logged as a warning saying the command is
-  continuing on defaults, instead of a bare `except Exception` that left the
-  operator with no signal their settings were never applied.
+- `sigantry sync` no longer swallows every config-load failure. An unreadable
+  or malformed config is logged at WARNING level on the
+  `sigantry_core.sync.cli` logger, saying the command continues without the
+  file's settings, instead of a bare `except Exception` that also absorbed
+  genuine defects in the loader. The `sigantry` command does not print that
+  logger's warnings. Settings from `FDT_` and `SIGANTRY_` variables still
+  apply after such a failure, as `FDT_` ones did in 1.0.0.
 - `load_settings`' docstring claimed a missing config file raised
   `ValidationError`. It never did — no settings field is required — so the
   documented fail-fast did not exist. The docstring now states the real

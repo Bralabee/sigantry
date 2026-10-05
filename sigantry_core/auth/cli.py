@@ -37,6 +37,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
+from sigantry_core._cli_settings import load_settings_for_cli
 from sigantry_core.auth.audiences import (
     AZURE_DEVOPS_SCOPE,
     AZURE_RM_SCOPE,
@@ -53,7 +54,6 @@ from sigantry_core.auth.diagnose import (
 )
 from sigantry_core.auth.errors import TokenAcquisitionError
 from sigantry_core.auth.token_provider import TokenProvider
-from sigantry_core.config import load_settings
 
 logger = logging.getLogger(__name__)
 
@@ -92,16 +92,18 @@ def _resolve_expected_group(flag: str | None) -> tuple[str | None, str | None]:
     ``--expected-group`` wins and needs no settings; otherwise
     ``auth.expected_group`` from :func:`sigantry_core.config.load_settings`
     (``SIGANTRY_AUTH__EXPECTED_GROUP`` over ``[auth] expected_group`` in
-    ``.sigantry.toml``). A blank value counts as unset, and ``(None, None)``
-    means the check is skipped. If the settings cannot be loaded, the group is
-    unknown rather than unset -- an env value is lost when the file fails to
-    parse -- so ``settings_error`` describes the failure and the caller reports
-    the check as an error instead of skipping it.
+    ``.sigantry.toml``), loaded with its warnings recorded and dropped
+    (:func:`sigantry_core._cli_settings.load_settings_for_cli`). A blank value
+    counts as unset, and ``(None, None)`` means the check is skipped. If the
+    settings cannot be loaded, the group is unknown rather than unset -- an env
+    value is lost when the file fails to parse -- so ``settings_error``
+    describes the failure and the caller reports the check as an error instead
+    of skipping it.
     """
     if flag is not None and flag.strip():
         return flag.strip(), None
     try:
-        settings = load_settings()
+        settings = load_settings_for_cli()
     except (
         OSError,
         UnicodeDecodeError,
