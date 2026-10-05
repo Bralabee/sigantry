@@ -223,12 +223,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   part of this repository; on a clean runner they always skipped.
 
 ### Changed
-- **The documentation describes the audit ledger, rollback and drift
-  detection as they behave.** A forward `sigantry deploy run` writes no
-  `DeployRecord`: records come from `sync apply`, `deploy run --rollback`
-  and `release record`, and the pages that said otherwise now say so.
-  Rollback publishes again the items a recorded release names, with their
-  content read from `--source`; the record holds no content and no commit.
+- **Corrections to how the documentation describes the audit ledger,
+  rollback and drift detection.** A forward `sigantry deploy run` writes
+  no `DeployRecord`: records come from `sync apply`,
+  `deploy run --rollback` and `release record`. Rollback publishes again
+  the items a recorded release names, with their content read from
+  `--source`; the record holds no content and no commit.
   Tutorial 07 therefore records each release with
   `sigantry release record --fabric-items` and rolls back from a copy of
   the first release's source; the tutorial says these steps have not been
@@ -242,11 +242,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `sigantry release verify` checks the deploy ledger only. The ledger is
   described as integrity-checked and unkeyed rather than immutable, signed or
   cryptographic, and the pipeline templates' tests and approval as gating the
-  release record, not the deployment. The demo pages no longer promise a
-  working run; the quickstart sets the variables `config validate` needs and
-  says Lakehouse tables never show as drift. Two entries under [1.0.0] below
-  made the same claims (continuous topology comparison, and a rollback
-  restoring historical item states) and are corrected in place.
+  release record, not the deployment. Two entries under [1.0.0] below
+  made the same diff and rollback claims (continuous topology comparison,
+  and a rollback restoring historical item states) and are corrected in
+  place. The demo walkthrough, its operator runbook, the demo template's
+  README, quickstart, `parameters.yml` and CI files, and the demo lines of
+  the product brief, `CONSUMING.md`, `CAPABILITIES.md` and
+  `templates/README.md` say the demo does not run end to end on the shipped
+  demo tree yet, and give the demo's steps without their results. The
+  runbook's service principal check now gets a Fabric access token with the
+  Azure CLI before it calls the API; it has not been run against a tenant.
 - The documentation says how version numbers relate: public 1.0.0
   continues an internal 3.x line (1.0.0 corresponds to internal 3.4.x),
   and the v2.x and v3.x numbers in older pages refer to that line. The

@@ -91,6 +91,8 @@ All three of these are involved in the buying decision. The brief addresses each
 
 ## Demo
 
+The demo does not run end to end on the shipped demo tree yet.
+
 Sigantry's public demo lives at `<DEMO-URL>` (placeholder -- the
 operator updates this URL after the public-mirror exercise per
 the public-mirror gate (Test 1) of the demo-environment operator
@@ -98,7 +100,7 @@ checklist;
 the trademark / domain / PyPI clearance gate at Test 0 may defer
 publication until a v3.1 rename if a conflict surfaces).
 
-The demo IS Sigantry dogfooded in public:
+The demo is meant to show Sigantry dogfooded in public:
 
 - A public `demo-sigantry` GitHub repo + ADO project (mirrored from
   this monorepo's `templates/demo/`).
@@ -107,15 +109,12 @@ The demo IS Sigantry dogfooded in public:
 - Demo CI for GitHub Actions and Azure DevOps with the steps
   `sigantry deploy`, `sigantry release record` and
   `sigantry diff --fail-on-drift` -- the same three-command loop the
-  wedge promises adopters. It does not complete yet: its deploy step
-  exits with code 1 (see Step 6 of the quickstart).
+  wedge promises adopters.
 
 ### Try it yourself
 
 See [docs/demo/QUICKSTART.md](demo/QUICKSTART.md) for a walkthrough
-against the demo tenant. It does not run end to end yet: on the shipped
-demo tree, `sigantry sync apply` and the demo CI's deploy step exit
-with code 1.
+against the demo tenant.
 
 ### Operator runbook
 

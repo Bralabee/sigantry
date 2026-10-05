@@ -1,5 +1,7 @@
 # Demo tenant -- operator runbook
 
+> The demo does not run end to end on the shipped demo tree yet.
+>
 > Phase 15 / DEMO-02 closure (DEMO-03, the walkthrough video build, is
 > retired). This runbook is for the
 > operator who provisions the demo Fabric tenant, rotates demo
@@ -30,47 +32,52 @@ for why.
    `SIGANTRY_DEMO_TENANT_ID`.
 4. Register a service principal named `sigantry-demo-spn` in Entra
    ID. Grant it Workspace Admin on the demo workspace ONLY (see
-   Section 6). Generate a secret -- this becomes
-   `SIGANTRY_DEMO_FABRIC_TOKEN` (or wire workload-identity-federation
-   if you prefer no long-lived secrets; the demo CI workflows accept
-   either).
+   Section 6). Generate a client secret -- this becomes
+   `SIGANTRY_DEMO_FABRIC_TOKEN`. Note the app registration's
+   application (client) ID as `DEMO_SPN_APP_ID` for the check below.
 
-Verify the SPN can call Fabric REST:
+Check that the SPN can call Fabric REST. The Fabric API takes a
+Microsoft Entra access token, not the client secret, so sign in as the
+SPN and request a token for the Fabric API first:
 
 ```bash
-curl -H "Authorization: Bearer $SIGANTRY_DEMO_FABRIC_TOKEN" \
+az login --service-principal \
+  --username "$DEMO_SPN_APP_ID" \
+  --password="$SIGANTRY_DEMO_FABRIC_TOKEN" \
+  --tenant "$SIGANTRY_DEMO_TENANT_ID" \
+  --allow-no-subscriptions
+FABRIC_ACCESS_TOKEN=$(az account get-access-token \
+  --resource https://api.fabric.microsoft.com \
+  --query accessToken -o tsv)
+curl -H "Authorization: Bearer $FABRIC_ACCESS_TOKEN" \
   "https://api.fabric.microsoft.com/v1/workspaces/$SIGANTRY_DEMO_WORKSPACE_ID/items"
 ```
 
-Expected: HTTP 200 with the list of items in the demo workspace
-(empty on a fresh provision; the QUICKSTART's `sigantry sync apply`
-step does not add items to it, see its Step 4).
+These commands have not been run against a tenant.
 
 ## 2. Secret rotation cadence
 
 Rotate `SIGANTRY_DEMO_FABRIC_TOKEN` every 90 days, or immediately on
 suspicion of leakage. Procedure:
 
-1. Generate a new SPN secret (or rotate the WIF federated credential)
-   in Entra ID.
+1. Generate a new SPN client secret in Entra ID.
 2. Update the GitHub Actions secret on the public `demo-sigantry`
    repo:
    ```bash
    gh secret set SIGANTRY_DEMO_FABRIC_TOKEN \
      --repo sigantry/demo-sigantry \
-     --body "<new-token>"
+     --body "<new-secret>"
    ```
 3. Update the `sigantry-demo-secrets` ADO variable group:
    ```bash
    az pipelines variable-group variable update \
      --org "$ADO_ORG" --project demo-sigantry \
      --group-id <id> --name SIGANTRY_DEMO_FABRIC_TOKEN \
-     --value "<new-token>" --secret true
+     --value "<new-secret>" --secret true
    ```
-4. The demo CI cannot confirm the new token yet: its deploy step exits
-   with code 1 before it calls Fabric (QUICKSTART, Step 6). Check the
-   token with the REST call in Section 1 instead.
-5. Revoke the old secret in Entra ID once that call succeeds.
+4. Check the new secret with the commands in Section 1, with
+   `SIGANTRY_DEMO_FABRIC_TOKEN` set to the new secret.
+5. Revoke the old secret in Entra ID once that check succeeds.
 
 The other three env vars
 (`SIGANTRY_DEMO_TENANT_ID`, `_WORKSPACE_ID`, `_CAPACITY_ID`) are
@@ -87,11 +94,10 @@ OUTSIDE the Git source-of-truth.
 
 Implications for the demo:
 
-- A table added in the Fabric portal does not show as drift:
-  `sigantry diff` compares item names, types and folders only.
-- Use the demo notebook (`LoadOrders.Notebook`) to create tables for
-  round-trip-stable demos; it commits the table-creation logic to
-  Git so re-deploys reproduce the same end state.
+- Table data is outside what `sigantry diff` compares (item names,
+  types and folders).
+- Create tables from the demo notebook (`LoadOrders.Notebook`), so
+  the table-creation logic is in Git.
 - Document this in any external comms / FAQ. The QUICKSTART's
   Troubleshooting section already references this runbook.
 
@@ -99,7 +105,8 @@ Reference: [Microsoft Learn -- Lakehouse Git deployment limitations](https://lea
 
 ## 4. Public-repo mirror procedure (Test 1)
 
-The full procedure lives in the maintainer's phase-15 operator checklist
+The public mirror is planned but not provisioned yet. The full
+procedure lives in the maintainer's phase-15 operator checklist
 (Test 1), which is not part of the open-source tree. Summary:
 
 ```bash
@@ -117,23 +124,22 @@ az devops project create --name demo-sigantry --org "$ADO_ORG" --visibility publ
 Wire the four `SIGANTRY_DEMO_*` GitHub Actions secrets and the
 `sigantry-demo-secrets` ADO variable group per Section 2.
 
-## 5. Recovery -- when the demo CI goes red
+## 5. Demo CI checks
 
-Common failure modes:
+The demo does not run end to end on the shipped demo tree yet, so this
+runbook has no recovery procedure for a failed demo CI run. Checks that
+do not depend on the demo tree:
 
-- **Drift detected (`sigantry diff` exit 1):** investigate which file
-  under `fabric_items/` or `parameters.yml` changed; re-sync via
-  `sigantry sync apply` if the source-of-truth is correct, or revert
-  the workspace edit if a portal click made it. The
-  `--fail-on-drift` flag is intentional -- it is the safety net per
-  RESEARCH §Pitfall 2 ("stale demo").
-- **Token expired:** rotate per Section 2.
-- **Tenant outage:** check `https://admin.fabric.microsoft.com` and
+- **Credentials:** check the SPN with the commands in Section 1;
+  rotate per Section 2.
+- **Tenant status:** check `https://admin.fabric.microsoft.com` and
   `https://status.azure.com`.
-- **`fabric-cicd` upgrade broke the deploy:** pin to last-known-good
-  version in the demo CI YAML's `pip install` step, file an issue
-  against `fabric-cicd`, and PR the pin into
-  `templates/demo/.github/workflows/sigantry-demo-ci.yml` +
+- **Drift check:** the diff step's `--fail-on-drift` flag is there to
+  fail the run when the workspace and `sync.yml` disagree -- the safety
+  net per RESEARCH §Pitfall 2 ("stale demo").
+- **Pins:** a version pin for `sigantry` or `fabric-cicd` goes into the
+  `pip install` step of
+  `templates/demo/.github/workflows/sigantry-demo-ci.yml` and
   `templates/demo/.azuredevops/sigantry-demo-ci.yml` together
   (dual-CI parity rule).
 
@@ -142,13 +148,11 @@ Common failure modes:
 The demo SPN MUST hold permissions ONLY on the demo tenant. NEVER
 grant role assignments outside the demo tenant.
 
-Why this matters: a confused-deputy attack pattern -- an operator
-running `sigantry sync apply` against the wrong env-var-loaded token
-deploys demo content to a production adopter tenant. The demo SPN
-being narrowly-scoped is the structural defence; least-privilege
-variable groups and per-step
-`if: ${{ env.SIGANTRY_DEMO_HAS_TOKEN == 'true' }}` guards in the
-demo CI are the procedural defences.
+Why this matters: a `sigantry` command run with another tenant's
+credentials loaded acts on that tenant, so an operator who mixes up
+the demo and a production adopter tenant can change the wrong one. The
+demo SPN being narrowly-scoped is the structural safeguard;
+least-privilege variable groups are the procedural one.
 
 Verification:
 
@@ -177,7 +181,7 @@ URL. Treat the placeholder as a feature, not a bug, until then.
 ## See also
 
 - [docs/demo/QUICKSTART.md](../demo/QUICKSTART.md) -- adopter-facing
-  15-min walkthrough.
+  walkthrough.
 - The maintainer's phase-15 operator checklist -- its operator gates
   (trademark, mirror, tenant and fresh-laptop reviewer). Held
   outside this repository; ask the maintainer.
