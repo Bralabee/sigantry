@@ -110,8 +110,10 @@ GroupCheckClassification = Literal[
 """Why a group check ended as it did.
 
 ``ok``, ``missing`` and ``skipped`` decide the membership (or say there was
-none to decide). Every other value has ``status="error"``: the membership is
-unknown, and the value names what stopped the check.
+none to decide); ``missing`` decides only direct membership, because
+``memberOf`` does not list a group joined through another group. Every other
+value has ``status="error"``: the membership is unknown, and the value names
+what stopped the check.
 """
 
 
