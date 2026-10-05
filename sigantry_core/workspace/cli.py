@@ -32,6 +32,11 @@ def _client_factory(tenant_id: str | None) -> FabricRestClient:
     return FabricRestClient.from_defaults(tenant_id=tenant_id)
 
 
+def _print_warning(message: str) -> None:
+    """Write a bootstrap warning to stderr as one plain line, as it happens."""
+    typer.echo(f"sigantry: warning: {message}", err=True)
+
+
 @workspace_app.command("list")
 def list_cmd(
     tenant_id: str = typer.Option(None, "--tenant-id", help="Optional AAD tenant id."),
@@ -193,6 +198,13 @@ def bootstrap_cmd(
     fully-bootstrapped workspace is a no-op (every step reports
     ``already-converged``).
 
+    When the chosen blueprint will create folders at the top level of a
+    workspace that already has top-level folders with other names,
+    bootstrap creates them beside those folders and warns: a
+    ``sigantry: warning:`` line on stderr and a ``warnings`` list in the
+    JSON report, in a dry run too. A run without a warning prints no
+    ``warnings`` key.
+
     Exit codes:
       - 0 success (or dry-run reported successfully)
       - 1 runtime error from the underlying primitives (network, auth, etc.)
@@ -217,18 +229,22 @@ def bootstrap_cmd(
             operator=operator,
             audit_dir=audit_dir,
             dry_run=dry_run,
+            on_warning=_print_warning,
         )
 
-    _console.print_json(
-        data={
-            "workspace_id": result.workspace.id,
-            "workspace_name": result.workspace.display_name,
-            "capacity_id": result.workspace.capacity_id,
-            "stage": config.stage,
-            "blueprint": config.blueprint or "explicit",
-            "folders_present": [f.display_name for f in result.folders],
-            "step_outcomes": result.step_outcomes,
-            "audit_hash": result.record.audit_hash,
-            "dry_run": result.dry_run,
-        }
-    )
+    report: dict[str, object] = {
+        "workspace_id": result.workspace.id,
+        "workspace_name": result.workspace.display_name,
+        "capacity_id": result.workspace.capacity_id,
+        "stage": config.stage,
+        "blueprint": config.blueprint or "explicit",
+        "folders_present": [f.display_name for f in result.folders],
+        "step_outcomes": result.step_outcomes,
+        "audit_hash": result.record.audit_hash,
+        "dry_run": result.dry_run,
+    }
+    # Only a run that warned carries the key, so every other run prints the
+    # report 1.0.0 printed.
+    if result.warnings:
+        report["warnings"] = list(result.warnings)
+    _console.print_json(data=report)
