@@ -1526,7 +1526,7 @@ _EXPECTED_GATE_JOB = {
 
 # The release workflow, refs dropped the same way. `quality` is the build
 # half: it runs ci.yml, whose `build` job uploads the `dist` artifact and
-# records its SHA-256, with no secret and no id-token. `publish` builds
+# records its SHA-256; it is handed no secret and no id-token. `publish` builds
 # nothing: it verifies that artifact, scans it with the tree, and uploads it.
 _EXPECTED_QUALITY_JOB = {
     "name": "CI",

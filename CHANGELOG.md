@@ -111,7 +111,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sdist and wheel inside its publish job, so the bytes uploaded to PyPI were
   never the bytes `ci.yml` had checked. `ci.yml`'s `build` job now records
   the SHA-256 of each file it uploads as `dist` and hands the record to the
-  release through a `workflow_call` output. The publish job (renamed from
+  release through a `workflow_call` output, and it checks out without
+  persisting the GitHub token, so the build tools it installs from PyPI
+  cannot read that token from the git config. The publish job (renamed from
   `build-and-publish` to `publish`; the workflow file and the `pypi`
   environment that PyPI's trusted publisher matches are unchanged) downloads
   that artifact, verifies it against the record, scans the tree and both

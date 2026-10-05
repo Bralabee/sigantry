@@ -17,8 +17,11 @@ jobs:
   # The build half. `quality` runs ci.yml: lint, types and the test matrix,
   # then its `build` job builds the sdist and wheel, runs
   # `twine check --strict`, records their SHA-256 as an output and uploads
-  # them as the `dist` artifact of this run. That build holds no secret and
-  # no id-token: this job passes none and grants only `contents: read`.
+  # them as the `dist` artifact of this run. This job passes ci.yml no
+  # secret and grants only `contents: read`, so no job there can request an
+  # id-token, and the `build` job checks out without persisting its
+  # read-only GitHub token: the build tools it installs from PyPI cannot
+  # read that token from the git config.
   quality:
     name: CI
     permissions:

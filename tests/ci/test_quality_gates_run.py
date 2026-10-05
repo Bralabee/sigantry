@@ -980,7 +980,7 @@ _EXPECTED_BUILD_JOB = {
     "needs": ["lint", "test", "types"],
     "outputs": {"dist-sha256": "${{ steps.record.outputs.sha256 }}"},
     "steps": [
-        {"uses": "actions/checkout"},
+        {"uses": "actions/checkout", "with": {"persist-credentials": False}},
         {"uses": "actions/setup-python", "with": {"python-version": "3.11"}},
         {"name": "Install build tooling", "run": "pip install build twine"},
         {"name": "Build sdist & wheel", "run": "python -m build"},
@@ -1180,7 +1180,7 @@ def test_only_the_publish_job_holds_the_oidc_token_or_the_token_list(
     publish job may ask for it, and that job restores no cache: a restored
     cache is content written by an earlier run, held in the same job as the
     token. The build half (ci.yml, called with ``contents: read`` and no
-    ``secrets:``) holds no secret at all. The token list goes to the two jobs
+    ``secrets:``) is handed no secret at all. The token list goes to the two jobs
     ``tests/ci/test_name_gate.py`` pins whole, and nowhere else.
     """
     holders = []

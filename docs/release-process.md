@@ -93,7 +93,10 @@ Publishing the Release runs `publish-pypi.yml`, in two halves:
 1. `quality` runs `ci.yml`: lint, type check and the test matrix, then its
    `build` job builds the sdist and wheel, runs `twine check --strict`,
    prints and records their SHA-256, and uploads them as the `dist`
-   artifact. It holds no secret and no OIDC token.
+   artifact. It is passed no secret and cannot request an OIDC token, and
+   the `build` job checks out without persisting its read-only GitHub
+   token, so the build tools it installs from PyPI cannot read that token
+   from the git config.
 2. `publish` waits for the `pypi` environment's reviewer (the environment
    admits only `v*` tags). It downloads that `dist` artifact, verifies it
    against the recorded SHA-256, scans the tree and both distributions with
