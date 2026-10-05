@@ -348,8 +348,8 @@ def check_entra_group(
     Returns: `{"status", "classification", "groups", "expected", "detail"}`,
     where status is one of ``ok`` / ``missing`` / ``error`` / ``skipped`` and
     ``classification`` (a ``GroupCheckClassification``) says why. ``missing``
-    means the pages were read to the last one, every entry had a name and none
-    was ``expected_group``. A response other than 200 is an ``error``.
+    means the pages were read to the last one, every group entry had a name and
+    none was ``expected_group``. A response other than 200 is an ``error``.
     ``names_hidden`` marks an ``error`` in which some entries had no name and
     none of the named ones was ``expected_group``. ``incomplete`` marks an
     ``error`` in which ``_MAX_MEMBER_OF_PAGES`` pages were read, each with a
@@ -410,7 +410,9 @@ def check_entra_group(
                     name = entry.get("displayName")
                     if name:
                         groups.append(name)
-                    else:
+                    elif entry.get("@odata.type", "#microsoft.graph.group") == (
+                        "#microsoft.graph.group"
+                    ):
                         unnamed += 1
                 next_link = body.get("@odata.nextLink")
             except Exception:

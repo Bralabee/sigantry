@@ -450,6 +450,28 @@ class TestCheckEntraGroupGraphToken:
         )
         assert _check("fake-token")["status"] == "ok"
 
+    def test_unnamed_entries_of_other_types_do_not_hide_the_answer(
+        self, respx_router: respx.MockRouter
+    ) -> None:
+        # Only a group can be the expected group. A directory role or an
+        # administrative unit the token may not read comes back without a name
+        # and is dropped, as in 1.0.0.
+        respx_router.get(_ME).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "value": [
+                        {"@odata.type": "#microsoft.graph.directoryRole", "id": "r1"},
+                        {"@odata.type": "#microsoft.graph.administrativeUnit", "id": "a1"},
+                        {"@odata.type": "#microsoft.graph.group", "displayName": "sg-other"},
+                    ]
+                },
+            )
+        )
+        result = _check("fake-token")
+        assert result["status"] == "missing"
+        assert result["classification"] == "missing"
+
     def test_follows_next_link_to_a_later_page(self, respx_router: respx.MockRouter) -> None:
         page2 = f"{GRAPH_AUDIENCE}/v1.0/me/memberOf?$skiptoken=abc"
         respx_router.get(page2).mock(
