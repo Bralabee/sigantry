@@ -101,11 +101,12 @@ Publishing the Release runs `publish-pypi.yml`, in two halves:
    trusted publishing (no API token). It builds nothing and installs
    nothing from PyPI.
 
-If the run fails, re-run it; there is no manual trigger to fall back on.
-`skip-existing` stays on so that a re-run can finish an upload that stopped
-after one file. Verify that the files appear on PyPI with the SHA-256 the
-`build` job printed, and that `pip install sigantry==X.Y.Z` resolves in a
-clean environment.
+If the run fails, use **Re-run all jobs**: the build, its checks and the
+scan run again on the same commit. There is no manual trigger to fall back
+on. `skip-existing` stays on so that a re-run can finish an upload that
+stopped after one file. Verify that the files appear on PyPI with the
+SHA-256 the `build` job printed, and that `pip install sigantry==X.Y.Z`
+resolves in a clean environment.
 
 ## Known gaps in the published record
 
@@ -125,7 +126,8 @@ clean environment.
   server-side in between. That is an inference, not an observation: PyPI's
   publisher configuration cannot be read back. **Treat the next
   Release-triggered run as the confirmation.** The manual trigger has since
-  been removed, so if it fails, the run is re-run after the cause is fixed.
+  been removed, so if it fails, all jobs of the run are re-run after the
+  cause is fixed.
 
 ## Plugin releases
 

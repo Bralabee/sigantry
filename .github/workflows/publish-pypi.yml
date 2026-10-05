@@ -3,8 +3,8 @@ name: Publish to PyPI
 
 # A published GitHub Release is the only trigger. The `pypi` environment
 # admits only `v*` tags and waits for its reviewer. A failed run is
-# recovered by re-running this run, which builds and checks the same commit
-# again; there is no manual trigger that could publish another ref.
+# recovered with "Re-run all jobs", which builds, checks and scans the same
+# commit again; there is no manual trigger that could publish another ref.
 on:
   release:
     types: [published]
@@ -29,9 +29,10 @@ jobs:
   # takes the `dist` artifact `quality` built and checked, verifies it
   # against the recorded SHA-256, scans the tree and both distributions for
   # names, and uploads exactly those bytes. Nothing from PyPI runs before the
-  # scan, which holds the token list. tests/ci/test_name_gate.py pins this
-  # job whole and tests/ci/test_quality_gates_run.py pins that it builds
-  # nothing.
+  # scan, which holds the token list; the one package installed is
+  # poppler-utils, from the runner's Ubuntu archive, so that the scan can
+  # read PDFs. tests/ci/test_name_gate.py pins this job whole and
+  # tests/ci/test_quality_gates_run.py pins that it builds nothing.
   publish:
     name: Publish to PyPI
     needs: [quality]
@@ -84,11 +85,11 @@ jobs:
           NAME_GATE_TOKENS: ${{ secrets.NAME_GATE_TOKENS }}
         run: python scripts/ci/check-name-gate.py --root . --dist dist
 
-      # skip-existing stays: with no manual trigger, re-running this run is
-      # the only recovery from an upload that stopped after one file, and a
-      # re-run must be able to finish the other. What reached PyPI is checked
-      # against the recorded SHA-256 after the release, not taken from this
-      # run's status.
+      # skip-existing stays: with no manual trigger, re-running all jobs of
+      # this run is the only recovery from an upload that stopped after one
+      # file, and the re-run must be able to finish the other. What reached
+      # PyPI is checked against the recorded SHA-256 after the release, not
+      # taken from this run's status.
       - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:

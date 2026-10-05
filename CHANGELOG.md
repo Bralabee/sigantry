@@ -117,10 +117,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that artifact, verifies it against the record, scans the tree and both
   distributions with the name gate's `--dist`, and uploads them. It checks
   out without persisting credentials, installs nothing from PyPI and no
-  longer restores a pip cache, so nothing from an index or an earlier run
-  executes beside the OIDC token or the token list before the scan.
-  `skip-existing` stays on: re-running the release run is now the only
-  recovery from an upload that stopped after one file.
+  longer restores a pip cache, so nothing from PyPI or from an earlier run
+  executes beside the OIDC token or the token list before the scan. The one
+  package it installs is `poppler-utils`, from the runner's Ubuntu archive,
+  which the scan needs to read PDFs. `skip-existing` stays on: re-running
+  all jobs of the release run is now the only recovery from an upload that
+  stopped after one file.
 - `mypy` in `.pre-commit-config.yaml` moved from `v1.13.0` to `v1.20.2`, the
   version `mypy>=1.19,<2.0` actually resolves to, so the hook and the CI gate
   cannot disagree about what counts as an error.
@@ -463,8 +465,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   let a run be started against any ref, leaving the `pypi` environment's
   `v*` tag policy and its reviewer as the only stops before an upload. A
   published GitHub Release is now the only trigger, and a failed release is
-  recovered by re-running its run. `docs/release-process.md` no longer
-  presents the manual run as a fallback.
+  recovered by re-running all jobs of its run. `docs/release-process.md` no
+  longer presents the manual run as a fallback.
 - Settings env overrides are now restricted to `<PREFIX><SECTION>__<KEY>` forms
   whose section names a real settings field, and **no** model in the tree
   enables pydantic-settings' own env source. `SIGANTRY_` is shared with ~70
