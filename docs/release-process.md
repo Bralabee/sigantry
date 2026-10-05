@@ -60,7 +60,8 @@ Run before opening the release PR:
    moved fails until the register fits that ref. A version bump needs no
    register edit: a distribution member identical to the tree file at its
    path is judged by that file's entry, and a hit in the core metadata is
-   keyed by its field (`#Author:1`), not its line. Before tagging, the
+   keyed by its field (`#Author:1`), or in a field that can repeat, such
+   as `Classifier`, by its entry, not by its line. Before tagging, the
    maintainer runs the release scan on the release commit locally:
    `python -m build`, then
    `python scripts/ci/check-name-gate.py --root . --dist dist --list-file <list>`.

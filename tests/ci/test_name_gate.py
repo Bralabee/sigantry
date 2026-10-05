@@ -646,7 +646,7 @@ def test_a_metadata_header_hit_is_keyed_by_its_field_not_its_line(tmp_path: Path
     dist = _dist(tmp_path, wheel={"demo-1.2.3.dist-info/METADATA": moved}, version="1.2.4")
     proc = _run(root, tmp_path, listed, "--dist", str(dist))
     assert proc.returncode == 0, proc.stdout
-    # The n-th line of a repeated field, and a token in another field, are each their own key.
+    # A multiple-use entry, and a token in another field, are each their own key.
     other = _metadata(
         extra="Classifier: A\nClassifier: B\nClassifier: zqplant\nMaintainer: zqplant\n"
     )
@@ -654,10 +654,177 @@ def test_a_metadata_header_hit_is_keyed_by_its_field_not_its_line(tmp_path: Path
     proc = _run(root, tmp_path, listed, "--dist", str(dist))
     assert proc.returncode == 1
     assert _hits(proc) == [
-        "wheel!demo.dist-info/METADATA#Classifier:3 S01",
+        f"wheel!demo.dist-info/METADATA#Classifier@{_entry_digest('Classifier: zqplant')}:1 S01",
         "wheel!demo.dist-info/METADATA#Maintainer:1 S01",
     ]
     _assert_no_leak(proc)
+
+
+def _entry_digest(*lines: str) -> str:
+    """The digest a multiple-use entry is keyed by; registered keys depend on it."""
+    digest = hashlib.sha256("\n".join(lines).encode("utf-8")).digest()
+    return f"{int.from_bytes(digest[:8], 'big') % 10**12:012d}"
+
+
+@pytest.mark.parametrize(
+    ("field_name", "above", "hit", "added"),
+    [
+        ("Classifier", "Framework :: Pytest", "Framework :: zqplant", "Typing :: Typed"),
+        ("Requires-Dist", "requests>=2", "zqplant-client>=1.0", "pyyaml>=6"),
+        (
+            "Project-URL",
+            "Home, https://example.invalid",
+            "Source, https://example.invalid/zqplant",
+            "Docs, https://example.invalid/docs",
+        ),
+    ],
+)
+def test_adding_an_entry_of_the_same_field_moves_no_key(
+    tmp_path: Path, field_name: str, above: str, hit: str, added: str
+) -> None:
+    """The key of a multiple-use entry survives another entry of that field added above it.
+
+    A ``--dist`` scan runs only in the release job, so a key that moved
+    with every new classifier, dependency or URL would fail the release on
+    the day. The key is taken from the gate's own output, as a maintainer
+    registers one, so a key that counted the field's lines fails here.
+    """
+    root = _metadata_tree(tmp_path)
+
+    def build(version: str, extra: str) -> Path:
+        metadata = _metadata(version, extra)
+        return _dist(
+            tmp_path,
+            wheel={f"demo-{version}.dist-info/METADATA": metadata},
+            sdist={"PKG-INFO": metadata},
+            version=version,
+        )
+
+    listed = LIST + _README_ENTRY + _WHEEL_AUTHOR + _SDIST_AUTHOR
+    first = build("1.2.3", f"{field_name}: {above}\n{field_name}: {hit}\n")
+    found = _run(root, tmp_path, listed, "--dist", str(first))
+    keys = _hits(found)
+    assert [key.split("!")[0] for key in keys] == ["sdist", "wheel"], found.stdout
+    _assert_no_leak(found)
+    registered = listed + "".join(f"exception {key}\n" for key in keys)
+    proc = _run(root, tmp_path, registered, "--dist", str(first))
+    assert proc.returncode == 0, proc.stdout  # the control: the printed keys excuse the hits
+    for n, extra in enumerate(
+        [
+            f"{field_name}: {above}\n{field_name}: {added}\n{field_name}: {hit}\n",
+            f"{field_name}: {added}\n{field_name}: {hit}\n{field_name}: {above}\n",
+        ]
+    ):
+        proc = _run(root, tmp_path, registered, "--dist", str(build(f"1.3.{n}", extra)))
+        assert proc.returncode == 0, (extra, proc.stdout)
+        assert "5 excused, 0 stale exception(s)" in proc.stdout, proc.stdout
+    entry = _entry_digest(f"{field_name}: {hit}")
+    assert keys == [
+        f"sdist!PKG-INFO#{field_name}@{entry}:1 S01",
+        f"wheel!demo.dist-info/METADATA#{field_name}@{entry}:1 S01",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("extra", "keys"),
+    [
+        (  # identical entries are two keys, counted on across the entry between them
+            "Classifier: zqplant A\nClassifier: B\nClassifier: zqplant A\n",
+            [f"Classifier@{_entry_digest('Classifier: zqplant A')}:{n}" for n in (1, 2)],
+        ),
+        (  # the digest covers a continuation line, and n counts the entry's lines
+            "Project-URL: Source,\n  https://example.invalid/zqplant\n",
+            [
+                "Project-URL@"
+                + _entry_digest("Project-URL: Source,", "  https://example.invalid/zqplant")
+                + ":2"
+            ],
+        ),
+        (  # header names are compared without case
+            "requires-dist: zqplant-client\n",
+            [f"requires-dist@{_entry_digest('requires-dist: zqplant-client')}:1"],
+        ),
+    ],
+    ids=["identical entries", "continuation line", "lower-case field"],
+)
+def test_a_multiple_use_entry_is_keyed_by_its_digest(
+    tmp_path: Path, extra: str, keys: list[str]
+) -> None:
+    root = _metadata_tree(tmp_path)
+    listed = LIST + _README_ENTRY + _WHEEL_AUTHOR
+    dist = _dist(tmp_path, wheel={"demo-1.2.3.dist-info/METADATA": _metadata(extra=extra)})
+    proc = _run(root, tmp_path, listed, "--dist", str(dist))
+    assert proc.returncode == 1
+    assert _hits(proc) == [f"wheel!demo.dist-info/METADATA#{key} S01" for key in keys]
+    _assert_no_leak(proc)
+
+
+# The fields the core metadata specification marks multiple-use, as
+# packaging.metadata lists them (26.3).
+_MULTIPLE_USE = (
+    "Classifier",
+    "Dynamic",
+    "Import-Name",
+    "Import-Namespace",
+    "License-File",
+    "Obsoletes",
+    "Obsoletes-Dist",
+    "Platform",
+    "Project-URL",
+    "Provides",
+    "Provides-Dist",
+    "Provides-Extra",
+    "Requires",
+    "Requires-Dist",
+    "Requires-External",
+    "Supported-Platform",
+)
+
+
+def test_every_multiple_use_field_is_keyed_by_its_entry_and_no_other(tmp_path: Path) -> None:
+    root = _metadata_tree(tmp_path)
+    single = ("Keywords", "Maintainer", "Summary")  # the control: single-use fields keep a count
+    extra = "".join(f"{name}: zqplant\n" for name in (*_MULTIPLE_USE, *single))
+    dist = _dist(tmp_path, wheel={"demo-1.2.3.dist-info/METADATA": _metadata(extra=extra)})
+    proc = _run(root, tmp_path, LIST + _README_ENTRY + _WHEEL_AUTHOR, "--dist", str(dist))
+    assert proc.returncode == 1
+    keys = [f"{name}@{_entry_digest(f'{name}: zqplant')}:1" for name in _MULTIPLE_USE]
+    keys += [f"{name}:1" for name in single]
+    expected = sorted(f"wheel!demo.dist-info/METADATA#{key} S01" for key in keys)
+    assert _hits(proc) == expected
+
+
+def test_a_changed_or_repeated_entry_is_a_new_key_and_fails_closed(tmp_path: Path) -> None:
+    """An entry is excused for its text: a new spelling, or another copy, needs an entry.
+
+    A key that counted the field's lines would excuse the edited classifier
+    under the old entry, and one that ignored duplicates would excuse a
+    second copy with the first copy's entry.
+    """
+    root = _metadata_tree(tmp_path)
+    old = f"wheel!demo.dist-info/METADATA#Classifier@{_entry_digest('Classifier: zqplant A')}"
+    listed = LIST + _README_ENTRY + _WHEEL_AUTHOR + f"exception {old}:1 S01\n"
+    builds = {
+        "1.2.3": ("Classifier: zqplant A\n", 0, []),  # the control
+        "1.2.4": (
+            "Classifier: zqplant B\n",
+            1,
+            [
+                "wheel!demo.dist-info/METADATA#Classifier@"
+                + _entry_digest("Classifier: zqplant B")
+                + ":1 S01",
+                f"stale exception {old}:1 S01",
+            ],
+        ),
+        "1.2.5": ("Classifier: zqplant A\nClassifier: zqplant A\n", 1, [f"{old}:2 S01"]),
+    }
+    for version, (extra, rc, hits) in builds.items():
+        metadata = _metadata(version, extra)
+        dist = _dist(
+            tmp_path, wheel={f"demo-{version}.dist-info/METADATA": metadata}, version=version
+        )
+        proc = _run(root, tmp_path, listed, "--dist", str(dist))
+        assert (proc.returncode, _hits(proc)) == (rc, hits), version
 
 
 def test_the_sdist_core_metadata_is_keyed_by_field_too(tmp_path: Path) -> None:

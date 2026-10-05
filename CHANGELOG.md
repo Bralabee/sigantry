@@ -47,9 +47,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is what the upload sends. A member whose bytes are identical to the tree
   file at the same path (a wheel's PEP 639 licence copy included) is judged
   by that file's register entries rather than reported twice. A hit in the
-  core metadata is keyed by its header field (`METADATA#Author:1`), or by
-  the readme's line when the body is a byte-identical copy of the readme,
-  so a version bump or a new classifier moves no key. A wheel `RECORD` line
+  core metadata is keyed by its header field (`METADATA#Author:1`); in a
+  field that can repeat, such as `Classifier`, `Requires-Dist` or
+  `Project-URL`, by a digest of its entry (`METADATA#Classifier@<digest>:1`);
+  or by the readme's line when the body is a byte-identical copy of the
+  readme. So a version bump, or a new classifier, dependency or URL, moves
+  no key, while an edited one is a new key. A wheel `RECORD` line
   whose path, SHA-256 and size all check out is read as empty, because a
   random digest can contain a short token by chance. The artifact file
   names and each sdist member's owner and group names are read as well.

@@ -72,13 +72,23 @@ What is read (no path, basename or suffix is exempt):
     sdist's top-level ``PKG-INFO``) is read whole, and a hit in it is
     reported by where it sits rather than by its line: in the header
     block as ``<unit>#<Field>:<n>``, the ``n``-th line carrying that
-    field (``METADATA#Author:1``); in the body as the readme file's
-    ``<path>:<line>`` when the body (the bytes after the first blank line)
-    is byte-identical to the file ``pyproject.toml`` names as ``readme``
-    and its lines are the ones read after the header block, else as
-    ``<unit>#body:<line>`` counted from the first line after the header
-    block. Adding a classifier, a dependency or a URL moves no key. A
-    header block that is not ``Field: value`` lines is keyed by line, as
+    field (``METADATA#Author:1``), except that a field the core metadata
+    specification marks multiple-use (``Classifier``, ``Requires-Dist``,
+    ``Project-URL`` and the others it lists) is keyed by its entry, as
+    ``<unit>#<Field>@<digest>:<n>``: the digest is twelve decimal digits
+    of the SHA-256 of the entry's lines (its field line and any
+    continuation lines), and ``n`` counts the lines of the entries of that
+    field with that digest, so each of two identical entries is a key of
+    its own; in the body as the readme file's ``<path>:<line>`` when the
+    body (the bytes after the first blank line) is byte-identical to the
+    file ``pyproject.toml`` names as ``readme`` and its lines are the ones
+    read after the header block, else as ``<unit>#body:<line>`` counted
+    from the first line after the header block. Adding a classifier, a
+    dependency or a URL moves no key. The key of a multiple-use entry
+    moves when that entry changes, or when an entry identical to it is
+    added or removed above it; the key of any other field moves when a
+    line of that field is added or removed above it. A header block that
+    is not ``Field: value`` lines is keyed by line, as
     any text. Only the top-level core metadata is read this way: a
     ``PKG-INFO`` or ``METADATA`` deeper in, or inside a nested container,
     is read as any other member;
@@ -678,6 +688,39 @@ _CORE_METADATA = {
 _WHEEL_RECORD = re.compile(r"wheel![^/]+\.dist-info/RECORD")
 _WHEEL_LICENSE = re.compile(r"[^/]+\.dist-info/licenses/(.+)")
 _FIELD = re.compile(r"([A-Za-z0-9][A-Za-z0-9_-]*):")
+# The fields the core metadata specification marks multiple-use (packaging's
+# list and dict fields), compared without case, as header names are.
+_REPEATABLE_FIELDS = frozenset(
+    {
+        "classifier",
+        "dynamic",
+        "import-name",
+        "import-namespace",
+        "license-file",
+        "obsoletes",
+        "obsoletes-dist",
+        "platform",
+        "project-url",
+        "provides",
+        "provides-dist",
+        "provides-extra",
+        "requires",
+        "requires-dist",
+        "requires-external",
+        "supported-platform",
+    }
+)
+
+
+def _entry_digest(lines: list[str]) -> str:
+    """Twelve decimal digits of the SHA-256 of a header entry's lines.
+
+    Digits rather than hex: a short name can be spelt in hex letters, and a
+    key that matched a token would be printed redacted, so it could not be
+    copied into the register.
+    """
+    digest = hashlib.sha256("\n".join(lines).encode("utf-8", errors="surrogatepass")).digest()
+    return f"{int.from_bytes(digest[:8], 'big') % 10**12:012d}"
 
 
 def _metadata_rekey(content: bytes, report: Report) -> Callable[[str, int], tuple[str, int]]:
@@ -685,22 +728,31 @@ def _metadata_rekey(content: bytes, report: Report) -> Callable[[str, int], tupl
 
     Lines are split exactly as ``scan_text`` counts them. The header block
     runs to the first empty line; a line that starts with a space or a tab
-    continues the field above it.
+    continues the entry above it. A repeatable field is keyed by its entry,
+    so another entry of that field, added above it, does not renumber it.
     """
     lines = _normalise(_decodings(content)[0]).split("\n")
-    keys: list[tuple[str, int]] = []
-    seen: dict[str, int] = {}
-    current: str | None = None
+    entries: list[tuple[str, list[str]]] = []  # (field, the entry's lines)
     for line in lines:
         if line == "":
             break
-        if current is None or line[:1] not in (" ", "\t"):
-            match = _FIELD.match(line)
-            if match is None:
-                return lambda unit, number: (unit, number)  # not Field: value lines
-            current = match[1]
-        seen[current] = seen.get(current, 0) + 1
-        keys.append((current, seen[current]))
+        if entries and line[:1] in (" ", "\t"):
+            entries[-1][1].append(line)
+            continue
+        match = _FIELD.match(line)
+        if match is None:
+            return lambda unit, number: (unit, number)  # not Field: value lines
+        entries.append((match[1], [line]))
+    keys: list[tuple[str, int]] = []
+    seen: dict[str, int] = {}  # key name -> lines counted under it so far
+    for field_name, entry in entries:
+        name = field_name
+        if field_name.lower() in _REPEATABLE_FIELDS:
+            # Identical entries share a name and are counted on, so each is a key of its own.
+            name = f"{field_name}@{_entry_digest(entry)}"
+        for _line in entry:
+            seen[name] = seen.get(name, 0) + 1
+            keys.append((name, seen[name]))
     header = len(keys)
     _head, blank, body = content.partition(b"\n\n")
     # The readme's own scan numbered the lines of exactly these bytes. They
