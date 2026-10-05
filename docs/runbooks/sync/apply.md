@@ -10,7 +10,7 @@ The five verbs the sync engine ships are easy to confuse. ADR-0012 formalises th
 |---|---|---|---|
 | Plan + reconcile folder topology against an existing workspace; move existing items into the manifest's `target_folder` paths | **`sigantry sync apply`** | yes -- creates / moves folders + relocates existing items | **NO** -- new items are staged locally but NOT published; see [§1.1](#11-what-sync-apply-does-not-do) |
 | Mirror an existing workspace into a local IaC tree (`sync.yml` + sources) so future runs are no-op idempotent | **`sigantry sync pull`** | no -- read-only | n/a |
-| Deploy first-time items + parameterise per environment (DEV/PREPROD/PROD) + write a `DeployRecord` for audit | **`sigantry deploy run`** | yes -- runs `fabric-cicd publish_all_items` | **YES** |
+| Deploy first-time items + parameterise per environment (DEV/PREPROD/PROD); writes no `DeployRecord` (record the release with `sigantry release record`) | **`sigantry deploy run`** | yes -- runs `fabric-cicd publish_all_items` | **YES** |
 | Compare a manifest against a live workspace and report drift | **`sigantry diff`** | no -- read-only | n/a |
 | Capture a workspace's current state for diffing later | **`sigantry sync snapshot`** | no -- read-only | n/a |
 
@@ -102,7 +102,7 @@ After a successful `--with-publish` invocation, the audit ledger receives ONE `D
 }
 ```
 
-The `provider` field lives inside `test_evidence` (not as a top-level field) because `DeployRecord` is `extra="forbid"` + `frozen=True` -- schema-widening to add new top-level fields would break verify-without-trust on existing records (see [ADR-0011](../../decisions/ADR-0011-rename-to-sigantry.md) Sprint Note for the audit-hash determinism contract). Operators reading the audit ledger should `json.loads(record["test_evidence"]["published_items"])` to get the list back as a Python list. The `release_id` prefix `sync-publish-` (D-17-04) bucket-categorises these records distinct from `sync-<TS>` (sync-only), `R-...` (deploy-run), and `rollback-of-<id>-<TS>` (rollback).
+The `provider` field lives inside `test_evidence` (not as a top-level field) because `DeployRecord` is `extra="forbid"` + `frozen=True` -- a new top-level field would change the hashed payload, so `verify_hash()` would fail on every record written before it (see [ADR-0011](../../decisions/ADR-0011-rename-to-sigantry.md) Sprint Note for the audit-hash determinism contract). Operators reading the audit ledger should `json.loads(record["test_evidence"]["published_items"])` to get the list back as a Python list. The `release_id` prefix `sync-publish-` (D-17-04) bucket-categorises these records distinct from `sync-<TS>` (sync-only), operator-chosen ids such as `R-...` (`release record`; a forward `deploy run` writes no record), and `rollback-of-<id>-<TS>` (rollback).
 
 #### Failure semantics
 

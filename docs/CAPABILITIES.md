@@ -45,7 +45,7 @@ When a capability cites a test, you can falsify the claim by breaking the code u
 
 ## 1. Architecture at a glance
 
-Sigantry is a thin governance and orchestration layer over Microsoft Fabric REST + Azure ARM + Git provider APIs. It exposes two consumer surfaces that funnel through one front door, dispatch to plugin-supplied behaviour via 11 protocol seams, and emit immutable audit records.
+Sigantry is a thin governance and orchestration layer over Microsoft Fabric REST + Azure ARM + Git provider APIs. It exposes two consumer surfaces that funnel through one front door, dispatch to plugin-supplied behaviour via 11 protocol seams, and append integrity-checked audit records (unkeyed; see [section 7](#7-audit--observability)).
 
 ```mermaid
 flowchart TB
@@ -218,7 +218,7 @@ sequenceDiagram
 | `--manifest` (req) | Path to `sync.yml`. |
 | `--workspace-id` (req) | Target Fabric workspace GUID. |
 | `--environment` | The `parameters.yml` environment to publish with `--with-publish`; required there when `parameters.yml` names any environment beyond `_ALL_`. |
-| `--audit-dir` | Override `~/.sigantry/audit/`. |
+| `--audit-dir` | Directory for the `deploys.jsonl` record this command writes (default `~/.sigantry/audit/`). The `destructive_ops.jsonl` records of an `--unpublish-orphans` run are always written under `~/.sigantry/audit/`. |
 | `--dry-run` | Compute the plan; print to console; exit 0 without applying. |
 | `--with-publish` | Compose folder reconcile with `fabric-cicd.publish_all_items` for first-time items (Phase 17, ADR-0012 Option C). Requires `--params`. |
 | `--republish-existing` | Modifier on `--with-publish`: also refresh the content of manifest items that already exist in the workspace (matched by display name + type). |
@@ -317,13 +317,13 @@ sequenceDiagram
 
 ### 2.5 Item deployment + rollback
 
-[VERIFIED]. Wraps `fabric-cicd` for Git-tree deploys and emits an immutable `DeployRecord` for every release.
+[VERIFIED]. Wraps `fabric-cicd` for Git-tree deploys. A forward `deploy run` writes no `DeployRecord`; a release is recorded by `sigantry release record` (section 2.8), and a rollback writes a record of its own. The `DeployRecord` emitters are listed in [section 7](#7-audit--observability).
 
 | Verb | Purpose | Source |
 |---|---|---|
 | `sigantry deploy run` | Deploy a Fabric item tree. Non-zero exit on item-publish failure. `--bulk` publishes through a concurrent worker pool; `--items-to-include`, `--item-name-exclude-regex`, `--folder-path-to-include`, `--folder-path-exclude-regex` and `--shortcut-exclude-regex` scope the publish. | `sigantry_core/deploy/cli.py:53` |
 | `sigantry deploy validate` | Validate WITHOUT deploying (ADOPIPE-05 pre-flight). | `cli.py:315` |
-| `sigantry deploy run --rollback --to-release <id>` | Re-publish content from a prior `DeployRecord`. | `sigantry_core/deploy/rollback.py:88` |
+| `sigantry deploy run --rollback --to-release <id>` | Publish again the items a prior `DeployRecord` names (`fabric_items_changed`), with their content read from the `--source` checkout. The record holds item names only, no content and no commit; a record that names no items makes the rollback publish nothing. | `sigantry_core/deploy/rollback.py:88` |
 | `sigantry fabric-item copy` | Duplicate an item folder with a fresh `logicalId`. | `sigantry_core/deploy/cli.py:463` |
 | `sigantry fabric-item set-binding` | Attach an Environment and/or a default Lakehouse to a deployed notebook. | `sigantry_core/deploy/cli.py:504` |
 
@@ -336,17 +336,17 @@ sequenceDiagram
     participant LEDGER as deploys.jsonl
 
     Op->>CLI: --workspace-id --source<br/>--params --environment
-    CLI->>FCC: publish_all_items<br/>(items_to_include=...)
+    CLI->>FCC: publish_all_items
     FCC-->>CLI: published_items
-    CLI->>LEDGER: emit DeployRecord<br/>{release_id, audit_hash, work_item_links}
+    Note over CLI,LEDGER: a forward deploy writes no DeployRecord
 
     Note over Op,LEDGER: --- Later: incident response ---
 
-    Op->>CLI: deploy run<br/>--rollback --to-release <id>
+    Op->>CLI: deploy run --rollback --to-release <id><br/>--rollback-force --source <checkout>
     CLI->>LEDGER: find_by_release_id(id)
-    LEDGER-->>CLI: prior DeployRecord
-    CLI->>FCC: re-publish prior content
-    CLI->>LEDGER: emit new DeployRecord<br/>(provider="rollback")
+    LEDGER-->>CLI: prior DeployRecord (item names)
+    CLI->>FCC: publish_all_items(items_to_include=<br/>recorded names), content from --source
+    CLI->>LEDGER: emit new DeployRecord<br/>(release_id rollback-of-<id>-<TS>)
 ```
 
 **`unpublish_orphans` flag** is also exposed on `deploy run` (separate from `sync apply --unpublish-orphans` -- different code path; deploy's variant runs through `_unpublish_orphans_gated` in `sigantry_core/deploy/core.py:319`).
@@ -430,8 +430,8 @@ Notes on `env sync` (proven live on a production workspace, 2026-06-14):
 **Audit invariants:**
 
 - `DeployRecord.audit_hash` is a SHA-256 over canonical-JSON of all other fields.
-- `DeployRecord.verify_hash()` returns `True` iff content was not tampered.
-- `BootstrapRecord` mirrors this algorithm.
+- `DeployRecord.verify_hash()` returns `True` iff the stored `audit_hash` matches a hash recomputed from the record's other fields. A field changed without recomputing the hash makes it `False`; a record whose hash was recomputed after an edit (a re-seal) returns `True`.
+- `BootstrapRecord` mirrors this algorithm. `sigantry release verify` does not read the bootstrap ledger.
 
 Runbook: [`runbooks/work-item-traceability/comment-rendering.md`](runbooks/work-item-traceability/comment-rendering.md) -- byte-equal cross-provider rendering of release-record comments.
 
@@ -671,7 +671,7 @@ Detailed protocol contracts live in [`docs/reference/protocols.md`](reference/pr
 | `ApprovalRecord` | `approvals.jsonl` | `sigantry_core/governance/records.py:133` | `ApprovalGate` plugin operations |
 | `DestructiveOpRecord` | `destructive_ops.jsonl` | `sigantry_core/governance/records.py:215` | every call that passes the `@destructive_op` gate, on success and on failure |
 
-**Hash-verification API** -- every record class exposes `verify_hash() -> bool`. The audit-hash is a SHA-256 over canonical-JSON of all fields except the hash itself, so a single tampered byte breaks the verification.
+**Hash-verification API** -- every record class exposes `verify_hash() -> bool`. The audit-hash is a SHA-256 over canonical-JSON of all fields except the hash itself, so a byte changed without recomputing the hash breaks the verification. The hash is unkeyed: a record edited and then re-hashed with the same public algorithm passes.
 
 **Telemetry**: governance audit is non-pluggable; **business telemetry** (deploy duration, DQ gate counts, custom events) flows through whichever `TelemetrySink` plugin is wired. The base package registers none; a plugin supplies one (for example, an Azure Monitor DCR/DCE sink).
 
@@ -791,7 +791,6 @@ Honest scope documentation. None of these items block the capabilities listed ab
 **Migration recipes:**
 
 - [`migration/2.x-to-3.0.md`](migration/2.x-to-3.0.md) -- Legacy (pre-rename) names and what replaces them
-- [`migration/3.x-pr-bot.md`](migration/3.x-pr-bot.md) -- PR-bot adoption
 
 ---
 

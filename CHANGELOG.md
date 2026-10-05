@@ -73,6 +73,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   part of this repository; on a clean runner they always skipped.
 
 ### Changed
+- **The documentation describes the audit ledger, rollback and drift
+  detection as they behave.** A forward `sigantry deploy run` writes no
+  `DeployRecord`: records come from `sync apply`, `deploy run --rollback`
+  and `release record`, and the pages that said otherwise now say so.
+  Rollback publishes again the items a recorded release names, with their
+  content read from `--source`; the record holds no content and no commit.
+  Tutorial 07 therefore records each release with
+  `sigantry release record --fabric-items` and rolls back from a copy of
+  the first release's source. `sigantry diff` compares item names, types
+  and folders when it is run; it does not run continuously.
+  `sigantry release verify` checks the deploy ledger only. The ledger is
+  described as integrity-checked and unkeyed rather than immutable, signed
+  or cryptographic, and the pipeline templates' tests and approval as
+  gating the release record, not the deployment. The demo quickstart no
+  longer promises a release record: the demo CI's `release record` step
+  passes an option the command does not accept. Two entries under
+  [1.0.0] below made the same claims (continuous topology comparison, and
+  a rollback restoring historical item states) and are corrected in place.
+- The documentation says how version numbers relate: public 1.0.0
+  continues an internal 3.x line (1.0.0 corresponds to internal 3.4.x),
+  and the v2.x and v3.x numbers in older pages refer to that line. The
+  install notes say that the reserved `sigantry-core` name on PyPI holds
+  only a yanked placeholder with no code, and the remaining dependency and
+  issue-tracker lines that named it now name `sigantry`. Three
+  `!!!` admonitions, which GitHub shows as plain text, use GitHub's alert
+  syntax.
 - The workspace delete fallback is described as what it does. With
   `pbi_fallback=True`, a Fabric `DELETE` that fails with `UnknownError` is
   tried again through the Power BI groups endpoint. The docstring, the
@@ -222,6 +248,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   wins.
 
 ### Removed
+- `docs/migration/3.x-pr-bot.md`, a PR-bot "migration" page that told
+  adopters to depend on the dead distribution name; the PR-bot operator
+  runbook covers adoption. `docs/metrics.json` goes too: its test counts
+  were stale, and none of this repository's own CI workflows runs the
+  checker it named.
 - The demo walkthrough video build: `scripts/remotion/` (a Node project),
   `scripts/build-walkthrough.sh`, `.github/workflows/sigantry-demo-mp4.yml`,
   `docs/demo/walkthrough-script.md` and their tests. The video was never
@@ -514,16 +545,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   separate organization account and no longer counts.
 
 ### Known remaining
-- Among the `pip install` and dependency lines under `docs/`, the dependency
-  instructions in `docs/migration/3.x-pr-bot.md` and one pinning step in
-  `docs/reference/api-stability.md` still name the dead distribution, and
-  ADR-0011 and ADR-0017 name it too. They are prose rather
-  than shipped artefacts and are tangled with a separate version-scheme
-  inconsistency (docs say `>=3.0`, the shipped line is 1.0.x), so they are
-  deliberately left for their own change rather than half-corrected here.
-  Two of them must survive any such change:
-  ADR-0017 quotes the dead name to explain the defect, and ADR-0011 records it
-  as history.
+- Under `docs/`, the dead distribution name now appears only in the decision
+  records (ADR-0010, ADR-0011, ADR-0016 and ADR-0017, which quotes it to
+  explain the defect), in the dated landscape survey, and in the install notes
+  that say it is not the distribution name and what the reserved name on PyPI
+  holds. No install or dependency instruction outside those records names it.
 - The guard scans `templates/`, `.github/workflows/`, `scripts/` and the
   package. It does **not** scan `pyproject.toml`, `environment.yml`,
   `README.md` or `CONTRIBUTING.md`, so the dead name could reappear in those
@@ -570,11 +596,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Folder-aware item synchronization with `--with-publish` (wrapping `fabric-cicd`) and `--republish-existing`.
   - Staged `.platform` v2 packaging with LF line-ending normalization for Notebooks, Pipelines, Semantic Models, Reports, and Spark Job Definitions.
 - **Drift Detection (`sigantry diff`)**:
-  - Continuous topology comparison between committed manifests and live Fabric workspaces.
+  - Point-in-time topology comparison between a committed manifest and a live Fabric workspace, by item name, type and folder (not item content), run when invoked.
   - Rich color-coded terminal tables and SemVer-pinned JSON output (`--fail-on-drift` CI alerting).
 - **Deployment & Automated Rollback (`sigantry deploy`)**:
   - Forward deployments with topological dependency ordering and `$ENV:` parameter substitution.
-  - One-command release rollback (`--rollback --to-release <release-id> --rollback-force`) restoring historical item states.
+  - One-command release rollback (`--rollback --to-release <release-id> --rollback-force`) that publishes again the items a recorded release names, with their content read from the `--source` checkout (the record holds no content and no commit).
 - **Audit & Provenance Ledger (`sigantry release` & `governance.audit`)**:
   - Integrity-checked, append-only JSONL ledgers with SHA-256 hash chains (unkeyed and
     unanchored - see docs/reference/audit-ledger-threat-model.md for what that resists).

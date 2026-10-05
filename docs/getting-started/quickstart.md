@@ -12,8 +12,9 @@ pip install sigantry
 ```
 
 (The distribution is `sigantry` on PyPI — 1.0.0 is published and public. The
-`sigantry-core` name in older documents was the pre-v1.0 plan and does not
-resolve; see [ADR-0017](../decisions/ADR-0017-distribution-name-sigantry.md).)
+`sigantry-core` name in older documents was the pre-v1.0 plan. On PyPI it holds
+only a yanked placeholder with no code, which an unpinned `pip install` skips;
+see [ADR-0017](../decisions/ADR-0017-distribution-name-sigantry.md).)
 
 ## 2. Wire a toy deploy profile
 

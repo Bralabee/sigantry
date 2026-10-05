@@ -2,7 +2,8 @@
 
 Each tutorial is a worked, end-to-end example you can follow verbatim. Every command
 was executed (or, where destructive, dry-run-verified) against a live Fabric tenant
-on 2026-06-11; expected output blocks show what you should actually see.
+on 2026-06-11, except the `sigantry release record` steps added to tutorial 07 later;
+expected output blocks show what you should actually see.
 
 If you are brand new, do tutorials 01 and 02 in order — everything else builds on
 them. After that, pick by need.
@@ -34,7 +35,7 @@ flowchart TD
 | 04 | [Read the audit trail](04-audit-trail.md) | Find, inspect, diff and hash-verify the release records your work created | 15 min |
 | 05 | [Adopt an existing workspace](05-adopt-existing-workspace.md) | A live workspace pulled into a committed manifest, round-trip proven lossless | 25 min |
 | 06 | [Bootstrap a new workspace](06-bootstrap-workspace.md) | A workspace + capacity + folders + Git wiring from one YAML file | 25 min |
-| 07 | [Roll back a release](07-rollback.md) | Two releases in the ledger, a diff between them, the first restored | 30 min |
+| 07 | [Roll back a release](07-rollback.md) | Two recorded releases, a diff of their item lists, the first release's items re-published from its source | 30 min |
 | 08 | [Scheduled drift alerts](08-scheduled-drift-alerts.md) | A cron workflow that posts to Teams when a workspace drifts | 30 min |
 | 09 | [PR review bot](09-pr-review-bot.md) | Semantic-model and Lakehouse schema diffs posted on a pull request | 25 min |
 | 10 | [Governance sweeps](10-governance.md) | RBAC export, sensitivity-label sweep, tenant-settings baseline | 20 min |

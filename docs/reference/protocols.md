@@ -1,9 +1,12 @@
-# Protocol seams (v2.0 / v3.0)
+# Protocol seams
 
-`sigantry-core` ships **11** `typing.Protocol` classes that define the plugin
+`sigantry` ships **11** `typing.Protocol` classes that define the plugin
 surface for the agnostic base: the **six v2 seams** (landed v2.0) plus the **five
 v3 seams** (`WorkItemProvider` Phase 11, `PrReviewBot` Phase 14, and
-`NotificationSink` / `SecretStore` / `ApprovalGate` Phase 16). Plugins implement
+`NotificationSink` / `SecretStore` / `ApprovalGate` Phase 16). The v2.x and v3.x
+numbers on this page belong to the internal version line that preceded the public
+1.0.0 release (see the version note on the [front page](../index.md#current-release)).
+Plugins implement
 one or more seams, register under the matching `sigantry.<seam>` entry-point group,
 and are composed by `FabricDataOps.from_config()`.
 
@@ -121,7 +124,7 @@ class CapacityPolicy(Protocol):
 Cross-VCS work-item integration seam -- links a Sigantry release to ADO Work Items
 or GitHub Issues. Introduced in v3.0 (Phase 11, the productisation wedge).
 Reference implementations `AdoWorkItemProvider` and `GithubWorkItemProvider`
-ship in `sigantry-core` itself (per [ADR-0011](../decisions/ADR-0011-rename-to-sigantry.md)
+ship in the `sigantry` package itself (per [ADR-0011](../decisions/ADR-0011-rename-to-sigantry.md)
 and the seam-map's "both impls in base" rule for dual-CI parity).
 
 ### Method set
@@ -161,10 +164,10 @@ class WorkItem:
 
 **v3.0 stable.** Adding a method to the Protocol is a breaking change for
 implementers; removing one is a breaking change for consumers. Both bump
-the major version of `sigantry-core`. **All 11 seams omit `api_version` at
-v3.0/v3.1** (per [ADR-0004](../decisions/ADR-0004-api-version-policy.md)); a
-planned post-v3.1 cross-seam widening adds `api_version: str` to every seam
-together rather than per-seam.
+the major version of `sigantry`. **All 11 seams omit `api_version`**
+(per [ADR-0004](../decisions/ADR-0004-api-version-policy.md)); a planned
+cross-seam widening adds `api_version: str` to every seam together rather
+than per-seam.
 
 ### Traceability
 
@@ -185,12 +188,12 @@ immutable value object. Plugins must not mutate them in place.
 
 ## SemVer commitment
 
-`sigantry-core` follows [Semantic Versioning 2.0][semver]. The
+`sigantry` follows [Semantic Versioning 2.0][semver]. The
 protocol shapes on this page define the plugin contract:
 
 - **Breaking change** -- any signature change, field removal, or
   semantics change on a protocol bumps the **major** version of
-  `sigantry-core`.
+  `sigantry`.
 - **Additive change** -- a new protocol, a new optional field with a
   default, or a new helper method bumps the **minor** version.
 - **Fix / doc** -- no signature change bumps the **patch** version.

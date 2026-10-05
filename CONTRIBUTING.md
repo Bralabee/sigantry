@@ -8,7 +8,7 @@ Thank you for your interest in contributing to **Sigantry**, the governance, syn
 - **Python 3.11+:** CI tests Python 3.11 and 3.12. Newer versions are not blocked (no upper bound) but are untested.
 - **Strict Quality Gates:** All tests, Ruff lint/formatting, and Mypy strict checks must pass.
 - **One HTTP Client:** `sigantry_core.client` is the single centralized gateway for HTTP communication (`httpx`).
-- **Read-Only / Safe by Default:** Any CLI command or API function that mutates remote Fabric resources must require explicit user intent and emit a cryptographic audit ledger entry.
+- **Read-Only / Safe by Default:** Any CLI command or API function that mutates remote Fabric resources must require explicit user intent and append a record to an audit ledger (hash-chained, unkeyed: see the [audit ledger threat model](docs/reference/audit-ledger-threat-model.md)).
 - **Vendor-Agnostic Core:** The base library is 100% tenant-neutral and client-neutral. Client-specific integrations, proprietary runbooks, or tenant URLs plug in via the 11 `sigantry.<seam>` protocol entry points.
 
 ## Local Development Setup

@@ -10,9 +10,10 @@ See also:
 - [`docs/decisions/ADR-0010-commercial-model.md`](../../docs/decisions/ADR-0010-commercial-model.md)
   -- the Apache-2.0 + pure-OSS stance the deploy strategy assumes.
 - [`docs/decisions/ADR-0011-rename-to-sigantry.md`](../../docs/decisions/ADR-0011-rename-to-sigantry.md)
-  -- the `fabric-dataops-toolkits -> sigantry` rename. The legacy
-  name's shim window closed in v3.1, so pin `sigantry` in your
-  `pyproject.toml`.
+  -- the rename to Sigantry.
+- ADR-0017 (`docs/decisions/ADR-0017-distribution-name-sigantry.md` in
+  the Sigantry repository) -- the PyPI distribution is `sigantry`, so pin
+  `sigantry` in your `pyproject.toml`.
 
 ## Trunk-based development
 

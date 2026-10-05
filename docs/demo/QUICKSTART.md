@@ -2,8 +2,9 @@
 
 > Phase 15 / DEMO-04. This walkthrough is for outside reviewers who
 > did not build Sigantry. Total time: ~15 minutes from a fresh laptop
-> to a green deploy + audit-record + diff against the demo Fabric
-> tenant. If any step takes more than 3 minutes, jump to the
+> to a green sync + diff against the demo Fabric tenant (the demo CI's
+> release-record step does not work yet; see Step 6). If any step takes
+> more than 3 minutes, jump to the
 > [Troubleshooting](#troubleshooting) section at the bottom.
 
 ## What you will do
@@ -139,25 +140,31 @@ git push -u origin feature/demo-quickstart-touch
 
 Open a PR against `main` on the demo-sigantry repo (GitHub or ADO).
 After merge, watch the `sigantry-demo-ci` workflow run on the push to
-`main`: deploy -> record -> diff. Expect zero drift on the diff stage.
+`main`: deploy -> record -> diff. The record step does not work yet
+(see "Release record" below): when the job reaches it, it exits with
+code 2, so the diff step after it does not run. Re-run Step 5 by hand
+to check for drift after the deploy.
 
 ## What you proved
 
-In about 15 minutes, you exercised four Sigantry feature surfaces
+In about 15 minutes, you exercised three Sigantry feature surfaces
 end-to-end against a real Fabric tenant:
 
 - **Phase 4 deploy** -- `sigantry deploy` (and its `sync apply` peer)
   pushes 4 Fabric item types (Lakehouse + Notebook + DataPipeline +
   SemanticModel) via `fabric-cicd`.
-- **Phase 11 audit** -- the demo CI's `sigantry release record` step
-  writes an immutable JSONL DeployRecord traceable back to the GitHub
-  commit SHA.
 - **Phase 13 drift** -- `sigantry diff` (and the demo CI's
   `--fail-on-drift` flag) catches divergence between the Git
   source-of-truth and tenant state.
 - **Dual-CI parity** -- the same three-command demo loop ships in
-  GitHub Actions and Azure DevOps; CI in either system tells the
-  same audit story.
+  GitHub Actions and Azure DevOps.
+
+**Release record** -- the demo CI's `sigantry release record` step
+writes no record yet. It passes `--workspace-id`, which `release record`
+does not accept (it takes `--workspace`), and it omits options the
+command requires (`--provider`, `--work-items` and `--approver`), so the
+command exits with code 2 before writing anything. Run
+`sigantry release record --help` to record a release by hand.
 
 ## Troubleshooting
 

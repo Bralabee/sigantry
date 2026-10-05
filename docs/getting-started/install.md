@@ -148,19 +148,19 @@ which is also the machine-readable answer to "which interpreter belongs to
 this checkout". `environment.yml` declares the same name, so
 `conda activate "$(cat .conda-env)"` always lands in the right place.
 
-!!! warning "An editable install elsewhere can shadow this checkout"
-
-    If another clone of this project is editable-installed in the same
-    environment, `import sigantry_core` resolves to **whichever tree comes
-    first on `sys.path`** — and from a directory other than this repo root
-    that can be the other tree, silently. Confirm which tree you are running
-    before trusting any result:
-
-    ```bash
-    cd <this repo> && python -c "import sigantry_core, os; \
-      print(os.path.dirname(sigantry_core.__file__), sigantry_core.__version__)"
-    # expect: <this repo>/sigantry_core  and the version in sigantry_core/_version.py
-    ```
+> [!WARNING]
+> **An editable install elsewhere can shadow this checkout.**
+> If another clone of this project is editable-installed in the same
+> environment, `import sigantry_core` resolves to **whichever tree comes
+> first on `sys.path`** — and from a directory other than this repo root
+> that can be the other tree, silently. Confirm which tree you are running
+> before trusting any result:
+>
+> ```bash
+> cd <this repo> && python -c "import sigantry_core, os; \
+>   print(os.path.dirname(sigantry_core.__file__), sigantry_core.__version__)"
+> # expect: <this repo>/sigantry_core  and the version in sigantry_core/_version.py
+> ```
 
 Plugin packages install cleanly alongside the base:
 

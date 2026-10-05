@@ -21,7 +21,7 @@ in Step 4.
 flowchart LR
     subgraph VERBS["Verbs that write evidence"]
         A["sync apply --with-publish"]
-        B["deploy run / --rollback"]
+        B["deploy run --rollback"]
         C["workspace bootstrap"]
         D["release record"]
     end

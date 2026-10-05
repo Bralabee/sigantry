@@ -91,8 +91,7 @@ nav:
     - sigantry_core.monitor: api/monitor.md
     - sigantry_core.dq: api/dq.md
   - Migration:
-    - 2.x -> 3.0: migration/2.x-to-3.0.md
-    - PR-bot migration: migration/3.x-pr-bot.md
+    - Legacy names: migration/2.x-to-3.0.md
   - Contributing: contributing.md
   - Release Process: release-process.md
 
