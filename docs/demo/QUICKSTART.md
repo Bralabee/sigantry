@@ -21,8 +21,8 @@
 - **A demo Fabric tenant** -- operator-provisioned per
   [docs/runbooks/demo-tenant-operator.md](../runbooks/demo-tenant-operator.md).
   Out-of-band setup gives you four values you will set as environment
-  variables in Step 2: tenant ID, workspace ID, capacity ID, Fabric
-  token.
+  variables in Step 2: tenant ID, workspace ID, capacity ID, and the
+  demo service principal's client secret (`SIGANTRY_DEMO_FABRIC_TOKEN`).
 
 Install Sigantry once into a fresh virtualenv or conda env:
 
@@ -63,7 +63,7 @@ hands you the values out-of-band:
 - `SIGANTRY_DEMO_CAPACITY_ID`
 - `SIGANTRY_DEMO_FABRIC_TOKEN`
 
-The simplest path is inline export:
+Export them in your shell:
 
 ```bash
 export SIGANTRY_DEMO_TENANT_ID="..."
@@ -71,11 +71,6 @@ export SIGANTRY_DEMO_WORKSPACE_ID="..."
 export SIGANTRY_DEMO_CAPACITY_ID="..."
 export SIGANTRY_DEMO_FABRIC_TOKEN="..."
 ```
-
-If you prefer a dotenv-style file, copy `scripts/live-creds.template`
-from the [sigantry monorepo](https://github.com/Bralabee/sigantry)
-into `.env.live` (do not commit it), populate the four `SIGANTRY_DEMO_*`
-keys, and load it with `set -a; source .env.live; set +a`.
 
 ## Step 3 -- Validate parameters.yml
 
