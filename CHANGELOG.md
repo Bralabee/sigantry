@@ -485,11 +485,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `permission_denied`, `delegated_only`, `names_hidden`, `incomplete`,
   `settings_unreadable` or `other`, and `detail` describes it.
   `token_unavailable` means the second token could not be obtained; like any
-  group-check error it makes the exit code 2, and exit code 3 still means no
-  token for `--scope`. `missing` now means the `memberOf` pages were read to
-  the last one, every entry had a name and none was the group; before, only
-  the first page was read and entries without a name were dropped. Later
-  `memberOf` pages are followed only on the Graph host.
+  group check reported as `error`, it makes the exit code 2, and exit code 3
+  still means no token for `--scope`. `missing` now means the `memberOf`
+  pages were read to the last one, every entry had a name and none was the
+  group; before, only the first page was read and entries without a name were
+  dropped. Later `memberOf` pages are followed only on the Graph host.
 - **`.github/workflows/drift-check.yml` failed every day.** Its `schedule:`
   trigger ran the workflow with an empty `inputs` context (declared defaults are
   not applied to scheduled runs either), so `sigantry diff` got no workspace and

@@ -384,8 +384,22 @@ def check_entra_group(
     groups: list[str] = []
     unnamed = 0
     try:
-        for _ in range(_MAX_MEMBER_OF_PAGES):
-            resp = client.get(url, headers=headers)
+        for page in range(_MAX_MEMBER_OF_PAGES):
+            try:
+                resp = client.get(url, headers=headers)
+            except httpx.HTTPError as exc:
+                if page == 0:
+                    raise  # the first request fails as it did in 1.0.0
+                return group_check_result(
+                    "error",
+                    "other",
+                    expected=expected_group,
+                    detail=(
+                        f"{type(exc).__name__} reading memberOf page {page + 1} from "
+                        "Microsoft Graph; the membership is unknown"
+                    ),
+                    groups=groups,
+                )
             if resp.status_code != 200:
                 return _graph_refusal(
                     resp, expected_group=expected_group, principal_id=principal_id

@@ -464,6 +464,28 @@ class TestCheckEntraGroupGraphToken:
         assert result["status"] == "ok"
         assert result["groups"] == ["sg-other", _GROUP]
 
+    def test_a_later_page_that_cannot_be_read_is_an_error(
+        self, respx_router: respx.MockRouter
+    ) -> None:
+        page2 = f"{GRAPH_AUDIENCE}/v1.0/me/memberOf?$skiptoken=abc"
+        respx_router.get(page2).mock(side_effect=httpx.ConnectError("refused"))
+        respx_router.get(_ME, params={"$select": "displayName"}).mock(
+            return_value=httpx.Response(
+                200, json={"value": [{"displayName": "sg-other"}], "@odata.nextLink": page2}
+            )
+        )
+        result = _check("fake-token")
+        assert result["status"] == "error"
+        assert result["classification"] == "other"
+        assert result["groups"] == ["sg-other"]
+
+    def test_a_first_page_that_cannot_be_read_raises_as_in_1_0_0(
+        self, respx_router: respx.MockRouter
+    ) -> None:
+        respx_router.get(_ME).mock(side_effect=httpx.ConnectError("refused"))
+        with pytest.raises(httpx.ConnectError):
+            _check("fake-token")
+
     def test_never_follows_a_next_link_off_graph(self, respx_router: respx.MockRouter) -> None:
         foreign = respx_router.get(url__startswith="https://example.invalid/").mock(
             return_value=httpx.Response(200, json={"value": [{"displayName": _GROUP}]})
