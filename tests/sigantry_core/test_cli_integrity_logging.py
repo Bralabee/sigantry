@@ -16,10 +16,12 @@ check: a release that changes how it resets logging is caught here.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 import sys
 import textwrap
+import unicodedata
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -67,12 +69,10 @@ def _record(release_id: str) -> DeployRecord:
     ).with_hash()
 
 
-@pytest.fixture
-def tampered_ledger(tmp_path: Path) -> Path:
-    """A two-record ledger whose second record was edited after it was sealed."""
-    audit_dir = tmp_path / "audit"
+def _ledger_with_edited_second_record(audit_dir: Path, second_release_id: str) -> Path:
+    """Write ``R-good`` and ``second_release_id``, then edit the second after it was sealed."""
     emit_deploy_record(_record("R-good"), audit_dir=audit_dir)
-    emit_deploy_record(_record("R-edited"), audit_dir=audit_dir)
+    emit_deploy_record(_record(second_release_id), audit_dir=audit_dir)
     path = audit_dir / "deploys.jsonl"
     lines = path.read_text(encoding="utf-8").splitlines()
     obj = json.loads(lines[1])
@@ -80,6 +80,12 @@ def tampered_ledger(tmp_path: Path) -> Path:
     lines[1] = json.dumps(obj)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return audit_dir
+
+
+@pytest.fixture
+def tampered_ledger(tmp_path: Path) -> Path:
+    """A two-record ledger whose second record was edited after it was sealed."""
+    return _ledger_with_edited_second_record(tmp_path / "audit", "R-edited")
 
 
 @pytest.mark.parametrize("module", ["sigantry_core", "sigantry_core.cli"])
@@ -110,6 +116,115 @@ def test_release_list_on_an_intact_ledger_prints_nothing_to_stderr(tmp_path: Pat
     assert result.returncode == 0, result.stderr
     assert "R-one" in result.stdout
     assert result.stderr == ""
+
+
+def _run_bytes(args: list[str], cwd: Path) -> subprocess.CompletedProcess[bytes]:
+    """Like :func:`_run`, without newline translation, so every byte is checked."""
+    return subprocess.run(
+        [sys.executable, *args],
+        cwd=cwd,
+        env=_child_env(cwd),
+        capture_output=True,
+        timeout=120,
+    )
+
+
+#: Characters that end a line or drive a terminal: C0, DEL, C1 and the
+#: Unicode line / paragraph separators all fall in these categories.
+_LINE_OR_CONTROL = frozenset({"Cc", "Zl", "Zp"})
+
+
+def _has_line_or_control(text: str) -> bool:
+    return any(unicodedata.category(ch) in _LINE_OR_CONTROL for ch in text)
+
+
+def test_a_ledger_value_prints_on_the_warning_line_with_its_escapes_visible(
+    tmp_path: Path,
+) -> None:
+    """A release_id with a line feed and cursor controls cannot add or erase a line."""
+    audit_dir = _ledger_with_edited_second_record(
+        tmp_path / "audit", "R-2\nINFO all 2 ledger records verified\x1b[1A\x1b[2K"
+    )
+    result = _run_bytes(
+        ["-m", "sigantry_core", "release", "list", "--audit-dir", str(audit_dir)], tmp_path
+    )
+    assert result.returncode == 0, result.stderr
+    assert b"R-good" in result.stdout
+    # Exactly one line: the WARNING, with the line feed and the escape
+    # sequences shown as text rather than acted on.
+    assert result.stderr.decode("utf-8") == (
+        "WARNING sigantry_core.release.ledger: ledger_line_tampered lineno=2 "
+        "release_id=R-2\\nINFO all 2 ledger records verified\\x1b[1A\\x1b[2K\n"
+    )
+
+
+def test_a_ledger_line_that_fails_the_schema_prints_one_line(tmp_path: Path) -> None:
+    """The parser's multi-line error message is reported on one line."""
+    audit_dir = tmp_path / "audit"
+    emit_deploy_record(_record("R-good"), audit_dir=audit_dir)
+    with (audit_dir / "deploys.jsonl").open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"release_id": "R-broken", "workspace": "ws-test"}) + "\n")
+    result = _run_bytes(
+        ["-m", "sigantry_core", "release", "list", "--audit-dir", str(audit_dir)], tmp_path
+    )
+    assert result.returncode == 0, result.stderr
+    assert b"R-good" in result.stdout
+    stderr = result.stderr.decode("utf-8")
+    assert stderr.endswith("\n")
+    line = stderr[:-1]
+    assert not _has_line_or_control(line), repr(stderr)
+    assert line.startswith(
+        "WARNING sigantry_core.release.ledger: ledger_line_unparseable lineno=2 err="
+    )
+    # The error text is all there, its line breaks shown as \n.
+    assert "validation errors for DeployRecord\\n" in line
+    assert "Field required" in line
+
+
+def test_the_formatter_escapes_every_line_break_and_control_character() -> None:
+    from sigantry_core.cli import _IntegrityFormatter
+
+    controls = "".join(chr(cp) for cp in (*range(0x20), *range(0x7F, 0xA0), 0x2028, 0x2029))
+    record = logging.LogRecord(
+        "sigantry_core.release.ledger",
+        logging.WARNING,
+        __file__,
+        1,
+        "ledger_line_tampered lineno=%d release_id=%s",
+        (2, f"R-{controls}-end"),
+        None,
+    )
+    try:
+        raise ValueError("first\nsecond\u2028third")
+    except ValueError:
+        record.exc_info = sys.exc_info()
+    line = _IntegrityFormatter().format(record)
+
+    assert not _has_line_or_control(line), repr(line)
+    assert line.splitlines() == [line]
+    for shown in ("\\x00", "\\t", "\\n", "\\r", "\\x1b", "\\x7f", "\\x85", "\\x9b"):
+        assert shown in line
+    assert "\\u2028" in line and "\\u2029" in line
+    assert line.endswith("-end (ValueError: first\\nsecond\\u2028third)")
+
+
+def test_the_formatter_leaves_printable_text_alone() -> None:
+    """Control: ordinary text, non-ASCII letters and backslashes print as they are."""
+    from sigantry_core.cli import _IntegrityFormatter
+
+    record = logging.LogRecord(
+        "sigantry_core.release.ledger",
+        logging.WARNING,
+        __file__,
+        1,
+        "ledger_line_tampered lineno=%d release_id=%s",
+        (2, "R-2 Zürich C:\\deploy"),
+        None,
+    )
+    assert _IntegrityFormatter().format(record) == (
+        "WARNING sigantry_core.release.ledger: ledger_line_tampered lineno=2 "
+        "release_id=R-2 Zürich C:\\deploy"
+    )
 
 
 _CHILD_SCRIPT = textwrap.dedent(

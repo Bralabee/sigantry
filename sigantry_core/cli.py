@@ -108,8 +108,32 @@ _INTEGRITY_LOGGERS: tuple[str, ...] = (
 _HANDLER_MARK = "_sigantry_cli_integrity"
 
 
+def _control_escapes() -> dict[int, str]:
+    """Map every line-breaking or terminal-control character to a visible escape.
+
+    Covered: the C0 controls, DEL, the C1 controls (U+0085 NEXT LINE
+    included) and the Unicode line and paragraph separators U+2028 /
+    U+2029. Tab, line feed and carriage return print as ``\\t``, ``\\n``
+    and ``\\r``; the rest as ``\\xNN`` or ``\\uNNNN``.
+    """
+    named = {0x09: "\\t", 0x0A: "\\n", 0x0D: "\\r"}
+    table = {cp: named.get(cp, f"\\x{cp:02x}") for cp in (*range(0x20), *range(0x7F, 0xA0))}
+    table.update({cp: f"\\u{cp:04x}" for cp in (0x2028, 0x2029)})
+    return table
+
+
+_CONTROL_ESCAPES = _control_escapes()
+
+
 class _IntegrityFormatter(logging.Formatter):
-    """One line per record; an exception is reduced to its type and message."""
+    """Exactly one line per record; an exception is reduced to its type and message.
+
+    The message carries text read from the ledger (a ``release_id``, a
+    parser's error message), so every control character in the formatted
+    line is printed as a visible escape (see :func:`_control_escapes`). A
+    value can therefore neither start a second line nor move the cursor
+    over the line that reports it.
+    """
 
     def format(self, record: logging.LogRecord) -> str:
         line = f"{record.levelname} {record.name}: {record.getMessage()}"
@@ -117,7 +141,7 @@ class _IntegrityFormatter(logging.Formatter):
             exc = record.exc_info[1]
             detail = "".join(traceback.format_exception_only(type(exc), exc)).strip()
             line = f"{line} ({detail})"
-        return line
+        return line.translate(_CONTROL_ESCAPES)
 
 
 class _IntegrityStderrHandler(logging.Handler):
@@ -144,6 +168,7 @@ class _IntegrityStderrHandler(logging.Handler):
 def _install_integrity_log_handler() -> None:
     """Send WARNING and above from the two audit-trail loggers to stderr.
 
+    Each record prints as one line, its control characters escaped.
     Scoped to those two loggers on purpose: every other library logger
     (azure, msal, httpx, fabric-cicd, the rest of sigantry_core) keeps the
     configuration it had, so a run that printed nothing to stderr before
