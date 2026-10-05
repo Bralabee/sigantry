@@ -118,11 +118,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   distributions with the name gate's `--dist`, and uploads them. It checks
   out without persisting credentials, installs nothing from PyPI and no
   longer restores a pip cache, so nothing from PyPI or from an earlier run
-  executes beside the OIDC token or the token list before the scan. The one
-  package it installs is `poppler-utils`, from the runner's Ubuntu archive,
-  which the scan needs to read PDFs. `skip-existing` stays on: re-running
-  all jobs of the release run is now the only recovery from an upload that
-  stopped after one file.
+  executes beside the OIDC token or the token list before the scan. To let
+  the scan read PDFs, it installs `poppler-utils` and the libraries it
+  depends on from the runner's Ubuntu archive, and apt-get runs the package
+  scripts and triggers they set off as root, before the scan.
+  `skip-existing` stays on: re-running all jobs of the release run is now
+  the only recovery from an upload that stopped after one file.
 - `mypy` in `.pre-commit-config.yaml` moved from `v1.13.0` to `v1.20.2`, the
   version `mypy>=1.19,<2.0` actually resolves to, so the hook and the CI gate
   cannot disagree about what counts as an error.

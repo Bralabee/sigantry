@@ -29,10 +29,11 @@ jobs:
   # takes the `dist` artifact `quality` built and checked, verifies it
   # against the recorded SHA-256, scans the tree and both distributions for
   # names, and uploads exactly those bytes. Nothing from PyPI runs before the
-  # scan, which holds the token list; the one package installed is
-  # poppler-utils, from the runner's Ubuntu archive, so that the scan can
-  # read PDFs. tests/ci/test_name_gate.py pins this job whole and
-  # tests/ci/test_quality_gates_run.py pins that it builds nothing.
+  # scan, which holds the token list. To let the scan read PDFs, it installs
+  # poppler-utils and the libraries it depends on from the runner's Ubuntu
+  # archive, and apt-get runs the package scripts and triggers they set off
+  # as root, before the scan. tests/ci/test_name_gate.py pins this job whole
+  # and tests/ci/test_quality_gates_run.py pins that it builds nothing.
   publish:
     name: Publish to PyPI
     needs: [quality]
