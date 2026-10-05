@@ -38,6 +38,7 @@ from sigantry_core.client.logging import (
     set_correlation_id,
 )
 from sigantry_core.client.models import HttpResponse
+from sigantry_core.client.response_urls import check_response_url
 from sigantry_core.client.retry import (
     classify_response,
     execute_with_retry,
@@ -309,9 +310,12 @@ class BaseRestClient:
             )
 
         # State URL preference: Location header (canonical Fabric path) then
-        # reconstructed ``{base_url}/v1/operations/{id}``.
+        # reconstructed ``{base_url}/v1/operations/{id}``. The header comes
+        # from the response, so it must be https before the token follows it.
         state_url = _get_header(initial.headers, "Location")
-        if not state_url:
+        if state_url:
+            state_url = check_response_url(state_url, source="Location header")
+        else:
             state_url = f"{self._base_url}/v1/operations/{operation_id}"
 
         retry_after = _parse_retry_after(_get_header(initial.headers, "Retry-After")) or 3.0

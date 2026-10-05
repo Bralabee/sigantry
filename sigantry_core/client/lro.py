@@ -52,6 +52,7 @@ from sigantry_core.client.logging import (
     reset_operation_id,
     set_operation_id,
 )
+from sigantry_core.client.response_urls import check_response_url
 from sigantry_core.client.retry import _parse_retry_after
 
 if TYPE_CHECKING:
@@ -142,6 +143,12 @@ def poll_operation(
             call emits can be joined to the original request.
         state_url: absolute URL of the state endpoint. The Fabric spec states
             this is always the ``Location`` header from the 202 response.
+            It is followed as given: a caller that takes it from a response
+            passes it through
+            :func:`~sigantry_core.client.response_urls.check_response_url`
+            first, as :meth:`BaseRestClient.send_lro` and
+            :meth:`FabricArmRestClient.send_arm_lro` do. The ``/result``
+            URL a succeeded poll returns is checked here.
         scope: OAuth scope override (default: ``client._default_scope``).
         timeout: wall-clock limit in seconds. Default 600. Enforced BEFORE
             each poll so a long ``Retry-After`` sleep does not push us past
@@ -241,7 +248,8 @@ def poll_operation(
             if last_status == "Succeeded":
                 new_location = _get_header(resp.headers, "Location")
                 if new_location and new_location.rstrip("/").endswith("/result"):
-                    result_resp = client.send("GET", new_location, scope=scope)
+                    result_url = check_response_url(new_location, source="Location header")
+                    result_resp = client.send("GET", result_url, scope=scope)
                     return result_resp.json_body
                 return None
 

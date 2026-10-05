@@ -61,6 +61,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   part of this repository; on a clean runner they always skipped.
 
 ### Changed
+- **Responses that point at a non-https URL are refused.** When a response
+  names the next URL to request (an LRO `Location` header, including the
+  `/result` URL of a succeeded operation; ARM's `Azure-AsyncOperation` or
+  `Location` header; Fabric's `continuationUri`; Power BI's
+  `@odata.nextLink`), the client follows it with the bearer token attached.
+  Such a URL must now use `https`: any other scheme raises
+  `sigantry_core.client.ResponseUrlRefusedError` (a `ClientError`) and no
+  request is sent. A relative URL is still resolved against the configured
+  base URL, and the configured base URL itself is not checked, so a local
+  `http://localhost` endpoint such as OPA's keeps working. A program that
+  points the client at a plain-http test server returning absolute http
+  `Location` or cursor URLs now gets this error.
 - **A `sync.yml` `display_name` must be one name, not a path.** A display
   name that contains `/` or `\` is rejected when the manifest is loaded, and
   with it every absolute path; before, only the other banned characters were
