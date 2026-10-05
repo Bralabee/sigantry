@@ -374,6 +374,124 @@ def test_legacy_name_beats_a_file_key_spelled_in_another_case(
     assert settings.core.tenant_id == expected
 
 
+_TWO_TABLE_SPELLINGS = {
+    "release.ado": '[release.ADO]\nworkspace = "upper"\n[release.ado]\nworkspace = "lower"\n',
+    "runbooks.static_map": '[runbooks.STATIC_MAP]\na = "upper"\n[runbooks.static_map]\na = "lower"\n',
+}
+
+
+@_posix_only("Windows sets the exact-case FDT_ name, which made 1.0.0's load_settings() fail")
+@pytest.mark.parametrize("value", ["", "[1]", "null", "5", '"s"', "true"])
+@pytest.mark.parametrize("field", sorted(_TWO_TABLE_SPELLINGS))
+def test_non_object_value_for_a_table_field_puts_its_spelling_first(
+    field: str, value: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """pydantic-settings kept a value that is not a JSON object at the field
+    the name spells in lower case, so the file's table spelled that way took
+    its place, ahead of the other spelling, and won. Without the name, the
+    first spelling in the file wins."""
+    section, key = field.split(".")
+    _write(_LEGACY_CONFIG_FILENAME, _TWO_TABLE_SPELLINGS[field])
+    monkeypatch.setenv(f"fdt_{section}__{key}", value)
+
+    settings, caught = _load()
+
+    assert getattr(getattr(settings, section), key) == {
+        "workspace" if section == "release" else "a": "lower"
+    }
+    assert not any("replace a table" in m for m in _messages(caught, UserWarning))
+
+
+def test_empty_table_field_in_an_env_file_puts_its_spelling_first(tmp_path: Path) -> None:
+    """The same through ``ToolkitSettings(_env_file=...)``, with the tables
+    passed to the constructor."""
+    env_file = tmp_path / "settings.env"
+    env_file.write_text("FDT_RELEASE__ADO=\n", encoding="utf-8")
+
+    settings, _ = _construct(
+        _env_file=env_file, release={"ADO": {"w": "upper"}, "ado": {"w": "lower"}}
+    )
+
+    assert settings.release.ado == {"w": "lower"}
+
+
+@pytest.mark.parametrize("build", ["load", "construct"])
+def test_null_section_drops_its_nested_names(build: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """``fdt_<section>=null`` left the section out of the env source in 1.0.0,
+    its ``__`` names with it."""
+    if build == "load":
+        if sys.platform == "win32":
+            pytest.skip("Windows sets FDT_CORE, which load_settings() reads as a table")
+        monkeypatch.setenv("fdt_core", "null")
+        monkeypatch.setenv("fdt_core__tenant_id", "x")
+        settings, _ = _load()
+    else:
+        monkeypatch.setenv("FDT_CORE", "null")
+        monkeypatch.setenv("FDT_CORE__TENANT_ID", "x")
+        settings, _ = _construct()
+
+    assert settings.core.tenant_id is None
+
+
+@pytest.mark.parametrize("value", ["5", '"s"', "[1]", "true"])
+@pytest.mark.parametrize("build", ["load", "construct"])
+def test_non_object_section_value_drops_its_nested_names(
+    build: str, value: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``fdt_<section>`` holding other JSON was the section's value in the env
+    source, without its ``__`` names; the file's table then replaced it."""
+    if build == "load":
+        if sys.platform == "win32":
+            pytest.skip("Windows sets FDT_CORE, which load_settings() reads as a table")
+        _write(_LEGACY_CONFIG_FILENAME, '[core]\ntenant_id = "f"\n')
+        monkeypatch.setenv("fdt_core", value)
+        monkeypatch.setenv("fdt_core__region", "r")
+        settings, caught = _load()
+    else:
+        monkeypatch.setenv("FDT_CORE", value)
+        monkeypatch.setenv("FDT_CORE__REGION", "r")
+        settings, caught = _construct(core={"tenant_id": "f"})
+
+    assert settings.core.tenant_id == "f"
+    assert settings.core.model_extra == {}
+    assert not any("replace a table" in m for m in _messages(caught, UserWarning))
+
+
+@pytest.mark.parametrize("case", ["json", "not-json", "secrets", "load-exact-case"])
+def test_value_1_0_0_failed_on_is_left_out_and_named(
+    case: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Guard: 1.0.0 failed on each of these values (validation, or parsing
+    the JSON); the value is left out instead, and named in a warning."""
+    expected_names = ["FDT_CORE", "FDT_RELEASE__ADO"]
+    if case == "json":
+        monkeypatch.setenv("FDT_CORE", "[1]")
+        monkeypatch.setenv("FDT_RELEASE__ADO", "5")
+        settings, caught = _construct()
+    elif case == "not-json":
+        monkeypatch.setenv("FDT_CORE", "not-json")
+        monkeypatch.setenv("FDT_RELEASE__ADO", "not-json")
+        settings, caught = _construct()
+    elif case == "secrets":
+        secrets = tmp_path / "sd"
+        secrets.mkdir()
+        (secrets / "fdt_core").write_text("5", encoding="utf-8")
+        (secrets / "fdt_release").write_text("not-json", encoding="utf-8")
+        expected_names = ["fdt_core", "fdt_release"]
+        settings, caught = _construct(_secrets_dir=secrets)
+    else:
+        _write(_LEGACY_CONFIG_FILENAME, '[release.ado]\norganization = "o"\n')
+        monkeypatch.setenv("FDT_CORE", "5")
+        monkeypatch.setenv("FDT_RELEASE__ADO", "5")
+        settings, caught = _load()
+
+    assert settings.core.tenant_id is None
+    assert settings.release.ado == ({"organization": "o"} if case == "load-exact-case" else {})
+    clobbered = [m for m in _messages(caught, UserWarning) if "replace a table" in m]
+    assert len(clobbered) == 1
+    assert all(name in clobbered[0] for name in expected_names), clobbered
+
+
 # ---------------------------------------------------------------------------
 # 1.4 FDT_ heads that name no section are merged again (load_settings only)
 # ---------------------------------------------------------------------------
@@ -499,6 +617,45 @@ def test_direct_construction_honours_custom_prefix_through_filter(
 
     assert settings.core.tenant_id == "from-myprefix"
     assert settings.auth.provider is None
+
+
+@pytest.mark.parametrize("prefix", ["SIGANTRY_", "sigantry_"])
+def test_direct_construction_reads_an_explicit_sigantry_prefix_as_1_0_0_did(
+    prefix: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``_env_prefix="SIGANTRY_"`` is the model's own prefix, but 1.0.0 read
+    every form under it, as under any prefix passed (``MY_`` above), and no
+    ``FDT_`` name."""
+    monkeypatch.setenv("SIGANTRY_CORE", json.dumps({"tenant_id": "j"}))
+    monkeypatch.setenv("SIGANTRY_RELEASE__ADO", json.dumps({"organization": "o"}))
+    monkeypatch.setenv("FDT_AUTH__PROVIDER", "not-read-under-a-prefix-passed")
+
+    settings, caught = _construct(_env_prefix=prefix)
+
+    assert settings.core.tenant_id == "j"
+    assert settings.release.ado == {"organization": "o"}
+    assert settings.auth.provider is None
+    assert [str(w.message) for w in caught] == []
+
+
+def test_explicit_sigantry_prefix_value_wins_over_fdt(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FDT_CORE__TENANT_ID", "a")
+    monkeypatch.setenv("SIGANTRY_CORE__TENANT_ID", "b")
+
+    settings, _ = _construct(_env_prefix="SIGANTRY_")
+
+    assert settings.core.tenant_id == "b"
+
+
+@_posix_only("Windows cannot set a lower-case name")
+def test_explicit_sigantry_prefix_matches_any_letter_case(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("sigantry_core__tenant_id", "low")
+
+    settings, _ = _construct(_env_prefix="SIGANTRY_")
+
+    assert settings.core.tenant_id == "low"
 
 
 def test_direct_construction_custom_prefix_cannot_reach_unknown_sections(
@@ -827,16 +984,83 @@ def test_diagnose_auth_settings_load_survives_warnings_as_errors(
 
 
 # ---------------------------------------------------------------------------
-# 1.9 The shipped pytest fixture under -W error::DeprecationWarning
+# 1.9 The shipped pytest fixture: one file, read without a warning
 # ---------------------------------------------------------------------------
+#
+# sigantry 1.0.0's fixture wrote the legacy file alone, and its loader read
+# that file without a warning, so a plugin suite run with warnings as errors
+# passed. The fixture still writes that one file; the loader reads it without
+# a warning while the test runs. Each file operation below behaves as on
+# 1.0.0.
+
+_NEW_FILE_BODY = '[core]\ntenant_id = "from-new-file"\n'
 
 
-def test_fixture_still_returns_the_legacy_path(fdt_settings_toml: Any) -> None:
+def _load_with_warnings_as_errors() -> ToolkitSettings:
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        return load_settings()
+
+
+def test_fixture_writes_the_legacy_file_alone(fdt_settings_toml: Any) -> None:
     path = fdt_settings_toml(core={"tenant_id": "t1"})
 
     assert path.name == _LEGACY_CONFIG_FILENAME
-    twin = path.parent / _CONFIG_FILENAME
-    assert twin.is_file() and twin.read_bytes() == path.read_bytes()
+    assert [entry.name for entry in path.parent.iterdir()] == [_LEGACY_CONFIG_FILENAME]
+    assert _load_with_warnings_as_errors().core.tenant_id == "t1"
+
+
+def test_fixture_keeps_a_new_file_the_test_wrote_first(fdt_settings_toml: Any) -> None:
+    """1.0.0 left a ``.sigantry.toml`` alone, and read the legacy file."""
+    new_file = _write(_CONFIG_FILENAME, _NEW_FILE_BODY)
+
+    fdt_settings_toml(core={"tenant_id": "t1"})
+
+    assert new_file.read_text(encoding="utf-8") == _NEW_FILE_BODY
+    assert _load_with_warnings_as_errors().core.tenant_id == "t1"
+
+
+def test_writing_a_new_file_leaves_the_returned_file_alone(fdt_settings_toml: Any) -> None:
+    path = fdt_settings_toml(core={"tenant_id": "t1"})
+    before = path.read_bytes()
+
+    _write(_CONFIG_FILENAME, _NEW_FILE_BODY)
+
+    assert path.read_bytes() == before
+    assert _load_with_warnings_as_errors().core.tenant_id == "t1"
+
+
+def test_renaming_the_returned_file_moves_it(fdt_settings_toml: Any) -> None:
+    """The rename moves the file, as on 1.0.0. The moved file is then read
+    because ``.sigantry.toml`` alone is read now, which 1.0.0 did not do."""
+    path = fdt_settings_toml(core={"tenant_id": "t1"})
+
+    path.rename(path.with_name(_CONFIG_FILENAME))
+
+    assert not path.exists()
+    assert [entry.name for entry in path.parent.iterdir()] == [_CONFIG_FILENAME]
+    assert _load_with_warnings_as_errors().core.tenant_id == "t1"
+
+
+def test_deleting_the_returned_file_leaves_no_config(fdt_settings_toml: Any) -> None:
+    """1.0.0 read no file after this, and every setting kept its default."""
+    path = fdt_settings_toml(core={"tenant_id": "t1"})
+
+    path.unlink()
+
+    assert list(path.parent.iterdir()) == []
+    assert _load_with_warnings_as_errors().core.tenant_id is None
+
+
+def test_replacing_the_returned_file_stays_silent(fdt_settings_toml: Any) -> None:
+    """An edit that writes a new file and moves it over the returned one."""
+    path = fdt_settings_toml(core={"tenant_id": "t1"})
+    staged = path.with_name("staged.toml")
+    staged.write_text('[core]\ntenant_id = "edited"\n', encoding="utf-8")
+
+    os.replace(staged, path)
+
+    assert _load_with_warnings_as_errors().core.tenant_id == "edited"
 
 
 def test_fixture_stays_silent_after_the_test_edits_the_returned_file(
@@ -857,14 +1081,129 @@ def test_fixture_stays_silent_after_the_test_edits_the_returned_file(
     assert ops.settings.telemetry.model_extra == {"note": "x"}
 
 
-def test_fixture_default_path_load_is_silent_under_error_filter(tmp_path: Path) -> None:
-    """A plugin's test suite: fixture, chdir, ``from_config()``, with
-    ``-W error::DeprecationWarning``. It passed on 1.0.0."""
+def test_fixture_exemption_covers_its_own_file_only(
+    fdt_settings_toml: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Guard: a legacy file the fixture did not write still warns."""
+    fdt_settings_toml(core={"tenant_id": "t1"})
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / _LEGACY_CONFIG_FILENAME).write_text('[core]\ntenant_id = "o"\n', "utf-8")
+    monkeypatch.chdir(elsewhere)
+
+    settings, caught = _load()
+
+    assert settings.core.tenant_id == "o"
+    assert any(
+        f"{_LEGACY_CONFIG_FILENAME} is deprecated" in m
+        for m in _messages(caught, DeprecationWarning)
+    )
+
+
+#: A plugin's tests, run by :func:`test_fixture_file_operations_in_a_plugin_suite`
+#: in a pytest of their own. Each asserts what 1.0.0 did, and loads through
+#: ``from_config()`` under the run's warnings-as-errors filter.
+_PLUGIN_SUITE_OPERATIONS = """
+import os
+
+NEW = ".sigantry.toml"
+BODY = '[core]\\ntenant_id = "from-new-file"\\n'
+
+
+def _from_config(cfg, monkeypatch):
+    from sigantry_core.api import FabricDataOps
+
+    monkeypatch.chdir(cfg.parent)
+    return FabricDataOps.from_config().settings
+
+
+def test_writes_one_file(fdt_settings_toml, monkeypatch):
+    cfg = fdt_settings_toml(core={"tenant_id": "t1"})
+    assert [p.name for p in cfg.parent.iterdir()] == [cfg.name]
+    assert _from_config(cfg, monkeypatch).core.tenant_id == "t1"
+
+
+def test_new_file_written_first_is_kept(fdt_settings_toml, tmp_path, monkeypatch):
+    (tmp_path / NEW).write_text(BODY, encoding="utf-8")
+    cfg = fdt_settings_toml(core={"tenant_id": "t1"})
+    assert (tmp_path / NEW).read_text(encoding="utf-8") == BODY
+    assert _from_config(cfg, monkeypatch).core.tenant_id == "t1"
+
+
+def test_new_file_written_after_leaves_the_returned_file(fdt_settings_toml, monkeypatch):
+    cfg = fdt_settings_toml(core={"tenant_id": "t1"})
+    before = cfg.read_bytes()
+    (cfg.parent / NEW).write_text(BODY, encoding="utf-8")
+    assert cfg.read_bytes() == before
+    assert _from_config(cfg, monkeypatch).core.tenant_id == "t1"
+
+
+def test_rename_moves_the_file(fdt_settings_toml, monkeypatch):
+    cfg = fdt_settings_toml(core={"tenant_id": "t1"})
+    cfg.rename(cfg.with_name(NEW))
+    assert not cfg.exists()
+    _from_config(cfg, monkeypatch)
+
+
+def test_delete_leaves_no_config(fdt_settings_toml, monkeypatch):
+    cfg = fdt_settings_toml(core={"tenant_id": "t1"})
+    cfg.unlink()
+    assert list(cfg.parent.iterdir()) == []
+    assert _from_config(cfg, monkeypatch).core.tenant_id is None
+
+
+def test_replace_edit(fdt_settings_toml, monkeypatch):
+    cfg = fdt_settings_toml(core={"tenant_id": "t1"})
+    staged = cfg.with_name("staged.toml")
+    staged.write_text('[core]\\ntenant_id = "edited"\\n', encoding="utf-8")
+    os.replace(staged, cfg)
+    assert _from_config(cfg, monkeypatch).core.tenant_id == "edited"
+
+
+def test_in_place_edit(fdt_settings_toml, monkeypatch):
+    cfg = fdt_settings_toml(core={"tenant_id": "t1"})
+    cfg.write_text('[core]\\ntenant_id = "edited"\\n', encoding="utf-8")
+    assert _from_config(cfg, monkeypatch).core.tenant_id == "edited"
+"""
+
+#: The exemption ends with the test that asked for the file: the same path
+#: warns again in a later test. Not a 1.0.0 behaviour (1.0.0 never warned).
+_PLUGIN_SUITE_SCOPE = """
+import pytest
+
+_SEEN = []
+
+
+def test_a_fixture_file(fdt_settings_toml):
+    _SEEN.append(fdt_settings_toml())
+
+
+def test_b_same_path_warns_once_that_test_ended(monkeypatch):
+    from sigantry_core.config import load_settings
+
+    path = _SEEN[0]
+    path.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+    monkeypatch.chdir(path.parent)
+    with pytest.warns(DeprecationWarning, match="is deprecated"):
+        load_settings()
+"""
+
+
+@pytest.mark.parametrize(
+    "warnings_as_errors",
+    [["-W", "error::DeprecationWarning"], ["-o", "filterwarnings=error"]],
+    ids=["W-error-DeprecationWarning", "filterwarnings-error"],
+)
+def test_fixture_file_operations_in_a_plugin_suite(
+    warnings_as_errors: list[str], tmp_path: Path
+) -> None:
+    """A plugin's own suite: the fixture, each file operation, ``from_config()``,
+    with warnings as errors. Every test here passed on 1.0.0."""
     root = Path(sigantry_core.__file__).resolve().parent.parent
     case = tmp_path / "plugin-suite"
     case.mkdir()
     (case / "pytest.ini").write_text("[pytest]\n", encoding="utf-8")
-    (case / "test_plugin_user.py").write_text(
+    (case / "test_identity.py").write_text(
         textwrap.dedent(
             f"""
             from pathlib import Path
@@ -875,18 +1214,12 @@ def test_fixture_default_path_load_is_silent_under_error_filter(tmp_path: Path) 
             def test_identity():
                 here = Path(sigantry_core.__file__).resolve()
                 assert here.is_relative_to({str(root)!r}), here
-
-
-            def test_from_config_default_path(fdt_settings_toml, monkeypatch):
-                from sigantry_core.api import FabricDataOps
-
-                cfg = fdt_settings_toml(core={{"tenant_id": "t1"}})
-                monkeypatch.chdir(cfg.parent)
-                FabricDataOps.from_config()
             """
         ),
         encoding="utf-8",
     )
+    (case / "test_operations.py").write_text(_PLUGIN_SUITE_OPERATIONS, encoding="utf-8")
+    (case / "test_scope.py").write_text(_PLUGIN_SUITE_SCOPE, encoding="utf-8")
     env = {
         k: v
         for k, v in os.environ.items()
@@ -901,8 +1234,7 @@ def test_fixture_default_path_load_is_silent_under_error_filter(tmp_path: Path) 
             "pytest",
             "-p",
             "no:cacheprovider",
-            "-W",
-            "error::DeprecationWarning",
+            *warnings_as_errors,
             "-c",
             str(case / "pytest.ini"),
             "--rootdir",
@@ -918,7 +1250,7 @@ def test_fixture_default_path_load_is_silent_under_error_filter(tmp_path: Path) 
     )
 
     assert proc.returncode == 0, proc.stdout[-3000:] + proc.stderr[-3000:]
-    assert "2 passed" in proc.stdout, proc.stdout[-3000:]
+    assert "10 passed" in proc.stdout, proc.stdout[-3000:]
 
 
 # ---------------------------------------------------------------------------

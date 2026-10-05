@@ -33,10 +33,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`fdt_core__tenant_id`), and `fdt_<section>` holding a JSON object, are read
   again and ranked as in 1.0.0: below a file key spelled `tenant_id`, above
   one spelled in another case such as `TENANT_ID`, and with
-  `<SECTION>__<KEY>` names laid over the JSON object. Where several `FDT_`
-  names set one setting, the one 1.0.0 used still wins, which for names that
-  differ only in letter case depends, as in 1.0.0, on the order the
-  environment lists them. `load_settings()` again keeps an `FDT_` name whose
+  `<SECTION>__<KEY>` names laid over the JSON object. Where `fdt_<section>`,
+  or `fdt_<section>__<table>` for a table such as `release.ado`, holds a value
+  that is not a JSON object (`null`, `5`, an empty value), the result is
+  again the one 1.0.0 gave: that section's `<SECTION>__<KEY>` names are not
+  read, and a table spelled two ways in the file resolves as it did there.
+  Where 1.0.0 failed on such a value, it is ignored with a `UserWarning`.
+  Where several `FDT_` names set one setting, the one 1.0.0 used still wins,
+  which for names that differ only in letter case depends, as in 1.0.0, on
+  the order the environment lists them. `load_settings()` again keeps an `FDT_` name whose
   section is not a settings section (`FDT_MYPLUG__KEY`) as a top-level extra,
   and it now reads `FDT_<SECTION>` holding a JSON object, a spelling 1.0.0's
   `load_settings()` failed on.
@@ -46,12 +51,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   name such as `[CORE]`. Where one is spelled more than once, the first
   spelling wins, as in 1.0.0. Keys that name no field keep their spelling.
 - **`ToolkitSettings()` built directly** reads settings variables again:
-  `FDT_` ones from the environment, `_env_file` and `_secrets_dir`, or the
-  names under a non-empty `_env_prefix`, each with the result 1.0.0 gave, and
-  `SIGANTRY_` ones from the same three inputs, which only fill what those
-  leave unset. Only names whose section is a settings section are read, in
-  the forms 1.0.0 read (`<PREFIX><SECTION>__<KEY>`, and `<PREFIX><SECTION>`
-  holding a JSON object) and as `SIGANTRY_<SECTION>__<KEY>`. Values passed to
+  `FDT_` ones from the environment, `_env_file` and `_secrets_dir`, with the
+  result 1.0.0 gave, and `SIGANTRY_` ones from the same three inputs, which
+  only fill what those leave unset. Passed a non-empty `_env_prefix`,
+  `SIGANTRY_` included, it reads the names under that prefix instead, with
+  the result 1.0.0 gave, and no others. Only names whose section is a
+  settings section are read, in the forms 1.0.0 read
+  (`<PREFIX><SECTION>__<KEY>`, and `<PREFIX><SECTION>` holding a JSON object)
+  and as `SIGANTRY_<SECTION>__<KEY>`. Values passed to
   the constructor outrank them all. `_env_prefix=""` is refused with a
   `UserWarning`, because it would read unprefixed names, and the default
   prefixes are read instead.
@@ -77,11 +84,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   attributed to the first caller outside sigantry, so Python shows it by
   default when the script being run made the call,
   `FabricDataOps.from_config()` included.
-- **pytest plugin.** The `fdt_settings_toml` fixture still returns the legacy
-  file's path, and also makes `.sigantry.toml` the same file (a hard link, or
-  a copy where the filesystem has none). A test that changes into that
-  directory and calls `FabricDataOps.from_config()`, after editing the
-  returned file in place or not, no longer fails under warnings as errors.
+- **pytest plugin.** The `fdt_settings_toml` fixture still writes only the
+  legacy file and returns its path, as in 1.0.0. While the test that asked
+  for it runs, the loader reads that file without a warning: no
+  `DeprecationWarning` for the legacy name, and no `UserWarning` if the test
+  also writes a `.sigantry.toml` beside it, which 1.0.0 did not read either.
+  A test that changes into that directory and calls
+  `FabricDataOps.from_config()` therefore passes under warnings as errors, as
+  it did on 1.0.0, whether it edits, replaces or deletes the file first. Any
+  other legacy file warns as before.
 
 ### Added
 - **A name gate** (`scripts/ci/check-name-gate.py`, run by

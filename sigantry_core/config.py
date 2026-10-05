@@ -82,6 +82,19 @@ _ENV_ALREADY_MERGED: contextvars.ContextVar[bool] = contextvars.ContextVar(
     "sigantry_env_already_merged", default=False
 )
 
+#: The ``_env_prefix`` the ``ToolkitSettings(...)`` call being built passed,
+#: or ``None`` when it passed none. pydantic-settings resolves an omitted
+#: prefix to ``model_config``'s, so ``_env_prefix="SIGANTRY_"`` would
+#: otherwise look like no argument at all; 1.0.0 read that prefix's names.
+_EXPLICIT_ENV_PREFIX: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "sigantry_explicit_env_prefix", default=None
+)
+
+#: Legacy config files the ``fdt_settings_toml`` pytest fixture wrote, by
+#: resolved path, for as long as the test that asked for them runs. See
+#: :func:`_exempt_fixture_file`.
+_FIXTURE_FILES: set[str] = set()
+
 
 def _warn(message: str, category: type[Warning]) -> None:
     """Warn, attributed to the first caller outside sigantry and pydantic.
@@ -378,6 +391,7 @@ class _FilteredEnvSource(PydanticBaseSettingsSource):
         super().__init__(settings_cls)
         self._init_kwargs: Mapping[str, Any] = getattr(init_settings, "init_kwargs", None) or {}
         self._env_prefix: str | None = getattr(env_settings, "env_prefix", None)
+        self._prefix_passed = _EXPLICIT_ENV_PREFIX.get() is not None
         self._dotenv_vars: Mapping[str, str | None] = (
             getattr(dotenv_settings, "env_vars", None) or {}
         )
@@ -396,7 +410,10 @@ class _FilteredEnvSource(PydanticBaseSettingsSource):
         if prefix == "":
             report.empty_prefix = True
             prefix = None
-        custom = prefix is not None and prefix.upper() != _ENV_PREFIX
+        # A prefix the caller passed is read as 1.0.0 read it, whatever its
+        # value, ``SIGANTRY_`` included; with none passed, the model's own
+        # (``SIGANTRY_``, or a subclass's) decides.
+        custom = prefix is not None and (self._prefix_passed or prefix.upper() != _ENV_PREFIX)
         old_prefix = prefix if custom and prefix else _LEGACY_ENV_PREFIX
         dotenv = {k: v for k, v in self._dotenv_vars.items() if v is not None}
         # Highest rank first, as in pydantic-settings: the process environment,
@@ -437,9 +454,8 @@ class ToolkitSettings(BaseSettings):
     that automatically.
     """
 
-    # ``env_prefix`` is declared only so that an explicit
-    # ``ToolkitSettings(_env_prefix="")`` can be told apart from no argument
-    # (pydantic-settings resolves both to this value). Neither it nor any
+    # ``env_prefix`` names the prefix this model reads when a call passes
+    # none; ``__init__`` records whether one was passed. Neither it nor any
     # other env option configures pydantic-settings' own env source, which is
     # never enabled: see ``settings_customise_sources``.
     model_config = SettingsConfigDict(
@@ -447,6 +463,16 @@ class ToolkitSettings(BaseSettings):
         case_sensitive=False,
         env_prefix=_ENV_PREFIX,
     )
+
+    def __init__(self, /, **values: Any) -> None:
+        # pydantic-settings resolves an omitted ``_env_prefix`` to the one in
+        # ``model_config``, so only the call itself shows whether one was
+        # passed; :class:`_FilteredEnvSource` reads it from here.
+        token = _EXPLICIT_ENV_PREFIX.set(values.get("_env_prefix"))
+        try:
+            super().__init__(**values)
+        finally:
+            _EXPLICIT_ENV_PREFIX.reset(token)
 
     @classmethod
     def settings_customise_sources(
@@ -569,6 +595,9 @@ def _resolve_config(path: str | Path | None) -> _ResolvedConfig:
       then read without a warning.
     - With neither, the new-style name is returned so the (non-fatal) miss is
       reported against the name operators should create.
+
+    A legacy file the ``fdt_settings_toml`` fixture wrote is read the same
+    way, without either warning (see :func:`_exempt_fixture_file`).
     """
     if path is not None:
         return _ResolvedConfig(Path(path), True)
@@ -576,25 +605,60 @@ def _resolve_config(path: str | Path | None) -> _ResolvedConfig:
     legacy = Path(_LEGACY_CONFIG_FILENAME)
     if not legacy.is_file():
         return _ResolvedConfig(current, False)
+    fixture = _is_fixture_file(legacy)
     if current.is_file():
         if _same_bytes(current, legacy):
             return _ResolvedConfig(current, True)
-        _warn(
-            f"Both {_CONFIG_FILENAME} and {_LEGACY_CONFIG_FILENAME} exist in the "
-            f"working directory. Reading {_LEGACY_CONFIG_FILENAME}, as sigantry 1.0.0 "
-            f"did; {_CONFIG_FILENAME} is ignored. Move your settings into "
-            f"{_CONFIG_FILENAME} and delete {_LEGACY_CONFIG_FILENAME} to switch. "
-            "Two identical files are read without this warning.",
-            UserWarning,
-        )
+        if not fixture:
+            _warn(
+                f"Both {_CONFIG_FILENAME} and {_LEGACY_CONFIG_FILENAME} exist in the "
+                f"working directory. Reading {_LEGACY_CONFIG_FILENAME}, as sigantry 1.0.0 "
+                f"did; {_CONFIG_FILENAME} is ignored. Move your settings into "
+                f"{_CONFIG_FILENAME} and delete {_LEGACY_CONFIG_FILENAME} to switch. "
+                "Two identical files are read without this warning.",
+                UserWarning,
+            )
         return _ResolvedConfig(legacy, True)
-    _warn(
-        f"{_LEGACY_CONFIG_FILENAME} is deprecated: rename it to "
-        f"{_CONFIG_FILENAME}. The legacy filename is read for one more "
-        "minor release and then removed (ADR-0011).",
-        DeprecationWarning,
-    )
+    if not fixture:
+        _warn(
+            f"{_LEGACY_CONFIG_FILENAME} is deprecated: rename it to "
+            f"{_CONFIG_FILENAME}. The legacy filename is read for one more "
+            "minor release and then removed (ADR-0011).",
+            DeprecationWarning,
+        )
     return _ResolvedConfig(legacy, True)
+
+
+def _fixture_key(path: str | os.PathLike[str]) -> str:
+    return os.path.normcase(os.path.realpath(path))
+
+
+def _exempt_fixture_file(path: Path) -> None:
+    """Read the legacy file at ``path`` without a warning while it is exempt.
+
+    Only the ``fdt_settings_toml`` pytest fixture calls this, for the file it
+    writes, and it lifts the exemption when the test that asked for the file
+    ends (:func:`_release_fixture_file`). sigantry 1.0.0's fixture wrote that
+    file under the legacy name and its loader read it silently, so a plugin's
+    suite run with warnings as errors passed; the file is the fixture's
+    choice, not the plugin author's, so a deprecation warning about it is not
+    one they can act on. The exemption is for that one path: any other legacy
+    file, and this one once the test ends, warns as before.
+    """
+    _FIXTURE_FILES.add(_fixture_key(path))
+
+
+def _release_fixture_file(path: Path) -> None:
+    _FIXTURE_FILES.discard(_fixture_key(path))
+
+
+def _is_fixture_file(path: Path) -> bool:
+    if not _FIXTURE_FILES:
+        return False
+    try:
+        return _fixture_key(path) in _FIXTURE_FILES
+    except (OSError, ValueError):
+        return False
 
 
 def _same_bytes(first: Path, second: Path) -> bool:
@@ -741,13 +805,35 @@ def _is_mapping_field(section: str, key: str) -> bool:
 
 def _json_object(raw: object) -> dict[str, Any] | None:
     """Return ``raw`` parsed as a JSON object, or ``None`` if it is not one."""
-    if not isinstance(raw, str):
-        return None
-    try:
-        parsed = json.loads(raw)
-    except ValueError:
-        return None
+    parsed = _json_value(raw)
     return parsed if isinstance(parsed, dict) else None
+
+
+def _json_value(raw: object) -> Any:
+    """Return ``raw`` parsed as JSON, or ``_MISSING`` if it is not JSON."""
+    if not isinstance(raw, str):
+        return _MISSING
+    try:
+        return json.loads(raw)
+    except ValueError:
+        return _MISSING
+
+
+class _NotATable:
+    """A value 1.0.0's env source read where a table belongs, that is not one.
+
+    pydantic-settings kept such a value -- JSON that is not an object, or an
+    empty ``<PREFIX><SECTION>__<DICT_FIELD>`` -- and a higher-ranked table at
+    the same key replaced it, so its only lasting effect was where the key sat
+    (which of two spellings of a field came first), and, for a section, that
+    the section's ``__`` names in the same input were not read. Where nothing
+    replaced it, 1.0.0 failed validation; :func:`_result_1_0_0` then drops it.
+    """
+
+    __slots__ = ("names",)
+
+    def __init__(self, names: Iterable[str]) -> None:
+        self.names = list(names)
 
 
 # -- The inputs sigantry 1.0.0 read, resolved as 1.0.0 resolved them ----------
@@ -824,8 +910,8 @@ def _legacy_pass_1_0_0(
     field -- made 1.0.0 fail, unless a later, deeper name replaced it with a
     table again (dropping what the file had there). One still in place at the
     end is taken back out, and the value it replaced restored; the env source
-    reads such a name when it holds a JSON object, and any other scalar aimed
-    at a dict-typed field is reported. A degenerate name (``FDT_CORE__`` splits
+    reads such a name when it holds a JSON object, and any other value is
+    reported. A degenerate name (``FDT_CORE__`` splits
     to ``["core", ""]``) is skipped: 1.0.0 wrote it as a junk key.
     """
     known = frozenset(ToolkitSettings.model_fields)
@@ -860,7 +946,7 @@ def _legacy_pass_1_0_0(
             parent.pop(path[-1], None)
         else:
             parent[path[-1]] = before
-        if len(path) == 2 and _json_object(environ.get(name)) is None:
+        if _json_object(environ.get(name)) is None:
             report.clobbered.append(name)
 
 
@@ -873,8 +959,12 @@ def _env_source_1_0_0(
     differ only in case, the later one's value counts. Per section,
     ``<PREFIX><SECTION>`` holding a JSON object is the base, and the
     ``<PREFIX><SECTION>__<KEY>`` names are laid over it, so a nested name beats
-    the JSON object whatever the order. Only declared sections are read, and a
-    dict-typed field takes a JSON object only. Used for the process
+    the JSON object whatever the order. ``<PREFIX><SECTION>`` holding JSON
+    ``null`` leaves the section out, its ``__`` names too; holding other JSON
+    that is not an object, it is a :class:`_NotATable` and its ``__`` names
+    are not read. A dict-typed field takes a JSON object; an empty value or
+    other JSON there is a :class:`_NotATable`. Only declared sections are
+    read, and a value 1.0.0 failed to parse is skipped. Used for the process
     environment and for an env file.
     """
     low_prefix = prefix.lower()
@@ -894,9 +984,20 @@ def _env_source_1_0_0(
             continue
         head = low_prefix + section
         used: list[str] = []
-        table = _json_object(values.get(head))
+        parsed = _json_value(values.get(head))
+        table = parsed if isinstance(parsed, dict) else None
+        if parsed is not _MISSING and table is None:
+            # Read as JSON and not an object: pydantic-settings returned it
+            # as the section's value without reading the ``__`` names.
+            if legacy:
+                report.legacy.extend(spelled[head])
+            if parsed is not None:
+                result[section] = _NotATable(spelled[head])
+            continue
         if table is not None:
             used.append(head)
+        elif head in values:
+            report.clobbered.extend(spelled[head])  # not JSON: 1.0.0 failed on it
         nested: dict[str, Any] = {}
         start = head + _ENV_DELIM
         for key, raw in values.items():
@@ -907,10 +1008,15 @@ def _env_source_1_0_0(
                 continue
             value: Any = raw
             if not parents and _is_mapping_field(section, last):
-                value = _json_object(raw)
-                if value is None:
+                # pydantic-settings parsed a non-empty value as JSON, and
+                # failed when it was not JSON; any value but an object is
+                # kept in its place.
+                value = _json_value(raw) if raw else _NotATable(spelled[key])
+                if value is _MISSING:
                     report.clobbered.extend(spelled[key])
                     continue
+                if not isinstance(value, dict | _NotATable):
+                    value = _NotATable(spelled[key])
             cursor: Any = nested
             for parent in parents:
                 cursor = cursor.setdefault(parent, {}) if isinstance(cursor, dict) else cursor
@@ -936,8 +1042,9 @@ def _secrets_source_1_0_0(secrets_dir: Any, prefix: str, report: _EnvReport) -> 
 
     A file named ``<PREFIX><SECTION>`` in any letter case, holding a JSON
     object, sets that section: the first such name in directory order, in the
-    last directory that has one. Nested names are not read from files, and
-    anything 1.0.0 failed on is skipped.
+    last directory that has one. JSON ``null`` leaves the section out, and
+    other JSON is a :class:`_NotATable`. Nested names are not read from files,
+    and a file 1.0.0 failed to parse is skipped and reported.
     """
     dirs = [secrets_dir] if isinstance(secrets_dir, str | os.PathLike) else list(secrets_dir or ())
     result: dict[str, Any] = {}
@@ -957,10 +1064,17 @@ def _secrets_source_1_0_0(secrets_dir: Any, prefix: str, report: _EnvReport) -> 
                 continue
             if raw is None:
                 continue
-            table = _json_object(raw)
-            if model is not None and table is not None and found is not None:
-                declared = {field.lower(): field for field in model.model_fields}
-                result[section] = {declared.get(k.lower(), k): v for k, v in table.items()}
+            parsed = _json_value(raw)
+            if model is None or found is None:
+                pass
+            elif parsed is _MISSING:
+                report.clobbered.append(found.name)  # not JSON: 1.0.0 failed on it
+            else:
+                if isinstance(parsed, dict):
+                    declared = {field.lower(): field for field in model.model_fields}
+                    result[section] = {declared.get(k.lower(), k): v for k, v in parsed.items()}
+                elif parsed is not None:
+                    result[section] = _NotATable([found.name])
                 if prefix.upper() == _LEGACY_ENV_PREFIX:
                     report.legacy.append(found.name)
             break
@@ -978,11 +1092,32 @@ def _result_1_0_0(
     then each section's keys are matched onto its fields. That order is why a
     file key spelled ``TENANT_ID`` lost to an ``fdt_core__tenant_id`` variable
     in 1.0.0 while a file key spelled ``tenant_id`` won, and it is kept.
+
+    A :class:`_NotATable` still in place once the sources are merged made
+    1.0.0 fail validation. It is dropped, before the keys are matched, and
+    named in a warning.
     """
     state = _fold_case(ToolkitSettings, given, report, None)
     for source in sources:
         state = _deep_update(source, state)
-    return _fold_sections(state, report)
+    return _fold_sections(_drop_not_a_table(state, report), report)
+
+
+def _drop_not_a_table(state: Mapping[str, Any], report: _EnvReport) -> dict[str, Any]:
+    """``state`` without the :class:`_NotATable` values the env sources left
+    in it: at a section, or at a field of a section's table."""
+    kept: dict[str, Any] = {}
+    for key, value in state.items():
+        if isinstance(value, _NotATable):
+            report.clobbered.extend(value.names)
+            continue
+        if isinstance(value, dict) and any(isinstance(v, _NotATable) for v in value.values()):
+            for v in value.values():
+                if isinstance(v, _NotATable):
+                    report.clobbered.extend(v.names)
+            value = {k: v for k, v in value.items() if not isinstance(v, _NotATable)}
+        kept[key] = value
+    return kept
 
 
 # -- The surfaces 1.0.0 did not read ------------------------------------------

@@ -25,21 +25,23 @@ Three kinds of fixtures are exposed:
   the three standard protocol assertions for that seam.
 * **Settings TOML fixture** (``fdt_settings_toml``) stages a tmp-path
   ``.fabric-dataops.toml`` with configurable plugin sections for tests
-  that exercise ``FabricDataOps.from_config`` end-to-end, plus a
-  ``.sigantry.toml`` beside it that is the same file.
+  that exercise ``FabricDataOps.from_config`` end-to-end.
 """
 
 from __future__ import annotations
 
-import os
 import tomllib
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from sigantry_core.config import _CONFIG_FILENAME, _LEGACY_CONFIG_FILENAME
+from sigantry_core.config import (
+    _LEGACY_CONFIG_FILENAME,
+    _exempt_fixture_file,
+    _release_fixture_file,
+)
 from sigantry_core.protocols import (
     AuthProvider,
     CapacityAction,
@@ -134,18 +136,18 @@ def fdt_fake_work_item_provider() -> FakeWorkItemProvider:
 
 
 @pytest.fixture
-def fdt_settings_toml(tmp_path: Path) -> Callable[..., Path]:
+def fdt_settings_toml(tmp_path: Path) -> Iterator[Callable[..., Path]]:
     """Factory fixture: write the legacy config file at ``tmp_path``.
 
-    It returns the legacy file's path, as it did in 1.0.0, and also makes
-    ``.sigantry.toml`` a hard link to that file (a copy where the filesystem
-    has no hard links). A test that changes into ``tmp_path`` and loads
-    settings with no path then finds two identical files, which the loader
-    reads without a warning, and an edit the test makes to the returned file
-    in place (``write_text``, say) reaches both names, so they stay identical.
-    With the legacy file alone the loader would raise a
-    ``DeprecationWarning``, and with two different files a ``UserWarning``;
-    either fails a suite run with warnings as errors that passed on 1.0.0.
+    It writes that one file and returns its path, as it did in 1.0.0, and
+    nothing else is written beside it. The loader reads this file, while the
+    test runs, the way it reads any legacy file but without a warning: a test
+    that changes into ``tmp_path`` and loads settings with no path gets no
+    ``DeprecationWarning`` for the legacy name, and no ``UserWarning`` if the
+    test also writes a ``.sigantry.toml`` there, which 1.0.0 did not read
+    either. Either warning would fail a suite run with warnings as errors
+    that passed on 1.0.0. The exemption covers this file's path only, and
+    ends with the test.
 
     Usage::
 
@@ -156,6 +158,7 @@ def fdt_settings_toml(tmp_path: Path) -> Callable[..., Path]:
             )
             # cfg is a Path to the written file.
     """
+    written: list[Path] = []
 
     def _write(**sections: dict[str, Any]) -> Path:
         core = dict(sections.pop("core", {"tenant_id": "test-tenant"}))
@@ -178,26 +181,17 @@ def fdt_settings_toml(tmp_path: Path) -> Callable[..., Path]:
                     for sub_k, sub_v in v.items():
                         lines.append(f'{sub_k} = "{sub_v}"')
 
-        content = ("\n".join(lines) + "\n").encode("utf-8")
         path = tmp_path / _LEGACY_CONFIG_FILENAME
-        path.write_bytes(content)
-        _same_file_as(path, tmp_path / _CONFIG_FILENAME)
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        _exempt_fixture_file(path)
+        written.append(path)
         # Round-trip validates the produced TOML parses cleanly.
         tomllib.loads(path.read_text(encoding="utf-8"))
         return path
 
-    return _write
-
-
-def _same_file_as(path: Path, twin: Path) -> None:
-    """Make ``twin`` a hard link to ``path``, or a copy of it if that fails."""
-    try:
-        if twin.exists() and os.path.samefile(path, twin):
-            return
-        twin.unlink(missing_ok=True)
-        os.link(path, twin)
-    except OSError:
-        twin.write_bytes(path.read_bytes())
+    yield _write
+    for path in written:
+        _release_fixture_file(path)
 
 
 # ---------------------------------------------------------------------------
