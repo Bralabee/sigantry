@@ -1,6 +1,7 @@
 # Audit ledger — threat model
 
-Sigantry's release and bootstrap ledgers are **integrity-checked, not tamper-proof**.
+Sigantry's release and bootstrap ledgers are **integrity-checked, not tamper-proof**,
+and only the release (deploy) ledger has a `sigantry` command that checks its chain.
 This page states exactly which adversary the shipped mechanism resists, which it does
 not, and what an operator has to add before the ledger can be treated as evidence
 against a motivated insider. It is the authoritative description; where any other page
@@ -10,11 +11,28 @@ in this repository describes the ledger, it defers to this one.
 
 Every record (`DeployRecord`, `BootstrapRecord`) carries an `audit_hash`: an **unkeyed
 SHA-256** over the canonical JSON of its remaining fields
-(`sigantry_core/release/record.py`). Records are appended to JSONL ledgers and each
-record's `prev_hash` names its predecessor's `audit_hash`, so the file is a hash chain.
-`sigantry release verify` walks the file in append order and checks both halves: each
-record's own hash against its contents, and each `prev_hash` against the record before
-it.
+(`sigantry_core/release/record.py`, `sigantry_core/workspace/records.py`). Records are
+appended to JSONL ledgers and each record's `prev_hash` names its predecessor's
+`audit_hash`, so each file is a hash chain. `sigantry release verify` reads the deploy
+ledger, `deploys.jsonl`, and no other file: it walks the file in append order and
+checks both halves: each record's own hash against its contents, and each `prev_hash`
+against the record before it.
+
+No `sigantry` command checks the bootstrap ledger, `bootstraps.jsonl`. The same check
+runs from Python with `verify_audit_chain()`:
+
+```python
+import json
+from pathlib import Path
+
+from sigantry_core.governance.audit_io import verify_audit_chain
+from sigantry_core.workspace.records import BootstrapRecord
+
+ledger = Path.home() / ".sigantry" / "audit" / "bootstraps.jsonl"
+lines = ledger.read_text(encoding="utf-8").splitlines()
+records = [BootstrapRecord(**json.loads(line)) for line in lines if line.strip()]
+print(verify_audit_chain(records))  # (True, None, None) for a consistent chain
+```
 
 There is no keyed MAC, no signature and no external anchor anywhere in the package.
 The hash inputs are all public fields and the algorithm ships in the wheel, so the seal

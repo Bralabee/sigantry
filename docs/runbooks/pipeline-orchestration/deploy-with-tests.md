@@ -6,11 +6,11 @@ workflow, and the canonical pitfalls to avoid.
 
 ## 0. Decision matrix -- which deploy verb am I looking for?
 
-`sigantry deploy run` is the **publish** verb -- it deploys first-time items, parameterises per environment, and writes a `DeployRecord` for audit. The dual-CI templates this runbook documents wrap that verb in a five-stage `deploy -> smoke -> integration -> approval -> promote` flow with platform-native approval gates. [ADR-0012](../../decisions/ADR-0012-sync-apply-vs-deploy-run-boundary.md) formalises the boundary between `deploy run` and the sync verbs (`apply` / `pull` / `diff` / `snapshot`); [ADR-0013](../../decisions/ADR-0013-sync-publish-parameters-resolution.md) covers the Phase 17 follow-up `parameters.yml` resolution rule and the `sync apply --with-publish` composite verb.
+`sigantry deploy run` is the **publish** verb -- it deploys first-time items and parameterises per environment. It writes no `DeployRecord`; the release is recorded separately by `sigantry release record`. The dual-CI templates this runbook documents wrap that verb in a five-stage `deploy -> smoke -> integration -> approval -> promote` flow with platform-native approval gates, where `promote` runs `sigantry release record`. [ADR-0012](../../decisions/ADR-0012-sync-apply-vs-deploy-run-boundary.md) formalises the boundary between `deploy run` and the sync verbs (`apply` / `pull` / `diff` / `snapshot`); [ADR-0013](../../decisions/ADR-0013-sync-publish-parameters-resolution.md) covers the Phase 17 follow-up `parameters.yml` resolution rule and the `sync apply --with-publish` composite verb.
 
 | You want to ... | Verb | Touches workspace? | First-time item creation? |
 |---|---|---|---|
-| Deploy first-time items + parameterise per environment (DEV/PREPROD/PROD) + write a `DeployRecord` for audit (this runbook's verb) | **`sigantry deploy run`** | yes -- runs `fabric-cicd publish_all_items` | **YES** |
+| Deploy first-time items + parameterise per environment (DEV/PREPROD/PROD); writes no `DeployRecord` (this runbook's verb; record the release with `sigantry release record`) | **`sigantry deploy run`** | yes -- runs `fabric-cicd publish_all_items` | **YES** |
 | Plan + reconcile folder topology against an existing workspace; move existing items into the manifest's `target_folder` paths | **`sigantry sync apply`** | yes -- creates / moves folders + relocates existing items | **NO** -- new items are staged locally but NOT published; see [`../sync/apply.md` section 1.1](../sync/apply.md#11-what-sync-apply-does-not-do) |
 | Mirror an existing workspace into a local IaC tree (`sync.yml` + sources) so future runs are no-op idempotent | **`sigantry sync pull`** | no -- read-only | n/a |
 | Compare a manifest against a live workspace and report drift | **`sigantry diff`** | no -- read-only | n/a |
@@ -23,7 +23,9 @@ If you want folder reconcile + first-time item publish in a single verb, ADR-001
 
 Sigantry ships a pair of pipeline templates that implement
 `deploy -> smoke -> integration -> approval -> promote` with platform-native
-approval gates and audit-recorded promotions:
+approval gates. The deploy stage runs first; the smoke tests, the
+integration tests and the approval gate the `promote` stage, which records
+the release. They do not gate the deployment itself:
 
 - ADO: `templates/stages/sigantry-cd.yml` -- a stage-list
   template that consumer pipelines compose via
@@ -36,16 +38,23 @@ Both halves are kept in semantic parity by `scripts/ci/check-dual-ci-parity.py`
 (Plan 10-06). The five named stages, the parameter set, the approval-gate
 mechanism, and the `sigantry release record` invocation all match by basename.
 
-Successful promotions write an immutable `DeployRecord` to
-`~/.sigantry/audit/deploys.jsonl` (Plan 11-03 -- the audit jsonl IS the
-deploy ledger, per CONTEXT.md D-01). `sigantry release list / show / diff`
+The `promote` stage runs `sigantry release record`, which appends a
+`DeployRecord` to `~/.sigantry/audit/deploys.jsonl` on the runner and
+comments on the linked work items (Plan 11-03 -- the audit jsonl is the
+deploy ledger). The templates pass no `--audit-dir`
+and upload nothing, so on a hosted runner that ledger file is discarded
+with the runner unless your pipeline keeps it (see the
+[audit ledger threat model](../../reference/audit-ledger-threat-model.md)).
+They also pass no `--fabric-items`, so their records name no items, and a
+rollback to one of them publishes nothing. `sigantry release list / show / diff`
 (Plan 12-03) read the ledger; `sigantry deploy run --rollback --to-release <id>`
-(Plan 12-04) re-applies a recorded item set via `fabric-cicd`'s
-`items_to_include` selective publish.
+(Plan 12-04) publishes the items a record names, through `fabric-cicd`'s
+`items_to_include` selective publish, with their content read from
+`--source`.
 
 ### 1.1. What `deploy run` (and the dual-CI pipeline templates) does NOT do
 
-This is the boundary the five-stage pipeline enforces -- ADR-0012 formalises the verb landscape; this fence calls out the negative claims operators read from "deploy with tests" most often. `deploy run`'s remit is **publish first-time items + parameterise per environment + write a DeployRecord**, end-to-end across the five stages. Specifically:
+This is the boundary the five-stage pipeline enforces -- ADR-0012 formalises the verb landscape; this fence calls out the negative claims operators read from "deploy with tests" most often. `deploy run`'s remit is **publish first-time items + parameterise per environment**; the pipeline's `promote` stage adds the `DeployRecord` through `sigantry release record`. Specifically:
 
 - **It does not handle workspace bootstrap.** `deploy run` assumes the target workspace already exists with the correct capacity binding and folder topology. For greenfield workspace creation, use `sigantry workspace bootstrap` first; only then point the deploy pipeline at the new workspace GUID.
 - **It does not handle folder reconcile alone.** If the manifest's folder topology diverges from the workspace, `fabric-cicd publish_all_items` will create new folders implicitly as it publishes items into them, but it will not move existing items between folders or delete orphans. For folder reconcile of an established workspace, use `sigantry sync apply` (folder topology + existing-item placement only, no publish). The `sync apply --with-publish` composite verb (ADR-0013) handles both in one step when first-time setup needs both.
@@ -149,8 +158,12 @@ jobs:
 
 ## 6. Rollback workflow
 
-Per CONTEXT.md D-02, rollback is an **idempotent fabric-cicd re-apply** of
-a recorded item set. NOT git revert. NOT git checkout + redeploy.
+Rollback is an **idempotent fabric-cicd re-apply** of the item names a
+recorded release lists. The record holds no item content and no commit:
+the content comes from `--source`, so check out the source of the release
+you are restoring before step 3. A record that names no items (such as
+one the pipeline templates write, which pass no `--fabric-items`) makes
+the rollback publish nothing.
 
 ```bash
 # 1. Inspect what's in the ledger.
@@ -160,10 +173,12 @@ sigantry release show R-prod-2026-04-26-1 --json | jq
 # 2. Diff two releases to confirm the rollback target.
 sigantry release diff R-prod-2026-04-26-1 R-prod-2026-04-27-1 --json | jq
 
-# 3. Roll back. The CLI re-applies R-prod-2026-04-26-1's recorded item set
-#    against the same workspace (cross-workspace rollback is REJECTED --
-#    Pitfall 9 / D-02).
+# 3. Roll back. With ./fabric_items checked out at the source of
+#    R-prod-2026-04-26-1, the CLI re-applies that release's recorded item
+#    names against the same workspace (cross-workspace rollback is
+#    REJECTED -- Pitfall 9 / D-02).
 sigantry deploy run --rollback --to-release R-prod-2026-04-26-1 \
+  --rollback-force \
   --workspace-id <ws-guid> \
   --source ./fabric_items \
   --environment prod \

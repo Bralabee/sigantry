@@ -17,10 +17,9 @@
 - [ ] **Test evidence** -- the most recent CI run on this branch is
       green; integration / smoke tests covering the changed item type
       have been run (or skipped intentionally with a noted reason).
-- [ ] **Deploy-record link** -- once this PR merges and triggers a
-      deploy, the resulting `sigantry release record` audit-record
-      identifier is linked back to this PR (auto-posted by the deploy
-      pipeline; reviewer confirms presence).
+- [ ] **Deploy-record link** -- once this PR merges and its release
+      is recorded with `sigantry release record`, link the release id
+      here.
 
 For more detail see: `docs/runbooks/pr-bot-operator.md` (Sigantry docs).
 <!-- pr-checklist:end -->

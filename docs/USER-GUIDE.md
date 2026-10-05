@@ -48,11 +48,9 @@ ship.
 
 **Division of labour with the tutorials.** This guide owns concepts,
 contracts, decision tables, and reference material. The step-by-step
-procedures — with real terminal output, troubleshooting tables, and
-success checklists, every step executed against a live tenant — live in
-[`docs/tutorials/`](tutorials/index.md). Each Part III section links its
-tutorial; when the two ever disagree, the tutorials are the verified
-ground truth.
+procedures — with expected output, troubleshooting tables, and success
+checklists — live in [`docs/tutorials/`](tutorials/index.md). Each
+Part III section links its tutorial.
 
 ## Conventions
 
@@ -91,15 +89,21 @@ capacity, item, and pipeline that an operator manages can be:
 - Inspected via REST without opening the portal.
 - Reconciled idempotently against a desired state.
 - Deployed across DEV / PREPROD / PROD environments with parameter
-  substitution and a per-release audit record.
-- Rolled back to a prior release using a verifiable, hash-signed ledger.
+  substitution, and recorded as a release in an audit ledger with
+  `sigantry release record`.
+- Rolled back to a recorded release: the items the record names are
+  published again from a source checkout you supply.
 
 Sigantry wraps Microsoft's own primitives -- `fabric-cicd`, `ms-fabric-cli`,
 `msfabricpysdkcore`, and the Fabric REST API -- behind a stable operator
 surface that does not change shape when the upstream wrappers do. The
-toolkit is **read-only by default**: every destructive operation
-requires an explicit `force=True` flag and emits an audit entry through
-the non-pluggable observation plane.
+destructive entry points behind its destructive-op gate (workspace, item
+and folder delete; Git disconnect; Variable Library and role-assignment
+delete; orphan unpublish; rollback; capacity pause and resume) refuse to
+run without an explicit `force=True` and append an audit record through
+the non-pluggable observation plane. Not every destructive call goes
+through that gate; the exceptions are listed in
+[CAPABILITIES section 7](CAPABILITIES.md#7-audit--observability).
 
 ### When to reach for Sigantry
 
@@ -107,9 +111,11 @@ You probably want Sigantry if any of the following is true:
 
 - You operate **multiple Fabric workspaces** and want to keep their
   topology in version control, not in someone's portal session.
-- You run **CI/CD against Fabric** and need a deploy verb that produces
-  a verifiable audit trail per release, plus a rollback verb that
-  consumes it.
+- You run **CI/CD against Fabric** and want a hash-chained ledger
+  record for each release you record (`sigantry release record`; `sync
+  apply` writes one too, a forward `deploy run` none), plus a
+  rollback verb that publishes the items a recorded release names again
+  from a source checkout you supply.
 - You manage **pre-deployment governance gates** (RBAC audits, tenant
   setting checks, capacity policies) and want them in pipeline form
   rather than as periodic manual sweeps.
@@ -313,7 +319,10 @@ pip install sigantry
 
 > The distribution name is `sigantry`, not `sigantry-core`: the
 > pre-v1.0 plan reserved the bare name, and the open-source release
-> took it instead. `sigantry-core` does not resolve on PyPI. See
+> took it instead. On PyPI, `sigantry-core` holds only a yanked
+> placeholder release (0.0.1) that contains no code and keeps the name
+> reserved; `pip install sigantry-core` without a version skips yanked
+> releases and installs nothing. See
 > [ADR-0017](decisions/ADR-0017-distribution-name-sigantry.md).
 
 ### 5.2 From a wheel
@@ -514,12 +523,13 @@ in detail.
 |------|--------------------|---------------------------|---------------|
 | `workspace bootstrap` | yes -- creates workspace, capacity bind, folders, Git connect | yes (greenfield) | `BootstrapRecord` |
 | `sync snapshot` | no -- read-only | n/a | none |
-| `sync apply` | yes -- folder create/move + existing-item placement | **no** (existing items only) | `DeployRecord` (`provider="sync-engine"`) |
-| `sync apply --with-publish` | yes -- folder reconcile + first-time publish | **yes** | `DeployRecord` (`provider="sync-engine-publish"`) |
+| `sync apply` | yes -- folder create/move + existing-item placement | **no** (existing items only) | `DeployRecord` (`release_id="sync-<TS>"`, `approver="sync-engine"`) |
+| `sync apply --with-publish` | yes -- folder reconcile + first-time publish | **yes** | `DeployRecord` (`release_id="sync-publish-<TS>"`, `test_evidence.provider="sync-engine-publish"`) |
 | `sync pull` | no -- read-only | n/a | none |
 | `diff` | no -- read-only | n/a | none |
-| `deploy run` | yes -- multi-env deploy via `fabric-cicd` | yes | `DeployRecord` (`provider="deploy-run"`) |
-| `deploy run --rollback` | yes -- replays a prior `DeployRecord` | n/a | `DeployRecord` (`provider="rollback"`) |
+| `deploy run` | yes -- multi-env deploy via `fabric-cicd` | yes | none (`--unpublish-orphans` adds a `DestructiveOpRecord`); record the release with `release record` |
+| `deploy run --rollback` | yes -- publishes the item names a prior `DeployRecord` lists, from `--source` | n/a | `DeployRecord` (`release_id="rollback-of-<id>-<TS>"`) and a `DestructiveOpRecord` |
+| `release record` | no -- writes the ledger and comments on work items | n/a | `DeployRecord` (the `--release-id` you give) |
 
 ## 9. Bootstrapping a workspace
 
@@ -646,7 +656,7 @@ sequenceDiagram
     FCC->>Fab: POST folders for missing only
     FCC->>Fab: PATCH items only when folder wrong
     FCC-->>CLI: ReconcileReport with plan and applied
-    CLI->>Ledger: emit DeployRecord with provider sync-engine
+    CLI->>Ledger: emit DeployRecord with approver sync-engine
     CLI-->>Op: succeeded with folders and moves count
 ```
 
@@ -826,7 +836,9 @@ JSON.
 
 When you need **multi-environment** deploys (DEV -> PREPROD -> PROD)
 with parameter substitution, Sigantry's `deploy run` verb wraps
-`fabric-cicd`'s publish path with audit-ledger and rollback support.
+`fabric-cicd`'s publish path and adds rollback. A forward `deploy run`
+writes no `DeployRecord`: record a release with `sigantry release record`
+after the deploy (the promote stage of the pipeline templates does this).
 
 ```mermaid
 sequenceDiagram
@@ -838,25 +850,26 @@ sequenceDiagram
     participant Fab as Fabric REST
     participant Led as Audit ledger
 
-    CI->>Sig: release id and target env<br/>plus source dir and params file
+    CI->>Sig: target env, workspace<br/>plus source dir and params file
     Sig->>Params: load and validate no raw GUIDs
     Sig->>Params: substitute env refs into tempfile
     Sig->>FCC: publish_all_items on items dir
     FCC->>Fab: POST or PATCH per item
     FCC-->>Sig: per-item outcome
-    Sig->>Led: emit DeployRecord with provider deploy-run
     Sig-->>CI: exit 0 or partial-failure with failed item
 
     Note over Sig,Led: Later on rollback request
-    CI->>Sig: rollback to prior release
+    CI->>Sig: rollback to a recorded release id<br/>plus a source checkout
     Sig->>Led: load prior DeployRecord and verify hash
-    Sig->>FCC: publish_all_items from prior snapshot
-    Sig->>Led: emit DeployRecord with provider rollback
+    Sig->>FCC: publish_all_items for the recorded item names,<br/>content read from the source checkout
+    Sig->>Led: emit DeployRecord rollback-of-id-TS
 ```
 
-The audit ledger is the source-of-truth a rollback consumes; without
-the prior `DeployRecord` and its verifiable `audit_hash`, the rollback
-verb refuses to proceed. See Section 15 for the record's exact shape.
+A rollback needs a `DeployRecord` for the release id it is given; without
+one whose `audit_hash` verifies, the rollback verb refuses to proceed.
+The record supplies only the item names (`fabric_items_changed`). The
+content comes from `--source`, so check out the source of the release
+you are restoring first. See Section 15 for the record's exact shape.
 
 ### 14.1 A typical CI invocation
 
@@ -868,22 +881,26 @@ sigantry deploy run \
   --workspace-id "$FABRIC_WORKSPACE_ID_PROD"
 ```
 
-The `release_id` is generated by the verb and printed in the summary
-(and lands in the ledger — `sigantry release list` shows it); to attach
-a release to a work item under an operator-chosen id, use
-`sigantry release record`.
+The verb prints a JSON summary (workspace, environment, item counts and
+the dependency-graph path).
+It generates no `release_id` and writes nothing to the ledger, so
+`sigantry release list` does not show it. To record the release under
+an id you choose and link it to work items, run
+`sigantry release record` after the deploy, with `--fabric-items`
+listing the items you deployed if you want to be able to roll back to
+it.
 
-The five-stage ADO + GHA template pair under
-`templates/stages/cd-{dev,test,prod}.yml` shows how this composes
-with build, test, and approval-gate stages.
+The five-stage ADO + GHA template pair, `templates/stages/sigantry-cd.yml`
+and `.github/workflows/sigantry-cd.yml`, shows how this composes with
+test and approval stages.
 
 ### 14.2 Rolling back
 
 ```bash
-# List recent deploys
+# List recently recorded releases
 sigantry release list --limit 5
 
-# Pick the one to roll back to and re-apply it
+# Check out the source of the release to restore, then re-apply it
 sigantry deploy run \
   --rollback \
   --to-release "<release-id>" \
@@ -895,18 +912,23 @@ sigantry deploy run \
   --workspace-id "$FABRIC_WORKSPACE_ID_PROD"
 ```
 
-Rollback is destructive by definition (it supplants live workspace
-state with the recorded item set), so it refuses without
-`--rollback-force`; `--rollback-runbook-id` threads your incident
-reference into the audit record. A rollback emits a brand-new
-`DeployRecord` with `provider="rollback"` and
-`release_id="rollback-of-<original>-<TS>"`, so the audit trail captures
-the "we rolled back" event distinctly from the original release.
+Rollback is destructive by definition (it overwrites the recorded items
+in the live workspace with the content in `--source`), so it refuses
+without `--rollback-force`. It publishes only the items the recorded
+release names, so items created after that release stay in place, and
+a record that names no items makes it publish nothing.
+`--rollback-runbook-id` threads your incident reference into the
+`DestructiveOpRecord` the destructive-op gate appends to
+`destructive_ops.jsonl`. A rollback also appends a new `DeployRecord`
+with `release_id="rollback-of-<original>-<TS>"`,
+`test_evidence={"rollback_of": "<original>"}` and
+`approver="cli@sigantry"`, so the audit trail captures the "we rolled
+back" event distinctly from the original release.
 Cross-environment rollback (PROD -> DEV) is deliberately rejected;
 stay within one workspace per release.
 
 > Worked example: [Tutorial 07 — Roll back a release](tutorials/07-rollback.md)
-> (two releases, ledger diff, audited restore — the full drill).
+> (two recorded releases, a ledger diff, and a rollback drill).
 
 ---
 
@@ -914,21 +936,25 @@ stay within one workspace per release.
 
 ## 15. The audit ledger
 
-Every workspace-mutating verb emits an audit record into a JSONL
-ledger under `~/.sigantry/audit/`. There are three record types,
-sharing one signing scheme.
+Several verbs append an audit record to a JSONL ledger under
+`~/.sigantry/audit/`. A forward `deploy run` writes no `DeployRecord`;
+with `--unpublish-orphans` it adds only the `DestructiveOpRecord` of
+the orphan unpublish (see Section 14). The record types share one
+hashing scheme: an unkeyed SHA-256, with no key or signature. The full
+list of record types and the verbs that write them is in
+[CAPABILITIES section 7](CAPABILITIES.md#7-audit--observability).
 
 ```mermaid
 graph LR
     BV["bootstrap verb"] --> BR["BootstrapRecord<br/>~/.sigantry/audit/bootstraps.jsonl"]
     SV["sync apply"] --> DR["DeployRecord<br/>~/.sigantry/audit/deploys.jsonl"]
-    DV["deploy run / rollback"] --> DR
+    DV["deploy run --rollback<br/>release record"] --> DR
     AV["approval gate run"] --> AR["ApprovalRecord<br/>~/.sigantry/audit/approvals.jsonl"]
     SC["secret rotation"] --> SR["SecretChangeRecord<br/>~/.sigantry/audit/secret_changes.jsonl"]
-    BR -.signs.-> Hash["audit_hash<br/>= SHA-256(canonical JSON of payload<br/>minus the audit_hash field itself)"]
-    DR -.signs.-> Hash
-    AR -.signs.-> Hash
-    SR -.signs.-> Hash
+    BR -.hashed as.-> Hash["audit_hash<br/>= SHA-256(canonical JSON of payload<br/>minus the audit_hash field itself)"]
+    DR -.hashed as.-> Hash
+    AR -.hashed as.-> Hash
+    SR -.hashed as.-> Hash
 ```
 
 ### 15.1 DeployRecord shape
@@ -951,29 +977,36 @@ graph LR
 }
 ```
 
-The schema is `extra="forbid"` plus `frozen=True`; once a record is
-written, neither the toolkit nor a consumer can mutate it without
-breaking the hash check.
+The model is `extra="forbid"` plus `frozen=True`, so a `DeployRecord`'s
+fields cannot be reassigned (its lists and dicts can still be edited in
+place). That does not protect the ledger
+file: a line edited on disk is caught by the hash check only if its
+hash was not recomputed (see 15.2).
 
-### 15.2 Verify-without-trust
+### 15.2 Checking a record's hash
 
-Every record can be re-verified offline using only the JSONL line
+Every record's hash can be re-checked offline using only the JSONL line
 itself:
 
 ```python
+from pathlib import Path
 from sigantry_core.release.record import DeployRecord
-import json
 
-with open("/home/me/.sigantry/audit/deploys.jsonl") as f:
+ledger = Path.home() / ".sigantry" / "audit" / "deploys.jsonl"
+with ledger.open(encoding="utf-8") as f:
     for line in f:
         rec = DeployRecord.model_validate_json(line)
-        assert rec.verify_hash(), f"tampered: {rec.release_id}"
+        assert rec.verify_hash(), f"hash mismatch: {rec.release_id}"
 ```
 
 The hash is computed over the canonical JSON of the payload **minus**
-the `audit_hash` field itself, so the field cannot be self-signed
-trivially. A tampered field anywhere in the record breaks the
-verification.
+the `audit_hash` field itself. A field changed without recomputing the
+hash breaks the check. The hash is unkeyed, so a record that was edited
+and then re-hashed with the same public algorithm passes: the check
+shows a record is internally consistent, not that it is the record that
+was written. `sigantry release verify` also checks the `prev_hash`
+links of the deploy ledger. What this does and does not resist is set
+out in the [audit ledger threat model](reference/audit-ledger-threat-model.md).
 
 ### 15.3 File location and rotation
 
@@ -983,9 +1016,9 @@ the writer returns, so a crash mid-deploy leaves a complete file
 through the previous record.
 
 The toolkit does not rotate the ledger automatically -- it is a
-**signed log**, not a metric. For long-running operators, copy the
-ledger into a long-term store (Blob, S3, log analytics) on a
-schedule. Any consumer can re-verify the hashes on the copy.
+**hash-chained audit log**, not a metric. For long-running operators,
+copy the ledger into a long-term store (Blob, S3, log analytics) on a
+schedule. Any consumer can re-check the hashes on the copy.
 
 ---
 
@@ -1275,7 +1308,8 @@ Standalone console script (not a sigantry subcommand):
 
 **audit_hash.** SHA-256 over the canonical JSON of a record's payload,
 minus the `audit_hash` field itself. Re-computed by `verify_hash()`
-to detect tampering.
+to detect corruption and edits made without recomputing it. It is
+unkeyed, so a recomputed hash also passes.
 
 **brownfield.** A workspace that already has folders and items;
 Sigantry verbs that operate against it must respect existing
@@ -1289,8 +1323,9 @@ means "operator-created paths are preserved during orphan cleanup").
 that walks env vars -> WIF -> managed identity -> CLI cache and uses
 the first one that returns a token.
 
-**DeployRecord.** The audit-ledger entry written for any
-workspace-mutating deploy verb. Contains `release_id`,
+**DeployRecord.** The audit-ledger entry (`deploys.jsonl`) written by
+`sync apply`, `deploy run --rollback` and `release record`; a forward
+`deploy run` writes none. Contains `release_id`,
 `fabric_items_changed`, `test_evidence`, and `audit_hash`.
 
 **fabric-cicd.** Microsoft's official Python deploy engine for
@@ -1311,7 +1346,7 @@ Operator-declared paths the engine must not auto-cleanup, even when
 
 **protocol seam.** A `runtime_checkable` Python `Protocol` that
 defines a behaviour Sigantry expects from a plugin. There are 11
-seams as of v3.0.
+seams.
 
 **release_id.** A unique identifier for one deploy. Convention is
 operator-meaningful (`R-${BUILD_ID}`, `sync-2026-05-06T...`,
@@ -1319,8 +1354,9 @@ operator-meaningful (`R-${BUILD_ID}`, `sync-2026-05-06T...`,
 the audit ledger.
 
 **verify_hash().** Method on every audit record class. Re-computes
-`audit_hash` and returns `True` only if it matches. Forms the
-verify-without-trust contract.
+`audit_hash` and returns `True` only if it matches. A `True` result
+means the record is internally consistent, not that it is unedited:
+see the [audit ledger threat model](reference/audit-ledger-threat-model.md).
 
 ## Appendix E. Troubleshooting
 
@@ -1345,18 +1381,17 @@ graph TB
 | `sigantry doctor` works but `sigantry workspace list` fails with `AuthError` | Token resolved without Fabric scope | Re-run `az login`; check `AZURE_*` env vars |
 | `dry-run would create N folders and move 0 items` for `N` larger than expected | Manifest's `folders[]` preservation set is too small | Add the missing paths to `folders[]` |
 | Idempotent re-run still reports `folders_created > 0` | Same as above | Same as above |
-<!-- docs-freshness: allow — a fixed-in note names the version the bug predated -->
-| `rbac-audit` aborts with `AuthError` | Pre-3.0.0rc1 bug, fixed in May 2026 | Upgrade to 3.0.0 or later |
+| `rbac-audit` aborts with `AuthError` | A bug in internal builds that predate the public 1.0.0 release; every `sigantry` release on PyPI has the fix | Install `sigantry` from PyPI (1.0.0 or later) |
 | `--with-publish requires --params <parameters.yml>` | `--with-publish` was passed without `--params` | Add `--params parameters.yml` |
 | `fabric-cicd` complains about `Invalid replace_value variable format` | `$ENV:VAR` substitution failed before fabric-cicd saw the file | Confirm the env var is exported; Sigantry substitutes into a tempfile |
 
 ### Where to look next
 
-- **Tutorials.** Ten verified, hand-holding worked examples at
+- **Tutorials.** Twelve hand-holding worked examples at
   `docs/tutorials/` -- setup, sync, drift, audit trail, brownfield
-  adoption, bootstrap, rollback, scheduled alerts, PR bot,
-  governance. Every step executed against a live tenant before
-  publication. Start here if you learn by doing.
+  adoption, bootstrap, rollback, scheduled alerts, PR bot, governance,
+  Fabric Environments and config-driven auto-update. Start here if you
+  learn by doing.
 - **Operator runbooks.** Per-workflow deep-dives at
   `docs/runbooks/` -- one file per major workflow with a section
   for setup, command reference, troubleshooting table, and

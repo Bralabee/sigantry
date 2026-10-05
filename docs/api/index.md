@@ -7,7 +7,7 @@ source docstrings - the single source of truth for the public Python
 surface.
 
 For the CLI surface, every subapp mirrors the Python API one-to-one. Run
-`sigantry-core <subapp> --help` for inline usage.
+`sigantry <subapp> --help` for inline usage.
 
 ## Subpackages
 

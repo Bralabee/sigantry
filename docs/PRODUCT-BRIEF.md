@@ -6,7 +6,7 @@
 
 ## The one-sentence product
 
-**Sigantry** is an Apache-2.0 open-source **governance, audit, and rollback layer on top of Microsoft's official Fabric tooling**: version-controlled artefacts, traceable releases tied to work items, test-gated promotion across dev → preprod → prod, drift detection, and an immutable audit record — on Azure DevOps or GitHub, in under 15 minutes of setup.
+**Sigantry** is an Apache-2.0 open-source **governance, audit, and rollback layer on top of Microsoft's official Fabric tooling**: version-controlled artefacts, traceable releases tied to work items, a dev → preprod → prod pipeline template whose smoke tests, integration tests and approval gate the release record (they run after the deploy, so they do not stop it), drift detection, and an integrity-checked audit record ([threat model](reference/audit-ledger-threat-model.md)) — on Azure DevOps or GitHub, in under 15 minutes of setup.
 
 It is deliberately NOT "a Fabric automation toolkit". Automation primitives (item deploy, CRUD, one-command publish) are owned by Microsoft's officially supported stack — `fabric-cicd`, the `fab` CLI, the Terraform provider. Sigantry wraps that stack and adds the layer none of it provides: integrity-checked deploy ledgers ([threat model](reference/audit-ledger-threat-model.md)), rollback to a prior release, scheduled drift detection, destructive-op gating, and work-item traceability. The 2026-06-11 ecosystem survey ([LANDSCAPE-2026-06.md](LANDSCAPE-2026-06.md) §4) verified that no official or open-source tool offers any of them.
 
@@ -37,11 +37,11 @@ The symptoms show up in every Fabric shop of non-trivial size: release managers 
 
 ## The wedge — work-item traceability + deploy audit
 
-Nothing off-the-shelf in the Microsoft Fabric ecosystem cleanly links a Fabric deployment back to an ADO work item or a GitHub issue with an immutable audit record. (Re-verified 2026-06-11 against the official and open-source landscape — [LANDSCAPE-2026-06.md](LANDSCAPE-2026-06.md) §4 found no incumbent for the audit ledger, rollback, drift detection, or the TMDL PR-bot.)
+Nothing off-the-shelf in the Microsoft Fabric ecosystem cleanly links a Fabric deployment back to an ADO work item or a GitHub issue with an integrity-checked audit record. (Re-verified 2026-06-11 against the official and open-source landscape — [LANDSCAPE-2026-06.md](LANDSCAPE-2026-06.md) §4 found no incumbent for the audit ledger, rollback, drift detection, or the TMDL PR-bot.)
 
 Sigantry's wedge is a stable `WorkItemProvider` protocol seam (shipping with ADO and GitHub implementations) plus a `DeployRecord` schema persisted to a non-pluggable audit plane, plus a `sigantry release record` CLI that writes a structured comment back to each linked work item.
 
-A release manager opens work item `AB#1234`; they see a comment with: `workspace, release_id, fabric_items_changed[], test_evidence, approver, audit_hash`. They click the audit hash; they see the immutable audit log entry. They can diff against the previous release. They can roll back.
+A release manager opens work item `AB#1234`; they see a comment holding a JSON block with `release_id, audit_hash, workspace, fabric_items_changed_count, test_evidence, approver, created_at`. With access to the ledger, `sigantry release show <release_id>` prints the full record and `sigantry release verify` checks the ledger's hash chain (integrity-checked, not tamper-proof: see the [threat model](reference/audit-ledger-threat-model.md)). They can diff the item lists against the previous release. They can roll back by release id, publishing the recorded items again from a checkout of that release's source.
 
 This is the single capability that makes Sigantry worth adopting over "ADO + fabric-cicd + glue". Everything else is supporting infrastructure.
 
@@ -60,14 +60,14 @@ All three of these are involved in the buying decision. The brief addresses each
 ### Platform lead (owns Fabric tenant + ADO org)
 
 - **Top pain:** "My team keeps reinventing the deploy + audit pipeline per workspace. I can't prove compliance posture without manual archaeology."
-- **Top Sigantry capability:** The non-pluggable audit plane plus the immutable `DeployRecord` written for every deploy. One query returns "what shipped to prod last quarter, authorised by which work item, with what test evidence".
+- **Top Sigantry capability:** The non-pluggable audit plane plus the integrity-checked `DeployRecord` that `sigantry release record` writes for each release (a forward `deploy run` writes none). With every prod release recorded, and the ledger kept somewhere that outlives the runner, the ledger answers "what shipped to prod last quarter, authorised by which work item, with what test evidence".
 - **Adoption metric:** **% of prod Fabric deploys with a linked work item and audit record.** Target: ≥95% within 60 days of adoption.
 
 ### Head of data (owns the data org, budget holder)
 
 - **Top pain:** "Data releases feel slower and less safe than our software releases. Incidents take hours to triage because nobody can tell what changed when."
-- **Top Sigantry capability:** The `deploy → smoke → integration → approval → promote` pipeline template pair with rollback-by-release-id. Incidents become "roll back to release X" instead of "find the SHA, cherry-pick, pray".
-- **Adoption metric:** **Mean time to rollback (MTTR-rollback).** Target: under 5 minutes from decision to production-state-restored.
+- **Top Sigantry capability:** The `deploy → smoke → integration → approval → promote` pipeline template pair, plus rollback by release id: `sigantry deploy run --rollback` publishes again the items a recorded release names. The record holds item names, not content or a commit, so the operator still checks out the source of release X; the rollback then republishes exactly the items that release recorded.
+- **Adoption metric:** **Mean time to rollback (MTTR-rollback).** Target: under 5 minutes from decision to the rolled-back items republished.
 
 ### Data engineer (writes the pipelines + notebooks)
 
@@ -91,6 +91,8 @@ All three of these are involved in the buying decision. The brief addresses each
 
 ## Demo
 
+The demo does not run end to end on the shipped demo tree yet.
+
 Sigantry's public demo lives at `<DEMO-URL>` (placeholder -- the
 operator updates this URL after the public-mirror exercise per
 the public-mirror gate (Test 1) of the demo-environment operator
@@ -98,21 +100,21 @@ checklist;
 the trademark / domain / PyPI clearance gate at Test 0 may defer
 publication until a v3.1 rename if a conflict surfaces).
 
-The demo IS Sigantry dogfooded in public:
+The demo is meant to show Sigantry dogfooded in public:
 
 - A public `demo-sigantry` GitHub repo + ADO project (mirrored from
   this monorepo's `templates/demo/`).
-- A dedicated demo Fabric tenant populated with sample lakehouse +
-  notebook + data-pipeline + semantic-model items.
-- Demo CI runs `sigantry deploy` + `sigantry release record` +
-  `sigantry diff --fail-on-drift` on every push -- the same
-  three-command loop the wedge promises adopters.
+- A dedicated demo Fabric tenant, and sample lakehouse + notebook +
+  data-pipeline + semantic-model items in the repo to deploy to it.
+- Demo CI for GitHub Actions and Azure DevOps with the steps
+  `sigantry deploy`, `sigantry release record` and
+  `sigantry diff --fail-on-drift` -- the same three-command loop the
+  wedge promises adopters.
 
 ### Try it yourself
 
-See [docs/demo/QUICKSTART.md](demo/QUICKSTART.md) -- 15 minutes from
-a fresh laptop to a green deploy + audit + diff against the demo
-tenant.
+See [docs/demo/QUICKSTART.md](demo/QUICKSTART.md) for a walkthrough
+against the demo tenant.
 
 ### Operator runbook
 

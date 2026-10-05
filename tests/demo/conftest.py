@@ -37,6 +37,10 @@ DEMO_DIVERGENCE_ALLOWED: Final[frozenset[str]] = frozenset(
         "README.md",
         "parameters.yml",
         "docs/QUICKSTART.md",
+        "docs/BRANCHING.md",
     }
 )
-"""Files that may diverge from STARTER_DIR (CONTEXT D-02 + RESEARCH §Pattern 1)."""
+"""Files that may diverge from STARTER_DIR (CONTEXT D-02 + RESEARCH §Pattern 1).
+
+``docs/BRANCHING.md`` is the starter's page plus a demo notice at the top.
+"""

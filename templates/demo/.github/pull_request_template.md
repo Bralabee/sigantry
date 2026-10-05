@@ -1,9 +1,9 @@
 <!--
 Sigantry-starter GitHub PR template.
 
-The Sigantry PR-bot will append a TMDL diff and / or Lakehouse-metadata
-diff comment here when a PR touches *.tmdl, *.Lakehouse/**, or
-**/.platform. See docs/runbooks/pr-bot-operator.md.
+The Sigantry PR-bot workflow is there to post a TMDL diff and / or
+Lakehouse-metadata diff comment here when a PR touches *.tmdl,
+*.Lakehouse/**, or **/.platform. See docs/runbooks/pr-bot-operator.md.
 
 Adopters: keep the pr-checklist HTML-comment-fenced section below
 byte-identical with templates/starter/.azuredevops/pull_request_template.md
@@ -29,10 +29,9 @@ byte-identical with templates/starter/.azuredevops/pull_request_template.md
 - [ ] **Test evidence** -- the most recent CI run on this branch is
       green; integration / smoke tests covering the changed item type
       have been run (or skipped intentionally with a noted reason).
-- [ ] **Deploy-record link** -- once this PR merges and triggers a
-      deploy, the resulting `sigantry release record` audit-record
-      identifier is linked back to this PR (auto-posted by the deploy
-      pipeline; reviewer confirms presence).
+- [ ] **Deploy-record link** -- once this PR merges and its release
+      is recorded with `sigantry release record`, link the release id
+      here.
 
 For more detail see: `docs/runbooks/pr-bot-operator.md` (Sigantry docs).
 <!-- pr-checklist:end -->
