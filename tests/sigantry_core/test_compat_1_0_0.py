@@ -1,5 +1,5 @@
-"""Settings sigantry 1.0.0 read keep the value they had there (1.0.1), except
-for the changes CHANGELOG.md lists under "Upgrading from 1.0.0".
+"""How this release reads settings, pinned input by input against sigantry
+1.0.0. CHANGELOG.md, under "Upgrading from 1.0.0", describes the differences.
 
 Each test pins one 1.0.0 result for an input 1.0.0 read, or a guard that
 keeps a later fix in place while that result comes back. The config file
