@@ -22,6 +22,7 @@ import time
 import uuid
 from collections.abc import Iterator
 from typing import Any, Self
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -38,7 +39,7 @@ from sigantry_core.client.logging import (
     set_correlation_id,
 )
 from sigantry_core.client.models import HttpResponse
-from sigantry_core.client.response_urls import check_response_url
+from sigantry_core.client.response_urls import absolute_url, check_response_url
 from sigantry_core.client.retry import (
     classify_response,
     execute_with_retry,
@@ -398,15 +399,18 @@ class BaseRestClient:
     # ---- internals ----------------------------------------------------
 
     def _url(self, path: str) -> str:
-        if path.startswith(("http://", "https://")):
-            return path
+        # ``absolute_url`` is the same parse ``check_response_url`` uses, so a
+        # URL that check passed as https is requested as that URL and never
+        # joined to the base URL as a path.
+        absolute = absolute_url(path)
+        if absolute is not None:
+            return absolute
         return f"{self._base_url}{path if path.startswith('/') else '/' + path}"
 
     def _relative_path(self, path: str) -> str:
-        if path.startswith(("http://", "https://")):
-            from urllib.parse import urlparse
-
-            return urlparse(path).path
+        absolute = absolute_url(path)
+        if absolute is not None:
+            return urlsplit(absolute).path
         return path if path.startswith("/") else "/" + path
 
     def _build_headers(self, scope: str, extra: dict[str, str] | None) -> dict[str, str]:
