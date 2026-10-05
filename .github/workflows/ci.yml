@@ -7,9 +7,14 @@ on:
     tags: ['v*']
   pull_request:
     branches: [master, main]
-  # Callable so the PyPI release path gates on these SAME quality jobs
-  # instead of shipping a wheel that nothing checked. See publish-pypi.yml.
+  # Callable so the PyPI release path gates on these SAME quality jobs, and
+  # publishes the `dist` artifact the `build` job below makes, verified
+  # against this output. See publish-pypi.yml.
   workflow_call:
+    outputs:
+      dist-sha256:
+        description: The SHA-256 of each file in the `dist` artifact, as sha256sum prints it.
+        value: ${{ jobs.build.outputs.dist-sha256 }}
 
 concurrency:
   # `github.workflow` is the CALLER's workflow name in a reusable workflow,
@@ -20,10 +25,9 @@ concurrency:
   # nothing ships, as a cancellation rather than a red X.
   group: ci-${{ github.workflow }}-${{ github.ref }}
   # Cancel superseded PR runs; never cancel a tag or release-path run. Two
-  # runs of the release path on the SAME ref (a `release: published` and a
-  # re-run or workflow_dispatch) share both keys, so `true` would let the
-  # newer cancel the older's quality gate and skip the publish -- reported
-  # as a cancellation rather than a red X.
+  # runs of the release path on the SAME ref share both keys, so `true`
+  # would let the newer cancel the older's quality gate and skip the
+  # publish -- reported as a cancellation rather than a red X.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -95,8 +99,18 @@ jobs:
     # `main` on 2026-09-21, so that laundering route is closed and `types`
     # belongs here. Anything added to this list must be required too.
     needs: [lint, test, types]
+    # In a release run (publish-pypi.yml) this is the build that ships: the
+    # publish job uploads this job's `dist` artifact to PyPI and builds
+    # nothing itself, so what is checked here is what is published.
+    outputs:
+      dist-sha256: ${{ steps.record.outputs.sha256 }}
     steps:
+      # No later step uses git: the version comes from _version.py. The
+      # build tools this job installs from PyPI run here, so the job's
+      # GitHub token is not left in the checkout's git config for them.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.11'
@@ -104,11 +118,23 @@ jobs:
         run: pip install build twine
       - name: Build sdist & wheel
         run: python -m build
-      # --strict, to match publish-pypi.yml. A metadata defect that is a
-      # warning here but an error there would otherwise pass every quality
-      # job and only surface mid-release.
+      # --strict: this is the strict metadata check on the files a release
+      # publishes. A defect that is only a warning would otherwise pass here
+      # and surface at upload.
       - name: Twine check
         run: twine check --strict dist/*
+      # The publish job checks the artifact it downloads against this.
+      - name: Record the SHA-256 of the distributions
+        id: record
+        working-directory: dist
+        run: |
+          sha256sum -- * > "$RUNNER_TEMP/dist.sha256"
+          cat "$RUNNER_TEMP/dist.sha256"
+          {
+            echo 'sha256<<DIST_SHA256'
+            cat "$RUNNER_TEMP/dist.sha256"
+            echo 'DIST_SHA256'
+          } >> "$GITHUB_OUTPUT"
       - name: Upload wheel artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

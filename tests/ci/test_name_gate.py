@@ -15,6 +15,7 @@ import gzip
 import hashlib
 import io
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -67,21 +68,25 @@ def _tree(tmp_path: Path, files: dict[str, bytes | str], ignore: str = "") -> Pa
 
 
 def _run(
-    root: Path,
+    root: Path | None,
     tmp_path: Path,
     list_text: str | None = LIST,
     *extra: str,
     env_value: str | None = None,
+    cwd: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    """Run the gate as CI does; ``root=None`` passes no ``--root`` at all."""
     env = {k: v for k, v in os.environ.items() if k != "NAME_GATE_TOKENS"}
-    args = [sys.executable, str(GATE), "--root", str(root), *extra]
+    # git looks for no repository above the test's directory, wherever pytest put it.
+    env["GIT_CEILING_DIRECTORIES"] = str(tmp_path)
+    args = [sys.executable, str(GATE), *([] if root is None else ["--root", str(root)]), *extra]
     if env_value is not None:
         env["NAME_GATE_TOKENS"] = env_value
     elif list_text is not None:
         list_file = tmp_path / "list.txt"
         list_file.write_text(list_text, encoding="utf-8")
         args += ["--list-file", str(list_file)]
-    return subprocess.run(args, capture_output=True, text=True, env=env, check=False)
+    return subprocess.run(args, capture_output=True, text=True, env=env, check=False, cwd=cwd)
 
 
 def _hits(proc: subprocess.CompletedProcess[str]) -> list[str]:
@@ -363,7 +368,7 @@ def test_wheel_metadata_units_carry_no_version(tmp_path: Path) -> None:
     with zipfile.ZipFile(path, "w") as z:
         z.writestr("demo-1.2.3.dist-info/METADATA", "Name: demo\nSummary: zqplant\n")
     proc = _run(root, tmp_path, LIST, "--archive", str(path))
-    assert _hits(proc) == ["wheel!demo.dist-info/METADATA:2 S01"]
+    assert _hits(proc) == ["wheel!demo.dist-info/METADATA#Summary:1 S01"]
 
 
 def test_clean_built_artifacts_pass(tmp_path: Path) -> None:
@@ -518,6 +523,799 @@ def test_a_non_repository_root_is_an_error_not_a_pass(tmp_path: Path) -> None:
     empty.mkdir()
     proc = _run(empty, tmp_path)
     assert proc.returncode == 2
+
+
+# ---------------------------------------------------------------------------
+# Built artifacts, read against the tree they were built from (--dist)
+# ---------------------------------------------------------------------------
+
+_README = "# Demo\nmade by zqplant\n"
+_PYPROJECT = '[project]\nname = "demo"\nreadme = "README.md"\n'
+_README_ENTRY = "exception README.md:2 S01\n"
+_WHEEL_AUTHOR = "exception wheel!demo.dist-info/METADATA#Author:1 S01\n"
+_SDIST_AUTHOR = "exception sdist!PKG-INFO#Author:1 S01\n"
+
+
+def _zip_of(path: Path, members: dict[str, str | bytes]) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(path, "w") as z:
+        for member, content in members.items():
+            z.writestr(member, content)
+    return path
+
+
+def _sdist_of(
+    path: Path, members: dict[str, str | bytes], top: str = "demo-1.2.3", owner: str = ""
+) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(path, "w:gz") as tar:
+        for member, content in members.items():
+            data = content.encode("utf-8") if isinstance(content, str) else content
+            info = tarfile.TarInfo(f"{top}/{member}")
+            info.size = len(data)
+            info.uname = info.gname = owner
+            tar.addfile(info, io.BytesIO(data))
+    return path
+
+
+def _dist(
+    tmp_path: Path,
+    wheel: dict[str, str | bytes] | None = None,
+    sdist: dict[str, str | bytes] | None = None,
+    version: str = "1.2.3",
+) -> Path:
+    """A dist directory holding one wheel and one sdist, as a build writes it."""
+    dist = tmp_path / f"dist-{version}"
+    _zip_of(dist / f"demo-{version}-py3-none-any.whl", wheel or {"demo/__init__.py": "x = 1\n"})
+    _sdist_of(
+        dist / f"demo-{version}.tar.gz", sdist or {"demo/__init__.py": "x = 1\n"}, f"demo-{version}"
+    )
+    return dist
+
+
+def _metadata(version: str = "1.2.3", extra: str = "", body: str = _README) -> str:
+    return (
+        f"Metadata-Version: 2.4\nName: demo\nVersion: {version}\n{extra}Author: zqplant\n"
+        f"Description-Content-Type: text/markdown\n\n{body}"
+    )
+
+
+def _metadata_tree(tmp_path: Path, pyproject: str = _PYPROJECT, readme: str = _README) -> Path:
+    return _tree(tmp_path, {**BASE, "README.md": readme, "pyproject.toml": pyproject})
+
+
+def test_a_member_identical_to_the_tree_file_at_its_path_is_judged_by_the_tree_entry(
+    tmp_path: Path,
+) -> None:
+    root = _tree(tmp_path, {**BASE, "README.md": _README})
+    dist = _dist(tmp_path, sdist={"README.md": _README})
+    proc = _run(root, tmp_path, LIST + _README_ENTRY, "--dist", str(dist))
+    assert proc.returncode == 0, proc.stdout
+    assert "1 artifact member(s) identical to the tree" in proc.stdout
+    # Without the tree entry the hit is reported once, under the tree file's name.
+    proc = _run(root, tmp_path, LIST, "--dist", str(dist))
+    assert proc.returncode == 1
+    assert _hits(proc) == ["README.md:2 S01"]
+    _assert_no_leak(proc)
+
+
+def test_a_member_that_differs_from_the_tree_file_is_read_in_full(tmp_path: Path) -> None:
+    root = _tree(tmp_path, {**BASE, "README.md": _README})
+    dist = _dist(tmp_path, sdist={"README.md": _README + "\n"})  # one byte more
+    proc = _run(root, tmp_path, LIST + _README_ENTRY, "--dist", str(dist))
+    assert proc.returncode == 1
+    assert _hits(proc) == ["sdist!README.md:2 S01"]
+    assert "0 artifact member(s) identical to the tree" in proc.stdout
+
+
+def test_the_same_bytes_at_another_member_path_are_read_as_that_member(tmp_path: Path) -> None:
+    root = _tree(tmp_path, {**BASE, "README.md": _README})
+    dist = _dist(tmp_path, wheel={"demo/README.md": _README})
+    proc = _run(root, tmp_path, LIST + _README_ENTRY, "--dist", str(dist))
+    assert proc.returncode == 1
+    assert _hits(proc) == ["wheel!demo/README.md:2 S01"]
+
+
+def test_a_wheel_licence_file_is_read_as_the_tree_file_it_was_taken_from(tmp_path: Path) -> None:
+    licence = "Copyright zqplant\n"
+    root = _tree(tmp_path, {**BASE, "LICENSE": licence})
+    listed = LIST + "exception LICENSE:1 S01\n"
+    copied = _dist(tmp_path, wheel={"demo-1.2.3.dist-info/licenses/LICENSE": licence})
+    proc = _run(root, tmp_path, listed, "--dist", str(copied))
+    assert proc.returncode == 0, proc.stdout
+    elsewhere = _dist(
+        tmp_path, wheel={"demo-1.2.3.dist-info/licenses/NOTICE": licence}, version="1.2.4"
+    )
+    proc = _run(root, tmp_path, listed, "--dist", str(elsewhere))
+    assert proc.returncode == 1
+    assert _hits(proc) == ["wheel!demo.dist-info/licenses/NOTICE:1 S01"]
+
+
+def test_an_artifact_run_judges_the_tree_as_well(tmp_path: Path) -> None:
+    root = _tree(tmp_path, {**BASE, "a.py": "zqplant\n"})
+    proc = _run(root, tmp_path, LIST, "--dist", str(_dist(tmp_path)))
+    assert proc.returncode == 1
+    assert _hits(proc) == ["a.py:1 S01"]
+
+
+def test_a_metadata_header_hit_is_keyed_by_its_field_not_its_line(tmp_path: Path) -> None:
+    root = _metadata_tree(tmp_path)
+    listed = LIST + _README_ENTRY + _WHEEL_AUTHOR
+    dist = _dist(tmp_path, wheel={"demo-1.2.3.dist-info/METADATA": _metadata()})
+    proc = _run(root, tmp_path, listed, "--dist", str(dist))
+    assert proc.returncode == 0, proc.stdout
+    # Fields above Author move its line and not its key.
+    moved = _metadata(extra="Project-URL: Home, https://example.invalid\nClassifier: A\n")
+    dist = _dist(tmp_path, wheel={"demo-1.2.3.dist-info/METADATA": moved}, version="1.2.4")
+    proc = _run(root, tmp_path, listed, "--dist", str(dist))
+    assert proc.returncode == 0, proc.stdout
+    # A multiple-use entry, and a token in another field, are each their own key.
+    other = _metadata(
+        extra="Classifier: A\nClassifier: B\nClassifier: zqplant\nMaintainer: zqplant\n"
+    )
+    dist = _dist(tmp_path, wheel={"demo-1.2.3.dist-info/METADATA": other}, version="1.2.5")
+    proc = _run(root, tmp_path, listed, "--dist", str(dist))
+    assert proc.returncode == 1
+    assert _hits(proc) == [
+        f"wheel!demo.dist-info/METADATA#Classifier@{_entry_digest('Classifier: zqplant')}:1 S01",
+        "wheel!demo.dist-info/METADATA#Maintainer:1 S01",
+    ]
+    _assert_no_leak(proc)
+
+
+def _entry_digest(*lines: str) -> str:
+    """The digest a multiple-use entry is keyed by; registered keys depend on it."""
+    digest = hashlib.sha256("\n".join(lines).encode("utf-8")).digest()
+    return f"{int.from_bytes(digest[:8], 'big') % 10**12:012d}"
+
+
+@pytest.mark.parametrize(
+    ("field_name", "above", "hit", "added"),
+    [
+        ("Classifier", "Framework :: Pytest", "Framework :: zqplant", "Typing :: Typed"),
+        ("Requires-Dist", "requests>=2", "zqplant-client>=1.0", "pyyaml>=6"),
+        (
+            "Project-URL",
+            "Home, https://example.invalid",
+            "Source, https://example.invalid/zqplant",
+            "Docs, https://example.invalid/docs",
+        ),
+    ],
+)
+def test_adding_an_entry_of_the_same_field_moves_no_key(
+    tmp_path: Path, field_name: str, above: str, hit: str, added: str
+) -> None:
+    """The key of a multiple-use entry survives another entry of that field added above it.
+
+    A ``--dist`` scan runs only in the release job, so a key that moved
+    with every new classifier, dependency or URL would fail the release on
+    the day. The key is taken from the gate's own output, as a maintainer
+    registers one, so a key that counted the field's lines fails here.
+    """
+    root = _metadata_tree(tmp_path)
+
+    def build(version: str, extra: str) -> Path:
+        metadata = _metadata(version, extra)
+        return _dist(
+            tmp_path,
+            wheel={f"demo-{version}.dist-info/METADATA": metadata},
+            sdist={"PKG-INFO": metadata},
+            version=version,
+        )
+
+    listed = LIST + _README_ENTRY + _WHEEL_AUTHOR + _SDIST_AUTHOR
+    first = build("1.2.3", f"{field_name}: {above}\n{field_name}: {hit}\n")
+    found = _run(root, tmp_path, listed, "--dist", str(first))
+    keys = _hits(found)
+    assert [key.split("!")[0] for key in keys] == ["sdist", "wheel"], found.stdout
+    _assert_no_leak(found)
+    registered = listed + "".join(f"exception {key}\n" for key in keys)
+    proc = _run(root, tmp_path, registered, "--dist", str(first))
+    assert proc.returncode == 0, proc.stdout  # the control: the printed keys excuse the hits
+    for n, extra in enumerate(
+        [
+            f"{field_name}: {above}\n{field_name}: {added}\n{field_name}: {hit}\n",
+            f"{field_name}: {added}\n{field_name}: {hit}\n{field_name}: {above}\n",
+        ]
+    ):
+        proc = _run(root, tmp_path, registered, "--dist", str(build(f"1.3.{n}", extra)))
+        assert proc.returncode == 0, (extra, proc.stdout)
+        assert "5 excused, 0 stale exception(s)" in proc.stdout, proc.stdout
+    entry = _entry_digest(f"{field_name}: {hit}")
+    assert keys == [
+        f"sdist!PKG-INFO#{field_name}@{entry}:1 S01",
+        f"wheel!demo.dist-info/METADATA#{field_name}@{entry}:1 S01",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("extra", "keys"),
+    [
+        (  # identical entries are two keys, counted on across the entry between them
+            "Classifier: zqplant A\nClassifier: B\nClassifier: zqplant A\n",
+            [f"Classifier@{_entry_digest('Classifier: zqplant A')}:{n}" for n in (1, 2)],
+        ),
+        (  # the digest covers a continuation line, and n counts the entry's lines
+            "Project-URL: Source,\n  https://example.invalid/zqplant\n",
+            [
+                "Project-URL@"
+                + _entry_digest("Project-URL: Source,", "  https://example.invalid/zqplant")
+                + ":2"
+            ],
+        ),
+        (  # header names are compared without case
+            "requires-dist: zqplant-client\n",
+            [f"requires-dist@{_entry_digest('requires-dist: zqplant-client')}:1"],
+        ),
+    ],
+    ids=["identical entries", "continuation line", "lower-case field"],
+)
+def test_a_multiple_use_entry_is_keyed_by_its_digest(
+    tmp_path: Path, extra: str, keys: list[str]
+) -> None:
+    root = _metadata_tree(tmp_path)
+    listed = LIST + _README_ENTRY + _WHEEL_AUTHOR
+    dist = _dist(tmp_path, wheel={"demo-1.2.3.dist-info/METADATA": _metadata(extra=extra)})
+    proc = _run(root, tmp_path, listed, "--dist", str(dist))
+    assert proc.returncode == 1
+    assert _hits(proc) == [f"wheel!demo.dist-info/METADATA#{key} S01" for key in keys]
+    _assert_no_leak(proc)
+
+
+# The fields the core metadata specification marks multiple-use, as
+# packaging.metadata lists them (26.3).
+_MULTIPLE_USE = (
+    "Classifier",
+    "Dynamic",
+    "Import-Name",
+    "Import-Namespace",
+    "License-File",
+    "Obsoletes",
+    "Obsoletes-Dist",
+    "Platform",
+    "Project-URL",
+    "Provides",
+    "Provides-Dist",
+    "Provides-Extra",
+    "Requires",
+    "Requires-Dist",
+    "Requires-External",
+    "Supported-Platform",
+)
+
+
+def test_every_multiple_use_field_is_keyed_by_its_entry_and_no_other(tmp_path: Path) -> None:
+    root = _metadata_tree(tmp_path)
+    single = ("Keywords", "Maintainer", "Summary")  # the control: single-use fields keep a count
+    extra = "".join(f"{name}: zqplant\n" for name in (*_MULTIPLE_USE, *single))
+    dist = _dist(tmp_path, wheel={"demo-1.2.3.dist-info/METADATA": _metadata(extra=extra)})
+    proc = _run(root, tmp_path, LIST + _README_ENTRY + _WHEEL_AUTHOR, "--dist", str(dist))
+    assert proc.returncode == 1
+    keys = [f"{name}@{_entry_digest(f'{name}: zqplant')}:1" for name in _MULTIPLE_USE]
+    keys += [f"{name}:1" for name in single]
+    expected = sorted(f"wheel!demo.dist-info/METADATA#{key} S01" for key in keys)
+    assert _hits(proc) == expected
+
+
+def test_a_changed_or_repeated_entry_is_a_new_key_and_fails_closed(tmp_path: Path) -> None:
+    """An entry is excused for its text: a new spelling, or another copy, needs an entry.
+
+    A key that counted the field's lines would excuse the edited classifier
+    under the old entry, and one that ignored duplicates would excuse a
+    second copy with the first copy's entry.
+    """
+    root = _metadata_tree(tmp_path)
+    old = f"wheel!demo.dist-info/METADATA#Classifier@{_entry_digest('Classifier: zqplant A')}"
+    listed = LIST + _README_ENTRY + _WHEEL_AUTHOR + f"exception {old}:1 S01\n"
+    builds = {
+        "1.2.3": ("Classifier: zqplant A\n", 0, []),  # the control
+        "1.2.4": (
+            "Classifier: zqplant B\n",
+            1,
+            [
+                "wheel!demo.dist-info/METADATA#Classifier@"
+                + _entry_digest("Classifier: zqplant B")
+                + ":1 S01",
+                f"stale exception {old}:1 S01",
+            ],
+        ),
+        "1.2.5": ("Classifier: zqplant A\nClassifier: zqplant A\n", 1, [f"{old}:2 S01"]),
+    }
+    for version, (extra, rc, hits) in builds.items():
+        metadata = _metadata(version, extra)
+        dist = _dist(
+            tmp_path, wheel={f"demo-{version}.dist-info/METADATA": metadata}, version=version
+        )
+        proc = _run(root, tmp_path, listed, "--dist", str(dist))
+        assert (proc.returncode, _hits(proc)) == (rc, hits), version
+
+
+def test_the_sdist_core_metadata_is_keyed_by_field_too(tmp_path: Path) -> None:
+    root = _metadata_tree(tmp_path)
+    dist = _dist(tmp_path, sdist={"PKG-INFO": _metadata()})
+    proc = _run(root, tmp_path, LIST + _README_ENTRY, "--dist", str(dist))
+    assert proc.returncode == 1
+    assert _hits(proc) == ["sdist!PKG-INFO#Author:1 S01"]
+    proc = _run(root, tmp_path, LIST + _README_ENTRY + _SDIST_AUTHOR, "--dist", str(dist))
+    assert proc.returncode == 0, proc.stdout
+
+
+@pytest.mark.parametrize(
+    ("pyproject", "body"),
+    [
+        (_PYPROJECT, "# Demo\n\nmade by zqplant\n"),  # the body differs from the readme
+        ('[project]\nname = "demo"\n', _README),  # pyproject.toml names no readme
+        (_PYPROJECT, "# Notes\nmade by zqplant\n"),  # identical to a tree file, not the readme
+    ],
+)
+def test_a_metadata_body_not_copied_from_the_readme_is_read_as_itself(
+    tmp_path: Path, pyproject: str, body: str
+) -> None:
+    root = _tree(
+        tmp_path,
+        {
+            **BASE,
+            "README.md": _README,
+            "pyproject.toml": pyproject,
+            "docs/notes.md": "# Notes\nmade by zqplant\n",
+        },
+    )
+    listed = LIST + _README_ENTRY + "exception docs/notes.md:2 S01\n" + _WHEEL_AUTHOR
+    dist = _dist(tmp_path, wheel={"demo-1.2.3.dist-info/METADATA": _metadata(body=body)})
+    proc = _run(root, tmp_path, listed, "--dist", str(dist))
+    assert proc.returncode == 1
+    line = body.split("\n").index("made by zqplant") + 1
+    assert _hits(proc) == [f"wheel!demo.dist-info/METADATA#body:{line} S01"]
+
+
+def test_a_metadata_header_that_is_not_field_lines_is_keyed_by_line(tmp_path: Path) -> None:
+    """A header the gate cannot parse is keyed by line, which fails closed.
+
+    Two unparsed lines sit above the hit, so a reading that skipped them, or
+    took them as continuations of the field above, would give another key.
+    """
+    root = _metadata_tree(tmp_path)
+    text = "Name: demo\nnot a field\nnot one either\nAuthor: zqplant\n\nbody\n"
+    dist = _dist(tmp_path, wheel={"demo-1.2.3.dist-info/METADATA": text})
+    proc = _run(root, tmp_path, LIST + _README_ENTRY, "--dist", str(dist))
+    assert proc.returncode == 1
+    assert _hits(proc) == ["wheel!demo.dist-info/METADATA:4 S01"]
+
+
+def test_a_continuation_line_is_the_next_line_of_the_field_above(tmp_path: Path) -> None:
+    """A header line that starts with a space or a tab continues the field above it.
+
+    Read as a field of its own it is not ``Field: value``, so the whole
+    header would be keyed by line and every registered field entry would go
+    stale.
+    """
+    root = _metadata_tree(tmp_path)
+    folded = _metadata(extra="Summary: a summary\n        zqplant folded\n\tzqplant again\n")
+    dist = _dist(tmp_path, wheel={"demo-1.2.3.dist-info/METADATA": folded})
+    proc = _run(root, tmp_path, LIST + _README_ENTRY + _WHEEL_AUTHOR, "--dist", str(dist))
+    assert proc.returncode == 1
+    assert _hits(proc) == [
+        "wheel!demo.dist-info/METADATA#Summary:2 S01",
+        "wheel!demo.dist-info/METADATA#Summary:3 S01",
+    ]
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        b"Name: demo\rVersion: 1.2.3\n\rKeywords: zqplant\n\n",  # a lone CR is a line end
+        b"Name: demo\nVersion: 1.2.3\n\x0c\nKeywords: zqplant\n\n",  # a page break is not read
+    ],
+    ids=["lone CR", "page break"],
+)
+def test_a_metadata_body_is_the_readme_only_where_the_scan_reads_it_as_one(
+    tmp_path: Path, header: bytes
+) -> None:
+    """The header block ends at the first blank line the scan reads, not the first in the bytes.
+
+    In both headers the scan reads a blank line before ``Keywords``, so the
+    body starts there and ``Keywords`` is its first line, while the bytes
+    after the first ``\\n\\n`` are an exact copy of the readme. Keyed by
+    that copy, every body hit would be reported against a readme line it is
+    not on, and a registered readme line could excuse it.
+    """
+    root = _metadata_tree(tmp_path)
+    listed = LIST + _README_ENTRY
+    plain = b"Name: demo\nVersion: 1.2.3\nKeywords: zqplant\n\n" + _README.encode()
+    dist = _dist(tmp_path, wheel={"demo-1.2.3.dist-info/METADATA": plain})
+    proc = _run(root, tmp_path, listed, "--dist", str(dist))
+    # The control: with a plain header the body is the readme's copy.
+    assert _hits(proc) == ["wheel!demo.dist-info/METADATA#Keywords:1 S01"]
+    crafted = _dist(
+        tmp_path,
+        wheel={"demo-1.2.3.dist-info/METADATA": header + _README.encode()},
+        version="1.2.4",
+    )
+    proc = _run(root, tmp_path, listed, "--dist", str(crafted))
+    assert proc.returncode == 1
+    assert _hits(proc) == [
+        "wheel!demo.dist-info/METADATA#body:1 S01",
+        "wheel!demo.dist-info/METADATA#body:4 S01",
+    ]
+
+
+def test_a_readme_named_by_a_table_is_the_body_source_as_well(tmp_path: Path) -> None:
+    pyproject = (
+        '[project]\nname = "demo"\nreadme = {file = "README.md", content-type = "text/markdown"}\n'
+    )
+    root = _metadata_tree(tmp_path, pyproject=pyproject)
+    dist = _dist(tmp_path, wheel={"demo-1.2.3.dist-info/METADATA": _metadata()})
+    proc = _run(root, tmp_path, LIST + _README_ENTRY + _WHEEL_AUTHOR, "--dist", str(dist))
+    assert proc.returncode == 0, proc.stdout
+
+
+def _zip_bytes(members: dict[str, str]) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for member, content in members.items():
+            z.writestr(member, content)
+    return buf.getvalue()
+
+
+_OTHER_METADATA = "Metadata-Version: 2.4\nName: other\nSummary: zqplant\n\nbody\n"
+
+
+@pytest.mark.parametrize(
+    ("kind", "member", "content", "unit"),
+    [
+        ("sdist", "demo.egg-info/PKG-INFO", _OTHER_METADATA, "sdist!demo.egg-info/PKG-INFO"),
+        (
+            "wheel",
+            "demo/vendored-1.0.dist-info/METADATA",
+            _OTHER_METADATA,
+            "wheel!demo/vendored-1.0.dist-info/METADATA",
+        ),
+        (
+            "wheel",
+            "inner.zip",
+            _zip_bytes({"other-1.0.dist-info/METADATA": _OTHER_METADATA}),
+            "wheel!inner.zip!other.dist-info/METADATA",
+        ),
+    ],
+    # Named here: pytest would build the ids from the values, and the zip's
+    # bytes carry the local time it was built at, so the node id of the
+    # nested case would change between two runs.
+    ids=["sdist-deeper-pkg-info", "wheel-deeper-metadata", "wheel-nested-zip"],
+)
+def test_only_the_top_level_core_metadata_is_keyed_by_field(
+    tmp_path: Path, kind: str, member: str, content: str | bytes, unit: str
+) -> None:
+    """Core metadata deeper in the artifact, or inside a nested container, is any other text.
+
+    Only the artifact's own ``PKG-INFO`` or ``METADATA`` is described by the
+    build; another one is keyed by line, as any member is.
+    """
+    root = _metadata_tree(tmp_path)
+    dist = _dist(tmp_path, **{kind: {member: content}})
+    proc = _run(root, tmp_path, LIST + _README_ENTRY, "--dist", str(dist))
+    assert proc.returncode == 1
+    assert _hits(proc) == [f"{unit}:3 S01"]
+
+
+@pytest.mark.parametrize("kind", ["wheel", "sdist"])
+def test_a_member_of_a_nested_container_is_never_read_as_a_tree_file(
+    tmp_path: Path, kind: str
+) -> None:
+    """Only an artifact's own members are matched to tree paths.
+
+    The tree file ``inner.zip!README.md`` and the readme inside the member
+    ``inner.zip`` share a name as the gate writes it, and their bytes, but
+    the nested one was never a tree file, so it is read in full.
+    """
+    root = _tree(tmp_path, {**BASE, "inner.zip!README.md": _README})
+    listed = LIST + "exception inner.zip!README.md:2 S01\n"
+    dist = _dist(tmp_path, **{kind: {"inner.zip": _zip_bytes({"README.md": _README})}})
+    proc = _run(root, tmp_path, listed, "--dist", str(dist))
+    assert proc.returncode == 1
+    assert _hits(proc) == [f"{kind}!inner.zip!README.md:2 S01"]
+    assert "0 artifact member(s) identical to the tree" in proc.stdout
+
+
+def _record_digest(body: bytes) -> str:
+    return base64.urlsafe_b64encode(hashlib.sha256(body).digest()).rstrip(b"=").decode()
+
+
+@pytest.mark.parametrize(
+    ("member", "record_body", "size_delta", "reads"),
+    [
+        ("demo/__init__.py", b"x = 1\n", 0, False),  # path, digest and size check out
+        ("demo/__init__.py", b"x = 1\n", 1, True),  # the size is forged
+        ("demo/__init__.py", b"x = 2\n", 0, True),  # the digest is another file's
+        ("demo/other.py", b"x = 1\n", 0, True),  # the path is not a member
+    ],
+)
+def test_a_record_line_is_read_as_empty_only_when_it_checks_out(
+    tmp_path: Path, member: str, record_body: bytes, size_delta: int, reads: bool
+) -> None:
+    root = _tree(tmp_path, BASE)
+    body = b"x = 1\n"
+    digest = _record_digest(record_body)
+    # A token the digest happens to contain: what a short name does by chance.
+    listed = LIST + f"token S09 {re.escape(digest[4:16])}\n"
+    record = (
+        f"{member},sha256={digest},{len(record_body) + size_delta}\ndemo-1.2.3.dist-info/RECORD,,\n"
+    )
+    dist = _dist(tmp_path, wheel={"demo/__init__.py": body, "demo-1.2.3.dist-info/RECORD": record})
+    proc = _run(root, tmp_path, listed, "--dist", str(dist))
+    if reads:
+        assert proc.returncode == 1
+        assert _hits(proc) == ["wheel!demo.dist-info/RECORD:1 S09"]
+    else:
+        assert proc.returncode == 0, proc.stdout
+
+
+@pytest.mark.parametrize(
+    "self_row",
+    [
+        "sha256=zqplant,7",  # a digest and a size
+        ",zqplant",  # a size only
+        "sha256=zqplant,",  # a digest only
+    ],
+)
+def test_the_record_row_for_record_itself_is_read_unless_it_is_empty(
+    tmp_path: Path, self_row: str
+) -> None:
+    """RECORD lists itself with no digest and no size; anything on that row is read.
+
+    The row is blank only when both fields are: a check of either field
+    alone passes the row whose other field carries the token.
+    """
+    root = _tree(tmp_path, BASE)
+    body = b"x = 1\n"
+    first = f"demo/__init__.py,sha256={_record_digest(body)},{len(body)}\n"
+    rows = ((",", []), (self_row, ["wheel!demo.dist-info/RECORD:2 S01"]))  # the control first
+    for n, (row, hits) in enumerate(rows):
+        record = f"{first}demo-1.2.3.dist-info/RECORD,{row}\n"
+        dist = _dist(
+            tmp_path / f"build{n}",
+            wheel={"demo/__init__.py": body, "demo-1.2.3.dist-info/RECORD": record},
+        )
+        proc = _run(root, tmp_path, LIST, "--dist", str(dist))
+        assert _hits(proc) == hits, row
+        assert proc.returncode == (1 if hits else 0)
+
+
+def test_a_field_entry_that_matches_no_hit_is_stale_and_a_tree_run_ignores_it(
+    tmp_path: Path,
+) -> None:
+    root = _metadata_tree(tmp_path)
+    listed = (
+        LIST
+        + _README_ENTRY
+        + _WHEEL_AUTHOR
+        + "exception wheel!demo.dist-info/METADATA#Summary:1 S01\n"
+    )
+    dist = _dist(tmp_path, wheel={"demo-1.2.3.dist-info/METADATA": _metadata()})
+    proc = _run(root, tmp_path, listed, "--dist", str(dist))
+    assert proc.returncode == 1
+    assert _hits(proc) == ["stale exception wheel!demo.dist-info/METADATA#Summary:1 S01"]
+    tree_run = _run(root, tmp_path, listed)
+    assert tree_run.returncode == 0, tree_run.stdout
+
+
+def test_an_inherited_hit_needs_no_artifact_entry_and_a_line_entry_for_it_is_stale(
+    tmp_path: Path,
+) -> None:
+    root = _tree(tmp_path, {**BASE, "README.md": _README})
+    dist = _dist(tmp_path, sdist={"README.md": _README})
+    listed = LIST + _README_ENTRY + "exception sdist!README.md:2 S01\n"
+    proc = _run(root, tmp_path, listed, "--dist", str(dist))
+    assert proc.returncode == 1
+    assert _hits(proc) == ["stale exception sdist!README.md:2 S01"]
+
+
+def test_an_unreadable_member_still_fails_and_no_list_is_still_an_error(tmp_path: Path) -> None:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("demo/a.txt", " ".join(str(i * 7919 % 10007) for i in range(400)))
+    data = bytearray(buf.getvalue())
+    start = data.index(b"demo/a.txt") + len(b"demo/a.txt")
+    for i in range(start + 100, start + 120):
+        data[i] ^= 0xFF
+    dist = _dist(tmp_path)
+    (dist / "demo-1.2.3-py3-none-any.whl").write_bytes(bytes(data))
+    root = _tree(tmp_path, BASE)
+    proc = _run(root, tmp_path, LIST, "--dist", str(dist))
+    assert proc.returncode == 1
+    assert "wheel!demo/a.txt:0 UNREADABLE" in _hits(proc)
+    proc = _run(root, tmp_path, None, "--dist", str(dist))
+    assert proc.returncode == 2
+    assert "fails closed" in proc.stderr
+
+
+def _plant(dist: Path, name: str, content: bytes | None = None) -> None:
+    if content is None:
+        (dist / name).mkdir()
+    else:
+        (dist / name).write_bytes(content)
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "empty",
+        "missing",
+        "stray file",
+        "dot file",
+        "directory",
+        "two wheels",
+        "no sdist",
+        "fake wheel",
+        "dot-named sdist",
+    ],
+)
+def test_dist_must_hold_exactly_one_wheel_and_one_sdist(tmp_path: Path, case: str) -> None:
+    root = _tree(tmp_path, BASE)
+    dist = _dist(tmp_path)
+    assert _run(root, tmp_path, LIST, "--dist", str(dist)).returncode == 0  # the control
+    wheel = (dist / "demo-1.2.3-py3-none-any.whl").read_bytes()
+    if case == "empty":
+        shutil.rmtree(dist)
+        dist.mkdir()
+    elif case == "missing":
+        shutil.rmtree(dist)
+    elif case == "stray file":
+        _plant(dist, "notes.txt", b"x\n")
+    elif case == "dot file":
+        _plant(dist, ".gitkeep", b"")
+    elif case == "directory":
+        _plant(dist, "demo-1.2.3-py3-none-any.whl.d")
+    elif case == "two wheels":
+        _plant(dist, "demo-1.2.3-cp311-none-any.whl", wheel)
+    elif case == "no sdist":
+        (dist / "demo-1.2.3.tar.gz").unlink()
+    elif case == "fake wheel":
+        (dist / "demo-1.2.3-py3-none-any.whl").write_bytes(b"not a zip\n")
+    elif case == "dot-named sdist":  # an upload's `dist/*` glob would not send it
+        (dist / "demo-1.2.3.tar.gz").rename(dist / ".demo-1.2.3.tar.gz")
+    proc = _run(root, tmp_path, LIST, "--dist", str(dist))
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert "Traceback" not in proc.stderr
+
+
+def test_dist_and_archive_cannot_be_combined(tmp_path: Path) -> None:
+    root = _tree(tmp_path, BASE)
+    dist = _dist(tmp_path)
+    wheel = dist / "demo-1.2.3-py3-none-any.whl"
+    proc = _run(root, tmp_path, LIST, "--dist", str(dist), "--archive", str(wheel))
+    assert proc.returncode == 2
+
+
+def test_archive_without_root_reads_the_artifacts_alone_outside_a_work_tree(
+    tmp_path: Path,
+) -> None:
+    """``--archive`` with no ``--root`` scans the artifacts it names and lists no tree.
+
+    Run from a directory that is not a git work tree, a run that listed the
+    working directory as the tree would stop with exit 2 before reading the
+    artifact.
+    """
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    probe = subprocess.run(
+        ["git", "-C", str(elsewhere), "rev-parse"],
+        capture_output=True,
+        env={**os.environ, "GIT_CEILING_DIRECTORIES": str(tmp_path)},
+        check=False,
+    )
+    assert probe.returncode != 0, "the test needs a directory outside any work tree"
+    clean = _wheel(tmp_path, "x = 1\n")
+    proc = _run(None, tmp_path, LIST, "--archive", str(clean), cwd=elsewhere)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "name-gate: 1 file(s) scanned," in proc.stdout
+    assert "identical to the tree" not in proc.stdout  # no tree was read
+    planted = tmp_path / "planted"
+    planted.mkdir()
+    proc = _run(
+        None, tmp_path, LIST, "--archive", str(_wheel(planted, "# zqplant\n")), cwd=elsewhere
+    )
+    assert proc.returncode == 1
+    assert _hits(proc) == ["wheel!demo/__init__.py:1 S01"]
+    # An artifact entry that matches nothing is still stale: the run judges what it read.
+    gone = LIST + "exception wheel!demo/gone.py:1 S01\n"
+    proc = _run(None, tmp_path, gone, "--archive", str(clean), cwd=elsewhere)
+    assert proc.returncode == 1
+    assert _hits(proc) == ["stale exception wheel!demo/gone.py:1 S01"]
+
+
+def test_archive_without_root_does_not_judge_the_working_directory(tmp_path: Path) -> None:
+    """Run from inside another repository, ``--archive`` alone neither scans nor judges its tree.
+
+    That tree is not the one the artifact was built from: its hits are not
+    the artifact's, and its register entries are not stale for lack of them.
+    Given ``--root``, the same run judges the tree, which is the control.
+    """
+    other = _tree(tmp_path, {**BASE, "a.py": "zqplant\n"})
+    listed = LIST + "exception gone.py:1 S01\n"
+    wheel = _wheel(tmp_path, "x = 1\n")
+    proc = _run(None, tmp_path, listed, "--archive", str(wheel), cwd=other)
+    assert proc.returncode == 0, proc.stdout
+    assert "name-gate: 1 file(s) scanned," in proc.stdout
+    proc = _run(other, tmp_path, listed, "--archive", str(wheel), cwd=other)
+    assert proc.returncode == 1
+    assert _hits(proc) == ["a.py:1 S01", "stale exception gone.py:1 S01"]
+
+
+def test_dist_without_root_scans_the_working_directory_tree(tmp_path: Path) -> None:
+    """``--dist`` always reads the tree: ``.`` when ``--root`` is not given."""
+    root = _tree(tmp_path, {**BASE, "a.py": "zqplant\n"})
+    proc = _run(None, tmp_path, LIST, "--dist", str(_dist(tmp_path)), cwd=root)
+    assert proc.returncode == 1
+    assert _hits(proc) == ["a.py:1 S01"]
+
+
+def test_an_empty_dist_argument_is_an_error_not_the_working_directory(tmp_path: Path) -> None:
+    """``Path("")`` is the working directory: run from inside one, it would be scanned."""
+    root = _tree(tmp_path, BASE)
+    dist = _dist(tmp_path)
+    assert _run(root, tmp_path, LIST, "--dist", ".", cwd=dist).returncode == 0  # the control
+    proc = _run(root, tmp_path, LIST, "--dist", "", cwd=dist)
+    assert proc.returncode == 2, proc.stdout
+    assert "--dist needs a directory" in proc.stderr
+    assert "Traceback" not in proc.stderr
+
+
+def test_an_artifact_file_name_is_read_as_a_path(tmp_path: Path) -> None:
+    root = _tree(tmp_path, BASE)
+    dist = _dist(tmp_path)
+    (dist / "demo-1.2.3-py3-none-any.whl").rename(dist / "zqplant-1.2.3-py3-none-any.whl")
+    proc = _run(root, tmp_path, LIST, "--dist", str(dist))
+    assert proc.returncode == 1
+    assert _hits(proc) == ["wheel:0 S01"]
+    _assert_no_leak(proc)
+
+
+@pytest.mark.parametrize("field_name", ["uname", "gname"])
+def test_a_tar_member_owner_and_group_are_read(tmp_path: Path, field_name: str) -> None:
+    root = _tree(tmp_path, {**BASE, "README.md": "# Demo\n"})
+    raw = io.BytesIO()
+    with tarfile.open(fileobj=raw, mode="w") as tar:
+        info = tarfile.TarInfo("demo-1.2.3/README.md")
+        info.size = len(b"# Demo\n")
+        setattr(info, field_name, "zqplant")
+        tar.addfile(info, io.BytesIO(b"# Demo\n"))
+    dist = _dist(tmp_path)
+    (dist / "demo-1.2.3.tar.gz").write_bytes(gzip.compress(raw.getvalue()))
+    proc = _run(root, tmp_path, LIST, "--dist", str(dist))
+    assert proc.returncode == 1
+    assert _hits(proc) == ["sdist!README.md#tar-header:1 S01"]
+    _assert_no_leak(proc)
+
+
+def test_a_version_bump_needs_no_register_edit(tmp_path: Path) -> None:
+    """Two releases that differ in version, field order and readme length share one register.
+
+    The second build adds a URL and a classifier above Author and a paragraph
+    to the readme below the registered line, as an ordinary release does.
+    """
+    listed = LIST + _README_ENTRY + _WHEEL_AUTHOR + _SDIST_AUTHOR
+    builds = [
+        ("1.2.3", "", _README),
+        (
+            "1.3.0",
+            "Project-URL: Home, https://example.invalid\nClassifier: B\n",
+            _README + "\nMore.\n",
+        ),
+    ]
+    for version, extra, readme in builds:
+        base = tmp_path / version
+        base.mkdir()
+        root = _metadata_tree(base, readme=readme)
+        metadata = _metadata(version, extra, readme)
+        dist = _dist(
+            base,
+            wheel={f"demo-{version}.dist-info/METADATA": metadata, "demo/__init__.py": "x = 1\n"},
+            sdist={"PKG-INFO": metadata, "README.md": readme, "pyproject.toml": _PYPROJECT},
+            version=version,
+        )
+        proc = _run(root, base, listed, "--dist", str(dist))
+        assert proc.returncode == 0, (version, proc.stdout)
+        assert "3 excused, 0 stale exception(s)" in proc.stdout, proc.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -959,32 +1757,56 @@ _EXPECTED_GATE_JOB = {
     ],
 }
 
-# The job in publish-pypi.yml that uploads to PyPI, refs dropped the same way.
+# The release workflow, refs dropped the same way. `quality` is the build
+# half: it runs ci.yml, whose `build` job uploads the `dist` artifact and
+# records its SHA-256; it is handed no secret and no id-token. `publish` builds
+# nothing: it verifies that artifact, scans it with the tree, and uploads it.
+_EXPECTED_QUALITY_JOB = {
+    "name": "CI",
+    "permissions": {"contents": "read"},
+    "uses": "./.github/workflows/ci.yml",
+}
+_VERIFY_RECORDED = (
+    'printf \'%s\\n\' "$RECORDED" > "$RUNNER_TEMP/dist.sha256"\n'
+    'sha256sum --check --strict "$RUNNER_TEMP/dist.sha256"\n'
+    "test \"$(find . -mindepth 1 -maxdepth 1 -printf '%f\\n' | sort)\" = "
+    '"$(sed -n \'s/^[0-9a-f]\\{64\\} [ *]//p\' "$RUNNER_TEMP/dist.sha256" | sort)"\n'
+)
+_DIST_SCAN = "python scripts/ci/check-name-gate.py --root . --dist dist"
 _EXPECTED_PUBLISH_JOB = {
-    "name": "Build & Publish to PyPI",
+    "name": "Publish to PyPI",
     "needs": ["quality"],
     "runs-on": "ubuntu-latest",
     "environment": {"name": "pypi", "url": "https://pypi.org/p/sigantry"},
     "permissions": {"id-token": "write", "contents": "read"},
     "steps": [
-        {"name": "Checkout repository", "uses": "actions/checkout"},
+        {
+            "name": "Checkout repository",
+            "uses": "actions/checkout",
+            "with": {"persist-credentials": False},
+        },
         {
             "name": "Set up Python 3.11",
             "uses": "actions/setup-python",
-            "with": {"python-version": "3.11", "cache": "pip"},
+            "with": {"python-version": "3.11"},
         },
         {"name": "Install the PDF text extractor", "run": _PDF_EXTRACTOR},
         {
-            "name": "Scan the tree for names",
-            "env": _TOKENS_ENV,
-            "run": "python scripts/ci/check-name-gate.py --root .",
+            "name": "Download the distributions CI built and checked",
+            "uses": "actions/download-artifact",
+            "with": {"name": "dist", "path": "dist/"},
         },
         {
-            "name": "Install packaging tools",
-            "run": "python -m pip install --upgrade pip build twine",
+            "name": "Verify them against the SHA-256 recorded at build",
+            "env": {"RECORDED": "${{ needs.quality.outputs.dist-sha256 }}"},
+            "working-directory": "dist",
+            "run": _VERIFY_RECORDED,
         },
-        {"name": "Build sdist and wheel", "run": "python -m build"},
-        {"name": "Check package metadata with twine", "run": "twine check --strict dist/*"},
+        {
+            "name": "Scan the tree and the distributions for names",
+            "env": _TOKENS_ENV,
+            "run": _DIST_SCAN,
+        },
         {
             "name": "Publish package distributions to PyPI",
             "uses": "pypa/gh-action-pypi-publish",
@@ -1043,29 +1865,45 @@ def test_no_other_job_reports_under_the_gate_check_name() -> None:
 
 
 def test_the_release_path_runs_the_gate() -> None:
-    """The one job that uploads to PyPI scans the released tree before it builds.
+    """The one job that uploads to PyPI scans the tree and the distributions it uploads.
 
     ``quality`` runs ci.yml, which does not receive the token list, so
     without this a release from a ref that never passed the pull-request
-    check, or a manual run on any branch, would upload unchecked. The job is
-    compared whole, for the reasons ``test_the_gate_job_is_pinned_whole``
-    gives: a step that changed the tree after the scan, or one that skipped
-    or neutered it, would otherwise pass. Every publish job the quality-gate
-    tests detect (``_publish_jobs``, with its pinned gaps) must be this one,
-    so a second upload job cannot go round the scan.
+    check would upload unchecked. The scan reads the downloaded ``dist``
+    directory, which is what the publish step uploads, and it is the last
+    step before that upload. The job is compared whole, for the reasons
+    ``test_the_gate_job_is_pinned_whole`` gives: a step that changed the
+    files after the scan, or one that skipped or neutered it, would otherwise
+    pass. Every publish job the quality-gate tests detect (``_publish_jobs``,
+    with its pinned gaps) must be this one, so a second upload job cannot go
+    round the scan, and the workflow holds no job besides it and its gate.
     """
     publish_jobs = sorted(
         f"{path.name}::{job_id}"
         for path in sorted((REPO_ROOT / ".github" / "workflows").glob("*.y*ml"))
         for job_id in _publish_jobs(yaml.safe_load(path.read_text(encoding="utf-8")) or {})
     )
-    assert publish_jobs == ["publish-pypi.yml::build-and-publish"], (
+    assert publish_jobs == ["publish-pypi.yml::publish"], (
         "every job that publishes must run the name gate first; give a new "
         f"publish job the scan and pin it here: {publish_jobs}"
     )
     wf = yaml.safe_load(PUBLISH_WORKFLOW.read_text(encoding="utf-8"))
-    assert "env" not in wf and "defaults" not in wf, (
-        "workflow-level env or defaults reach the scan step"
+    assert set(wf) == {"name", True, "concurrency", "jobs"}, (
+        "publish-pypi.yml's top-level keys changed; workflow-level env, defaults "
+        f"or permissions reach every step: {sorted(map(str, wf))}"
     )
-    job = wf["jobs"]["build-and-publish"]
+    assert set(wf["jobs"]) == {"quality", "publish"}, (
+        f"publish-pypi.yml runs its gate and its publish job only: {sorted(wf['jobs'])}"
+    )
+    assert wf["jobs"]["quality"] == _EXPECTED_QUALITY_JOB
+    job = wf["jobs"]["publish"]
+    steps = [(str(s.get("uses", "")).split("@")[0], str(s.get("run", ""))) for s in job["steps"]]
+    for step in (("actions/download-artifact", ""), ("", _DIST_SCAN)):
+        assert step in steps, f"the publish job has no {step[0] or step[1]!r} step"
+    download = steps.index(("actions/download-artifact", ""))
+    scan = steps.index(("", _DIST_SCAN))
+    upload = steps.index(("pypa/gh-action-pypi-publish", ""))
+    assert download < scan == upload - 1, (
+        "the scan must read the downloaded distributions and be the last step before the upload"
+    )
     assert _without_action_refs(job) == _EXPECTED_PUBLISH_JOB
