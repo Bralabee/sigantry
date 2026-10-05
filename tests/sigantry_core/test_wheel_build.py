@@ -11,14 +11,29 @@ a drifted version or broken metadata fails this test before twine upload.
 from __future__ import annotations
 
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
 import zipfile
 
 import pytest
+from packaging.version import Version
 
-WHEEL_NAME = "sigantry-1.0.0-py3-none-any.whl"
+_VERSION_RE = re.compile(r'^__version__\s*=\s*"(\d+\.\d+\.\d+[^"]*)"$', re.MULTILINE)
+
+
+def _wheel_name(repo_root: pathlib.Path) -> str:
+    """The wheel file name for the version ``_version.py`` declares.
+
+    Derived, never restated: a literal here is a second copy of the version,
+    which goes red on a correct release bump. ``Version`` gives the normalised
+    form the build backend writes into the file name.
+    """
+    source = (repo_root / "sigantry_core" / "_version.py").read_text(encoding="utf-8")
+    match = _VERSION_RE.search(source)
+    assert match is not None, "_version.py must declare __version__ as a quoted SemVer string"
+    return f"sigantry-{Version(match.group(1))}-py3-none-any.whl"
 
 
 @pytest.mark.slow
@@ -33,8 +48,9 @@ def test_wheel_builds_with_expected_filename(repo_root: pathlib.Path) -> None:
         )
         produced = list(pathlib.Path(out).glob("*.whl"))
         assert len(produced) == 1, f"expected exactly one wheel, got {produced}"
-        assert produced[0].name == WHEEL_NAME, (
-            f"wheel filename drifted: {produced[0].name!r} != {WHEEL_NAME!r}"
+        expected = _wheel_name(repo_root)
+        assert produced[0].name == expected, (
+            f"wheel filename drifted: {produced[0].name!r} != {expected!r}"
         )
 
 
