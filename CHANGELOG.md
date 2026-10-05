@@ -192,6 +192,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   wins.
 
 ### Removed
+- The wheel and the sdist no longer carry the six `TODO-*.md` planning notes
+  kept beside the code under `sigantry_core/`. Both build targets exclude
+  them, and a slow test now lists the members each distribution may carry:
+  a file that reaches either one without being listed fails, and so does a
+  listed one that goes missing.
 - The demo walkthrough video build: `scripts/remotion/` (a Node project),
   `scripts/build-walkthrough.sh`, `.github/workflows/sigantry-demo-mp4.yml`,
   `docs/demo/walkthrough-script.md` and their tests. The video was never
