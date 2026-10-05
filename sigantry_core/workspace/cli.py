@@ -198,11 +198,12 @@ def bootstrap_cmd(
     fully-bootstrapped workspace is a no-op (every step reports
     ``already-converged``).
 
-    When a workspace already has top-level folders and none of its folders
-    has a name from the chosen blueprint, bootstrap creates the blueprint's
-    folders beside them and warns: a ``sigantry: warning:`` line on stderr
-    and a ``warnings`` list in the JSON report, in a dry run too. A run
-    without a warning prints no ``warnings`` key.
+    When the chosen blueprint will create folders at the top level of a
+    workspace that already has top-level folders with other names,
+    bootstrap creates them beside those folders and warns: a
+    ``sigantry: warning:`` line on stderr and a ``warnings`` list in the
+    JSON report, in a dry run too. A run without a warning prints no
+    ``warnings`` key.
 
     Exit codes:
       - 0 success (or dry-run reported successfully)

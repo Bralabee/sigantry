@@ -116,9 +116,13 @@ sigantry workspace bootstrap workspace.yml --operator you@example.com
 #         is written (the audit trail records the check itself)
 ```
 
-This is the load-bearing property: bootstrap in CI cannot double-create, cannot
-fight a human who already made the workspace, and documents every convergence check
-it performs.
+This is the load-bearing property: a re-run of the same `workspace.yml` converges
+instead of creating anything twice, does not fight a human who already made the
+workspace, and documents every convergence check it performs. Convergence matches
+folders by name, so it covers the layout you bootstrapped with. A blueprint run on
+a workspace laid out with other folder names (a 1.0.0 layout, or folders made by
+hand) adds the blueprint's folders beside them as a second layout, with the warning
+described at the end of Step 2.
 
 Verify the ledger:
 

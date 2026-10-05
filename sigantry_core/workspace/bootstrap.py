@@ -17,11 +17,12 @@ Design notes:
   (``minimal_starter``: ``00_control`` / ``10_intake`` / ... /
   ``99_retired``) or from an explicit ``folders.list``.
 - sigantry 1.0.1 changed the blueprint folder names, and bootstrap never
-  renames or deletes a folder. When a workspace already has top-level
-  folders and none of the blueprint's names is among its folders, bootstrap
-  still creates the whole layout beside them, but warns first and points at
-  ``folders.list``, which keeps an existing layout. The check compares the
-  workspace only with the blueprint's own names.
+  renames or deletes a folder. When a blueprint run will create any of its
+  folders at the top level of a workspace that already has top-level
+  folders with other names, bootstrap still creates them beside those
+  folders, but warns first and points at ``folders.list``, which keeps an
+  existing layout. The check compares the workspace only with the
+  blueprint's own names.
 - Stage markers (``[DEV]`` / ``[TEST]`` / ``[PREPROD]`` / ``[PROD]`` /
   ``[F] <branch>``) prefix the workspace display name at bootstrap time
   when the operator opts in.
@@ -53,7 +54,7 @@ from __future__ import annotations
 
 import logging
 import os
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -272,43 +273,96 @@ def _log_warning(message: str) -> None:
     logger.warning("%s", message)
 
 
+def _folders_to_create(config: BootstrapConfig, existing: Mapping[str, Folder]) -> list[str]:
+    """Return the desired folder names that the folder step creates, in order.
+
+    ``existing`` maps display name to folder over the workspace's folder
+    listing. A desired name is missing when no listed folder has it; this
+    is the same test :func:`_ensure_folders` applies before it creates a
+    folder, so the dry run and the warning count what a real run creates.
+    """
+    return [name for name in config.folder_list if name not in existing]
+
+
 def _existing_layout_warning(
-    config: BootstrapConfig, existing: Sequence[Folder], *, dry_run: bool
+    config: BootstrapConfig,
+    listed: Sequence[Folder],
+    to_create: Sequence[str],
+    *,
+    dry_run: bool,
 ) -> str | None:
-    """Return a warning when a blueprint would be laid out beside unrelated folders.
+    """Return a warning when a blueprint adds top-level folders beside others.
 
     It fires when all three hold:
 
     - the folders come from ``folders.blueprint``, not ``folders.list``;
-    - no folder in the workspace has any of the blueprint's names, so
-      bootstrap creates the blueprint's whole layout;
-    - the workspace already has at least one top-level folder.
+    - bootstrap creates at least one of the blueprint's folders
+      (``to_create``, from :func:`_folders_to_create`); it creates every
+      folder at the top level of the workspace;
+    - the workspace already has at least one top-level folder whose name is
+      not one of the blueprint's names.
 
     The check compares the workspace only with the blueprint's own names,
     so it holds no folder name from any earlier release. It fires for any
     such workspace, whoever created its folders, which is why it warns and
     never refuses: 1.0.0 allowed a first bootstrap into a workspace that
-    already had folders. The text gives a count and names no folder.
+    already had folders. The text gives counts and names no folder.
     """
-    if config.blueprint is None or not config.folder_list:
+    if config.blueprint is None or not to_create:
         return None
-    present = {folder.display_name for folder in existing}
-    if any(name in present for name in config.folder_list):
+    own = set(config.folder_list)
+    others = sum(
+        1 for folder in listed if folder.parent_folder_id is None and folder.display_name not in own
+    )
+    if others == 0:
         return None
-    top_level = sum(1 for folder in existing if folder.parent_folder_id is None)
-    if top_level == 0:
-        return None
-    count = f"{top_level} top-level folder{'' if top_level == 1 else 's'}"
+    count = f"{others} top-level folder{'' if others == 1 else 's'}"
+    total = len(config.folder_list)
+    share = (
+        f"all {total} of the blueprint's folders"
+        if len(to_create) == total
+        else f"{len(to_create)} of the blueprint's {total} folders"
+    )
     action = "would create" if dry_run else "creates"
     return (
-        f"workspace {config.stage_marked_name!r} already has {count}, and no folder "
-        f"in it has a name from blueprint {config.blueprint!r}, so bootstrap {action} "
-        f"all {len(config.folder_list)} of the blueprint's folders beside them. "
+        f"workspace {config.stage_marked_name!r} already has {count} whose names are "
+        f"not in blueprint {config.blueprint!r}, and bootstrap {action} {share} "
+        "at the top level beside them. "
         "sigantry 1.0.1 changed the folder names of the minimal_starter and "
         "medallion blueprints, and bootstrap never renames or deletes a folder. "
         "To keep the folders an earlier bootstrap created, list their names under "
         f"folders.list in {config.path} instead of naming a blueprint."
     )
+
+
+def _report_warnings(
+    config: BootstrapConfig,
+    listed: Sequence[Folder],
+    to_create: Sequence[str],
+    *,
+    dry_run: bool,
+    on_warning: WarningSink,
+) -> tuple[str, ...]:
+    """Work out the run's warnings, hand each to ``on_warning``, return them.
+
+    The dry run and the real run both call this, before any folder is
+    created. The sink only reports: if it raises (a closed stderr, a
+    failing callback), the error is logged at WARNING level and bootstrap
+    carries on, so the run still finishes its steps and writes its audit
+    record. The warning stays on :attr:`BootstrapResult.warnings`.
+    """
+    message = _existing_layout_warning(config, listed, to_create, dry_run=dry_run)
+    if message is None:
+        return ()
+    try:
+        on_warning(message)
+    except Exception:
+        logger.warning(
+            "bootstrap.warning-sink-failed; bootstrap continues. warning=%s",
+            message,
+            exc_info=True,
+        )
+    return (message,)
 
 
 # ---------------------------------------------------------------------------
@@ -462,27 +516,29 @@ def _ensure_folders(
     client: FabricRestClient,
     workspace: Workspace,
     config: BootstrapConfig,
-    warnings: list[str],
     on_warning: WarningSink,
-) -> tuple[tuple[Folder, ...], list[str], StepOutcome]:
+) -> tuple[tuple[Folder, ...], list[str], StepOutcome, tuple[str, ...]]:
     """Step 3: every desired folder exists. Probe + create missing ones.
 
     Order is preserved per ``BLUEPRINTS`` so the Fabric UI lists folders
     top-to-bottom in pipeline-flow order. Returns the resolved folder
     DTOs (existing + newly-created), the list of names *created* on this
-    run (excludes already-converged ones), and the step outcome. A
-    warning from :func:`_existing_layout_warning` is appended to
-    ``warnings`` and passed to ``on_warning`` before any folder is created.
+    run (excludes already-converged ones), the step outcome, and the
+    warnings from :func:`_report_warnings`, which runs before any folder
+    is created.
     """
     if not config.folder_list:
-        return (), [], "skipped"
+        return (), [], "skipped", ()
 
     listed = list(list_folders(client, workspace.id))
-    message = _existing_layout_warning(config, listed, dry_run=False)
-    if message is not None:
-        warnings.append(message)
-        on_warning(message)
     existing = {f.display_name: f for f in listed}
+    warnings = _report_warnings(
+        config,
+        listed,
+        _folders_to_create(config, existing),
+        dry_run=False,
+        on_warning=on_warning,
+    )
     created_names: list[str] = []
     resolved: list[Folder] = []
 
@@ -503,7 +559,7 @@ def _ensure_folders(
         )
 
     outcome: StepOutcome = "created" if created_names else "already-converged"
-    return tuple(resolved), created_names, outcome
+    return tuple(resolved), created_names, outcome, warnings
 
 
 def _ensure_git(
@@ -586,9 +642,11 @@ def bootstrap_workspace(
         on_warning: Called with each warning's text as soon as it is
             known, before bootstrap acts on what it warns about. Defaults
             to logging the text at WARNING level on the
-            ``sigantry_core.workspace.bootstrap`` logger. Today the only
-            warning is the one for a blueprint laid out beside a
-            workspace's existing folders (see the module docstring).
+            ``sigantry_core.workspace.bootstrap`` logger. If it raises,
+            the error is logged at WARNING level on that logger and the
+            run carries on. Today the only warning is the one for a
+            blueprint that adds top-level folders beside a workspace's
+            other top-level folders (see the module docstring).
 
     Returns:
         :class:`BootstrapResult` with the resolved workspace, folder list,
@@ -612,12 +670,11 @@ def bootstrap_workspace(
 
     try:
         outcomes: dict[str, StepOutcome] = {}
-        warnings: list[str] = []
 
         ws, outcomes["workspace"] = _ensure_workspace(client, config)
         outcomes["capacity"] = _ensure_capacity(client, ws, config)
-        folders, folders_created, outcomes["folders"] = _ensure_folders(
-            client, ws, config, warnings, sink
+        folders, folders_created, outcomes["folders"], warnings = _ensure_folders(
+            client, ws, config, sink
         )
         outcomes["git"] = _ensure_git(client, ws, config)
         outcomes["initialize"] = _ensure_initialized(client, ws, config)
@@ -647,7 +704,7 @@ def bootstrap_workspace(
             record=record,
             step_outcomes=outcomes,
             dry_run=False,
-            warnings=tuple(warnings),
+            warnings=warnings,
         )
     finally:
         if own_client:
@@ -685,14 +742,11 @@ def _dry_run(
             ws = existing
             listed = list(list_folders(client, ws.id))
         existing_folders = {f.display_name: f for f in listed}
+        would_create = _folders_to_create(config, existing_folders)
+        warnings = _report_warnings(
+            config, listed, would_create, dry_run=True, on_warning=on_warning
+        )
 
-        warnings: list[str] = []
-        message = _existing_layout_warning(config, listed, dry_run=True)
-        if message is not None:
-            warnings.append(message)
-            on_warning(message)
-
-        would_create = [name for name in config.folder_list if name not in existing_folders]
         outcomes: dict[str, StepOutcome] = {
             "workspace": "already-converged" if existing else "created",
             "capacity": "already-converged"
@@ -725,7 +779,7 @@ def _dry_run(
             record=record,
             step_outcomes=outcomes,
             dry_run=True,
-            warnings=tuple(warnings),
+            warnings=warnings,
         )
     finally:
         if own_client:

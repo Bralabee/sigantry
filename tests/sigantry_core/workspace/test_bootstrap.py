@@ -10,9 +10,10 @@ Coverage targets:
   every step that found existing state.
 - End-to-end mocked: each of the 5 steps is exercised in the right order.
 - Dry-run: no POSTs fire and no audit-log line is appended.
-- Existing-layout warning: a blueprint laid out beside a workspace's
-  unrelated top-level folders warns (library, stderr, JSON report) and
-  still creates; every other case stays silent.
+- Existing-layout warning: a blueprint that adds top-level folders beside
+  a workspace's other top-level folders warns (library, stderr, JSON
+  report) and still creates; every other case stays silent, and a warning
+  sink that raises never stops the run.
 - CLI: schema error -> exit 2; runtime error -> exit 1.
 """
 
@@ -21,10 +22,10 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from click.testing import Result
 from typer.testing import CliRunner
 
 from sigantry_core.cli import app
@@ -608,7 +609,7 @@ def test_blueprint_beside_unrelated_folders_warns_and_still_creates(
     message = result.warnings[0]
     assert "already has 3 top-level folders" in message  # the child is not counted
     assert "blueprint 'minimal_starter'" in message
-    assert "bootstrap creates all 8 of the blueprint's folders" in message
+    assert "bootstrap creates all 8 of the blueprint's folders at the top level" in message
     assert "sigantry 1.0.1 changed the folder names" in message
     assert f"folders.list in {cfg.path}" in message
     # Name-free: the text names no folder, existing or new.
@@ -660,17 +661,80 @@ def test_warning_reaches_on_warning_before_any_folder_is_created(
     assert _bootstrap_warnings(caplog) == []
 
 
-def test_no_warning_when_a_blueprint_folder_already_exists(
-    tmp_path: Path, stub_client: MagicMock, caplog: pytest.LogCaptureFixture
+@pytest.mark.parametrize("dry_run", [False, True], ids=["real-run", "dry-run"])
+@pytest.mark.parametrize("where", ["nested", "top-level"])
+def test_one_blueprint_name_present_does_not_silence_the_warning(
+    tmp_path: Path,
+    stub_client: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+    where: str,
+    dry_run: bool,
 ) -> None:
-    """One blueprint name among the folders means the layout is already in use."""
+    """A blueprint name already in the workspace, nested or at the top level,
+    is not created again, but the other seven still land at the top level
+    beside the workspace's other top-level folders, so bootstrap warns."""
     cfg = load_and_validate(_write_yaml(tmp_path, _minimal_yaml()))
     caplog.set_level(logging.WARNING, logger=_BOOTSTRAP_LOGGER)
-    listed = _unrelated_layout() + _folders([cfg.folder_list[0]])
+    matched = cfg.folder_list[-1]
+    parent = f"f-{_UNRELATED[0]}" if where == "nested" else None
+    listed = _unrelated_layout() + _folders([matched], parent=parent)
+
+    result, cf = _run_on_existing_workspace(tmp_path, stub_client, cfg, listed, dry_run=dry_run)
+
+    to_create = [name for name in cfg.folder_list if name != matched]
+    if dry_run:
+        cf.assert_not_called()
+    else:
+        assert [c.kwargs["display_name"] for c in cf.call_args_list] == to_create
+        assert {c.kwargs["parent_folder_id"] for c in cf.call_args_list} == {None}
+    assert result.record.folders_created == to_create
+    assert len(result.warnings) == 1
+    message = result.warnings[0]
+    action = "would create" if dry_run else "creates"
+    # Only the three other top-level folders count: not the blueprint's own
+    # name, and not a nested folder.
+    assert (
+        "already has 3 top-level folders whose names are not in blueprint 'minimal_starter'"
+        in message
+    )
+    # The count is the one the folder step creates (or would create).
+    assert f"bootstrap {action} 7 of the blueprint's 8 folders at the top level" in message
+    for name in (*_UNRELATED, _NESTED, *cfg.folder_list):
+        assert name not in message
+    assert _bootstrap_warnings(caplog) == [message]
+
+
+@pytest.mark.parametrize("dry_run", [False, True], ids=["real-run", "dry-run"])
+def test_no_warning_when_the_blueprint_creates_nothing(
+    tmp_path: Path, stub_client: MagicMock, caplog: pytest.LogCaptureFixture, dry_run: bool
+) -> None:
+    """A complete layout plus a hand-made top-level folder: nothing is created."""
+    cfg = load_and_validate(_write_yaml(tmp_path, _minimal_yaml()))
+    caplog.set_level(logging.WARNING, logger=_BOOTSTRAP_LOGGER)
+    listed = _folders(cfg.folder_list) + _folders(["hand-made"])
+
+    result, cf = _run_on_existing_workspace(tmp_path, stub_client, cfg, listed, dry_run=dry_run)
+
+    cf.assert_not_called()
+    assert result.step_outcomes["folders"] == "already-converged"
+    assert result.warnings == ()
+    assert _bootstrap_warnings(caplog) == []
+
+
+def test_no_warning_when_a_partial_layout_has_no_other_top_level_folders(
+    tmp_path: Path, stub_client: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Finishing a half-built blueprint layout is ordinary convergence, even
+    with a hand-made folder nested inside one of its folders."""
+    cfg = load_and_validate(_write_yaml(tmp_path, _minimal_yaml()))
+    caplog.set_level(logging.WARNING, logger=_BOOTSTRAP_LOGGER)
+    listed = _folders(cfg.folder_list[:4]) + _folders(
+        ["hand-made-child"], parent=f"f-{cfg.folder_list[0]}"
+    )
 
     result, cf = _run_on_existing_workspace(tmp_path, stub_client, cfg, listed)
 
-    assert cf.call_count == 7
+    assert cf.call_count == 4
     assert result.warnings == ()
     assert _bootstrap_warnings(caplog) == []
 
@@ -730,6 +794,101 @@ def test_dry_run_reports_the_warning_and_posts_nothing(
     assert not (tmp_path / "bootstraps.jsonl").exists()
 
 
+_BLUEPRINT_WITH_GIT_YAML = f"""
+schema_version: "1.0"
+workspace:
+  name: test-ws
+  capacity_id: "{_VALID_CAPACITY}"
+folders:
+  blueprint: minimal_starter
+git:
+  enabled: true
+  provider: ado
+  organization_name: myorg
+  project_name: myproj
+  repository_name: myrepo
+  branch_name: main
+  directory_name: fabric_items
+  git_connection_id: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+"""
+
+
+@pytest.mark.parametrize("dry_run", [False, True], ids=["real-run", "dry-run"])
+def test_a_raising_warning_sink_never_stops_the_run(
+    tmp_path: Path, stub_client: MagicMock, caplog: pytest.LogCaptureFixture, dry_run: bool
+) -> None:
+    """A sink that raises (a closed stderr, say) is logged, and bootstrap
+    still runs every later step and keeps its record."""
+    cfg = load_and_validate(_write_yaml(tmp_path, _BLUEPRINT_WITH_GIT_YAML))
+    caplog.set_level(logging.WARNING, logger=_BOOTSTRAP_LOGGER)
+    received: list[str] = []
+
+    def broken_pipe(message: str) -> None:
+        received.append(message)
+        raise BrokenPipeError(32, "Broken pipe")
+
+    with (
+        patch(
+            "sigantry_core.workspace.bootstrap.list_workspaces",
+            return_value=iter([_make_workspace("test-ws")]),
+        ),
+        patch(
+            "sigantry_core.workspace.bootstrap.get_workspace",
+            return_value=_make_workspace("test-ws"),
+        ),
+        patch(
+            "sigantry_core.workspace.bootstrap.list_folders",
+            return_value=iter(_unrelated_layout()),
+        ),
+        patch("sigantry_core.workspace.bootstrap.create_folder", side_effect=_new_folder) as cf,
+        patch(
+            "sigantry_core.workspace.bootstrap.connect_or_reconnect", return_value="connected"
+        ) as connect,
+        patch("sigantry_core.workspace.bootstrap.initialize_connection", return_value=None) as init,
+    ):
+        result = bootstrap_workspace(
+            cfg,
+            client=stub_client,
+            operator="op",
+            audit_dir=tmp_path,
+            dry_run=dry_run,
+            on_warning=broken_pipe,
+        )
+
+    assert len(result.warnings) == 1
+    assert received == list(result.warnings)
+    # The sink's failure is logged at WARNING with its traceback and the
+    # warning it could not deliver.
+    failures = [r for r in caplog.records if r.name == _BOOTSTRAP_LOGGER and r.exc_info]
+    assert len(failures) == 1
+    assert failures[0].levelno == logging.WARNING
+    assert failures[0].exc_info is not None
+    assert failures[0].exc_info[0] is BrokenPipeError
+    assert result.warnings[0] in failures[0].getMessage()
+    # Every step after the folders still ran (or, in a dry run, was planned).
+    assert result.step_outcomes == {
+        "workspace": "already-converged",
+        "capacity": "already-converged",
+        "folders": "created",
+        "git": "created",
+        "initialize": "created",
+    }
+    assert result.record.verify_hash()
+    ledger = tmp_path / "bootstraps.jsonl"
+    if dry_run:
+        cf.assert_not_called()
+        connect.assert_not_called()
+        init.assert_not_called()
+        assert not ledger.exists()
+    else:
+        assert cf.call_count == 8
+        connect.assert_called_once()
+        init.assert_called_once()
+        lines = ledger.read_text("utf-8").splitlines()
+        assert len(lines) == 1
+        assert json.loads(lines[0])["audit_hash"] == result.record.audit_hash
+
+
 def test_cli_prints_the_warning_on_stderr_and_in_the_report_only_when_it_fires(
     tmp_path: Path,
 ) -> None:
@@ -739,7 +898,9 @@ def test_cli_prints_the_warning_on_stderr_and_in_the_report_only_when_it_fires(
     client.__enter__ = MagicMock(return_value=client)
     client.__exit__ = MagicMock(return_value=None)
 
-    def invoke(listed: list[Folder], *extra: str) -> tuple[Result, MagicMock]:
+    # ``Any`` rather than click's Result: typer vendors its own click, and
+    # click is not a dependency of this project.
+    def invoke(listed: list[Folder], *extra: str) -> tuple[Any, MagicMock]:
         with (
             patch("sigantry_core.workspace.cli._client_factory", return_value=client),
             patch(
@@ -782,9 +943,9 @@ def test_cli_prints_the_warning_on_stderr_and_in_the_report_only_when_it_fires(
         for name in (*_UNRELATED, _NESTED):
             assert name not in result.stderr
 
-    # A run that does not warn prints exactly what 1.0.0 printed.
+    # A run that does not warn prints no warning line and no ``warnings`` key.
     result, cf = invoke(_folders(cfg.folder_list))
     assert result.exit_code == 0, result.output
     cf.assert_not_called()
-    assert result.stderr == ""
+    assert "sigantry: warning:" not in result.stderr
     assert set(json.loads(result.stdout)) == _REPORT_KEYS_1_0_0

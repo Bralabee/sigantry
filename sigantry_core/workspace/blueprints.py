@@ -30,9 +30,9 @@ from typing import Final
 #: code and retired items last.
 #:
 #: These names replace the ones sigantry 1.0.0 shipped (changed in 1.0.1).
-#: Bootstrap never renames or deletes a folder, so it warns when it would lay
-#: this layout out beside a workspace's existing folders; an operator keeps
-#: an existing layout by listing it under ``folders.list`` (see
+#: Bootstrap never renames or deletes a folder, so it warns when it would add
+#: this layout's folders beside a workspace's other top-level folders; an
+#: operator keeps an existing layout by listing it under ``folders.list`` (see
 #: :mod:`sigantry_core.workspace.bootstrap`).
 _MINIMAL_STARTER: Final[tuple[str, ...]] = (
     "00_control",
