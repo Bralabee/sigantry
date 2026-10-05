@@ -472,6 +472,26 @@ class TestCheckEntraGroupGraphToken:
         assert result["status"] == "missing"
         assert result["classification"] == "missing"
 
+    def test_names_hidden_detail_states_no_count(self, respx_router: respx.MockRouter) -> None:
+        # Unnamed entries that cannot be a group are dropped, so a count of the
+        # ones kept would be smaller than the number Graph returned without a name.
+        respx_router.get(_ME).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "value": [
+                        {"@odata.type": "#microsoft.graph.group", "id": "g1"},
+                        {"@odata.type": "#microsoft.graph.directoryRole", "id": "r1"},
+                        {"@odata.type": "#microsoft.graph.group", "displayName": "sg-other"},
+                    ]
+                },
+            )
+        )
+        result = _check("fake-token")
+        assert result["classification"] == "names_hidden"
+        assert "membership(s) without a name" in result["detail"]
+        assert not any(ch.isdigit() for ch in result["detail"])
+
     def test_follows_next_link_to_a_later_page(self, respx_router: respx.MockRouter) -> None:
         page2 = f"{GRAPH_AUDIENCE}/v1.0/me/memberOf?$skiptoken=abc"
         respx_router.get(page2).mock(

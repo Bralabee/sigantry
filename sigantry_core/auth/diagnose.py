@@ -469,8 +469,8 @@ def check_entra_group(
             "names_hidden",
             expected=expected_group,
             detail=(
-                f"not decided: Microsoft Graph returned {unnamed} membership(s) without "
-                f"a name, so {expected_group} may be one of them. Grant GroupMember.Read.All "
+                "not decided: Microsoft Graph returned membership(s) without a name, "
+                f"so {expected_group} may be one of them. Grant GroupMember.Read.All "
                 "(or Directory.Read.All) to read group names."
             ),
             groups=groups,
