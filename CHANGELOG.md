@@ -321,9 +321,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `sigantry_core.cli:main`, which gives the `sigantry_core.release.ledger`
   and `sigantry_core.governance.audit` loggers a WARNING level and a stderr
   handler, and changes nothing else: other libraries' warnings stay off
-  stderr, and a run whose audit trail is intact prints nothing new. Programs
-  that import the package keep their own logging configuration; they see
-  these records only if they set a level on those loggers themselves.
+  stderr. The same two loggers also record one WARNING when an operation
+  fails: `destructive_op` when a destructive operation raises (its audit
+  record is still written) and `secret_change_failed` when a Key Vault secret
+  set or delete raises. A command whose destructive operation fails therefore
+  prints that one line before its error; the exit code is unchanged. A run
+  whose audit trail is intact and whose operations succeed prints nothing
+  new. Programs that import the package keep their own logging
+  configuration; they see these records only if they set a level on those
+  loggers themselves.
 - **`.github/workflows/drift-check.yml` failed every day.** Its `schedule:`
   trigger ran the workflow with an empty `inputs` context (declared defaults are
   not applied to scheduled runs either), so `sigantry diff` got no workspace and

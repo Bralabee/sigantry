@@ -94,8 +94,10 @@ app.add_typer(preflight_app, name="preflight")
 
 
 #: Loggers whose WARNING records describe the operator's own audit trail:
-#: a ledger line that fails its hash check or cannot be parsed, and an audit
-#: record that could not be written. ``import sigantry_core`` imports
+#: a ledger line that fails its hash check or cannot be parsed, an audit
+#: record that could not be written, and an audited operation that failed
+#: (``destructive_op`` and ``secret_change_failed``, logged before the
+#: operation's own error is raised). ``import sigantry_core`` imports
 #: fabric-cicd, which sets the ROOT logger to ERROR, so without a level of
 #: their own these records are dropped before any handler sees them.
 _INTEGRITY_LOGGERS: tuple[str, ...] = (
@@ -145,7 +147,8 @@ def _install_integrity_log_handler() -> None:
     Scoped to those two loggers on purpose: every other library logger
     (azure, msal, httpx, fabric-cicd, the rest of sigantry_core) keeps the
     configuration it had, so a run that printed nothing to stderr before
-    still prints nothing unless the audit trail itself has a problem.
+    still prints nothing unless the audit trail itself has a problem or an
+    audited operation fails.
     Records still propagate, so a host's own handlers see them as before.
     Idempotent.
     """

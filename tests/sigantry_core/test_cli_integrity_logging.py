@@ -163,6 +163,66 @@ def test_audit_write_failure_reaches_stderr_and_nothing_else_does(tmp_path: Path
     ]
 
 
+_FAILED_OPERATIONS_SCRIPT = textwrap.dedent(
+    """
+    import os
+    import pathlib
+    from unittest import mock
+
+    import sigantry_core.cli as cli
+    from sigantry_core.governance.destructive import destructive_op
+    from sigantry_core.secrets.key_vault import KeyVaultSecretStore
+
+    cli._install_integrity_log_handler()
+
+    @destructive_op("workspace", "delete")
+    def delete_ok(*, force=False, resource_id=None, principal=None):
+        return "deleted"
+
+    @destructive_op("workspace", "delete")
+    def delete_fails(*, force=False, resource_id=None, principal=None):
+        raise RuntimeError("service said no")
+
+    # A destructive operation that succeeds and is recorded prints nothing.
+    print(delete_ok(force=True, resource_id="ws-1", principal="tester"), flush=True)
+    print("after-success", flush=True)
+    try:
+        delete_fails(force=True, resource_id="ws-2", principal="tester")
+    except RuntimeError:
+        print("delete-raised", flush=True)
+
+    store = KeyVaultSecretStore(
+        vault_url="https://vault.example.invalid/", credential=mock.MagicMock()
+    )
+    with mock.patch.object(store._client, "set_secret", side_effect=RuntimeError("no")):
+        try:
+            store.set("k", "v")
+        except RuntimeError:
+            print("secret-set-raised", flush=True)
+
+    audit = pathlib.Path(os.environ["HOME"]) / ".sigantry" / "audit" / "destructive_ops.jsonl"
+    print("destructive-records", len(audit.read_text(encoding="utf-8").splitlines()))
+    """
+)
+
+
+def test_failed_audited_operations_print_one_line_each(tmp_path: Path) -> None:
+    """A failed audited operation prints its one WARNING line; a success prints none."""
+    result = _run(["-c", _FAILED_OPERATIONS_SCRIPT], cwd=tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == [
+        "deleted",
+        "after-success",
+        "delete-raised",
+        "secret-set-raised",
+        "destructive-records 2",
+    ]
+    assert result.stderr.strip().splitlines() == [
+        "WARNING sigantry_core.governance.audit: destructive_op",
+        "WARNING sigantry_core.governance.audit: secret_change_failed",
+    ]
+
+
 def test_importing_the_cli_changes_no_logging_configuration(tmp_path: Path) -> None:
     """Library hosts that import the package keep their own configuration."""
     script = textwrap.dedent(
