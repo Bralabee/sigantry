@@ -112,9 +112,9 @@ class FabricDataOps:
     ) -> FabricDataOps:
         """Build a ``FabricDataOps`` from ``.sigantry.toml`` + registry.
 
-        ``path`` defaults to ``None``, which resolves ``.sigantry.toml`` from
-        the working directory, falling back to the legacy
-        ``.fabric-dataops.toml`` with a ``DeprecationWarning`` (ADR-0011).
+        ``path`` defaults to ``None``, which resolves the config file from the
+        working directory as :func:`sigantry_core.config.load_settings` does:
+        ``.sigantry.toml``, or the legacy file with a warning (ADR-0011).
 
         Steps:
 

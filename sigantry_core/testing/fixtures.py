@@ -31,12 +31,18 @@ Three kinds of fixtures are exposed:
 from __future__ import annotations
 
 import tomllib
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from sigantry_core.config import (
+    _FIXTURE_FILES_ENV,
+    _LEGACY_CONFIG_FILENAME,
+    _exempt_fixture_file,
+    _release_fixture_file,
+)
 from sigantry_core.protocols import (
     AuthProvider,
     CapacityAction,
@@ -131,8 +137,22 @@ def fdt_fake_work_item_provider() -> FakeWorkItemProvider:
 
 
 @pytest.fixture
-def fdt_settings_toml(tmp_path: Path) -> Callable[..., Path]:
-    """Factory fixture: write a ``.fabric-dataops.toml`` at ``tmp_path``.
+def fdt_settings_toml(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[Callable[..., Path]]:
+    """Factory fixture: write the legacy config file at ``tmp_path``.
+
+    It writes that one file and returns its path, as it did in 1.0.0, and
+    nothing else is written beside it. The loader reads this file, while the
+    test runs, the way it reads any legacy file but without a warning: a test
+    that changes into ``tmp_path`` and loads settings with no path gets no
+    ``DeprecationWarning`` for the legacy name, and no ``UserWarning`` if the
+    test also writes a ``.sigantry.toml`` there, which 1.0.0 did not read
+    either. Either warning would fail a suite run with warnings as errors
+    that passed on 1.0.0. A process the test starts, such as a script run
+    with ``subprocess``, inherits the exemption through a private
+    environment variable the fixture sets for the test. The exemption covers
+    this file's path only, and ends with the test.
 
     Usage::
 
@@ -143,6 +163,7 @@ def fdt_settings_toml(tmp_path: Path) -> Callable[..., Path]:
             )
             # cfg is a Path to the written file.
     """
+    written: list[Path] = []
 
     def _write(**sections: dict[str, Any]) -> Path:
         core = dict(sections.pop("core", {"tenant_id": "test-tenant"}))
@@ -165,13 +186,17 @@ def fdt_settings_toml(tmp_path: Path) -> Callable[..., Path]:
                     for sub_k, sub_v in v.items():
                         lines.append(f'{sub_k} = "{sub_v}"')
 
-        path = tmp_path / ".fabric-dataops.toml"
+        path = tmp_path / _LEGACY_CONFIG_FILENAME
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        monkeypatch.setenv(_FIXTURE_FILES_ENV, _exempt_fixture_file(path))
+        written.append(path)
         # Round-trip validates the produced TOML parses cleanly.
         tomllib.loads(path.read_text(encoding="utf-8"))
         return path
 
-    return _write
+    yield _write
+    for path in written:
+        _release_fixture_file(path)
 
 
 # ---------------------------------------------------------------------------

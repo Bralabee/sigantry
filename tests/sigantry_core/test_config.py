@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import tomllib
-import warnings
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
 from sigantry_core.config import (
+    _CONFIG_FILENAME,
     ReleaseSettings,
     ToolkitSettings,
     WorkflowSettings,
@@ -51,6 +51,20 @@ def _write_sample(tmp_path: Path, body: str = SAMPLE_TOML) -> Path:
     p = tmp_path / ".fabric-dataops.toml"
     p.write_text(body, encoding="utf-8")
     return p
+
+
+def _write_new_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str = SAMPLE_TOML
+) -> None:
+    """Write ``.sigantry.toml`` and make it the file a no-path load finds.
+
+    It is the one config file a ``SIGANTRY_`` variable overrides: sigantry
+    1.0.0 never read it. Over the legacy file or an explicit path, which
+    1.0.0 read, a ``SIGANTRY_`` value only fills what the file leaves unset
+    (``test_compat_1_0_0.py``).
+    """
+    (tmp_path / _CONFIG_FILENAME).write_text(body, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
 
 
 def test_load_settings_from_toml(tmp_path: Path) -> None:
@@ -366,21 +380,6 @@ def test_default_path_falls_back_to_legacy_filename_with_deprecation(
     assert settings.core.tenant_id == "from-legacy-name"
 
 
-def test_new_filename_wins_over_legacy_and_does_not_warn(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """With both files present the new name wins and no deprecation fires."""
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / ".sigantry.toml").write_text('[core]\ntenant_id = "new"\n', encoding="utf-8")
-    (tmp_path / ".fabric-dataops.toml").write_text(
-        '[core]\ntenant_id = "legacy"\n', encoding="utf-8"
-    )
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", DeprecationWarning)
-        settings = load_settings()
-    assert settings.core.tenant_id == "new"
-
-
 def test_default_path_with_no_config_file_is_not_an_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -404,9 +403,9 @@ def test_sigantry_env_prefix_overrides_toml(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """``SIGANTRY_CORE__TENANT_ID`` is the new env-override surface."""
-    path = _write_sample(tmp_path)
+    _write_new_default(tmp_path, monkeypatch)
     monkeypatch.setenv("SIGANTRY_CORE__TENANT_ID", "from-sigantry-env")
-    assert load_settings(path).core.tenant_id == "from-sigantry-env"
+    assert load_settings().core.tenant_id == "from-sigantry-env"
 
 
 def test_legacy_env_prefix_still_works_but_deprecates(
@@ -418,18 +417,6 @@ def test_legacy_env_prefix_still_works_but_deprecates(
     with pytest.deprecated_call(match="FDT_CORE__TENANT_ID"):
         settings = load_settings(path)
     assert settings.core.tenant_id == "from-legacy-env"
-
-
-def test_sigantry_env_prefix_wins_over_legacy_prefix(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Both prefixes set for one setting: the new prefix is authoritative."""
-    path = _write_sample(tmp_path)
-    monkeypatch.setenv("FDT_CORE__TENANT_ID", "legacy-value")
-    monkeypatch.setenv("SIGANTRY_CORE__TENANT_ID", "new-value")
-    with pytest.deprecated_call():
-        settings = load_settings(path)
-    assert settings.core.tenant_id == "new-value"
 
 
 def test_unrelated_sigantry_env_vars_are_not_swept_into_settings(
@@ -444,13 +431,13 @@ def test_unrelated_sigantry_env_vars_are_not_swept_into_settings(
     what stops this test passing vacuously: a sweep that merged *nothing*
     would satisfy the negative assertions on its own.
     """
-    path = _write_sample(tmp_path)
+    _write_new_default(tmp_path, monkeypatch)
     monkeypatch.setenv("SIGANTRY_SMTP_PASSWORD", "hunter2-SECRET")
     monkeypatch.setenv("SIGANTRY_GITHUB_TEST_PAT", "ghp_SECRET")
     monkeypatch.setenv("SIGANTRY_FABRIC_TOKEN", "bearer-SECRET")
     monkeypatch.setenv("SIGANTRY_CORE__TENANT_ID", "legitimate-tenant")
 
-    settings = load_settings(path)
+    settings = load_settings()
     dumped = settings.model_dump()
 
     leaked = {k: v for k, v in dumped.items() if isinstance(v, str) and "SECRET" in v}
@@ -496,12 +483,13 @@ def test_unprefixed_env_vars_do_not_bind_to_settings(
     was measured: with ``SAMPLE_TOML``, reverting the sub-models to
     ``BaseSettings`` left this test green.
     """
-    path = _write_sample(tmp_path, "[core]\ntenant_id = 'from-toml'\n")
+    _write_new_default(tmp_path, monkeypatch, "[core]\ntenant_id = 'from-toml'\n")
     for bare in ("TENANT_ID", "PROVIDER", "REGISTRY", "SINK", "PROFILE", "GATE"):
         monkeypatch.setenv(bare, f"LEAKED-from-bare-{bare}")
     monkeypatch.setenv("SIGANTRY_CORE__TENANT_ID", "legitimate-tenant")
 
-    settings = load_settings(path)
+    with pytest.warns(FutureWarning, match="no longer read as settings"):
+        settings = load_settings()
 
     leaked = [
         f"{section}.{field}"
@@ -571,10 +559,10 @@ def test_auth_expected_group_reads_toml_then_env(
     """``[auth] expected_group`` loads from TOML; the ``SIGANTRY_`` env var wins."""
     monkeypatch.delenv("SIGANTRY_AUTH__EXPECTED_GROUP", raising=False)
     monkeypatch.delenv("FDT_AUTH__EXPECTED_GROUP", raising=False)
-    path = _write_sample(tmp_path, "[auth]\nexpected_group = 'from-toml'\n")
-    assert load_settings(path).auth.expected_group == "from-toml"
+    _write_new_default(tmp_path, monkeypatch, "[auth]\nexpected_group = 'from-toml'\n")
+    assert load_settings().auth.expected_group == "from-toml"
     monkeypatch.setenv("SIGANTRY_AUTH__EXPECTED_GROUP", "from-env")
-    assert load_settings(path).auth.expected_group == "from-env"
+    assert load_settings().auth.expected_group == "from-env"
 
 
 def test_auth_expected_group_defaults_to_none(
