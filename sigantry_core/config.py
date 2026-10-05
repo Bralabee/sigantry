@@ -21,11 +21,12 @@ Legacy surface, honoured for one more minor release with a
 - the config filename ``.fabric-dataops.toml``;
 - the env prefix ``FDT_``.
 
-Through 1.0.x, every input sigantry 1.0.0 read keeps the result it had there.
-The inputs 1.0.0 read are resolved the way 1.0.0 resolved them (see
-:func:`_result_1_0_0`), and the new surfaces, ``.sigantry.toml`` and
-``SIGANTRY_`` variables, then fill only the settings that result leaves
-unset:
+The inputs sigantry 1.0.0 read are resolved first, by steps modelled on the
+ones 1.0.0 took (see :func:`_result_1_0_0`), and the new surfaces,
+``.sigantry.toml`` and ``SIGANTRY_`` variables, then fill only the settings
+that result leaves unset. The result is validated against this release's
+models; CHANGELOG.md, under "Upgrading from 1.0.0", describes ways it differs
+from 1.0.0's. In outline:
 
 - when ``.sigantry.toml`` and the legacy file both exist and differ, the
   legacy file is read, with a ``UserWarning``;
@@ -89,10 +90,10 @@ class _DefaultEnvPrefix(str):
     pydantic-settings hands the env source one prefix: the call's
     ``_env_prefix``, or else the ``env_prefix`` of the model's
     ``model_config``, which a subclass inherits unless it declares its own.
-    sigantry 1.0.0 read the names under a prefix chosen either way,
-    ``SIGANTRY_`` included, and no others. So a prefix is the default only
-    when it is this object; a string passed or declared never is, whatever
-    its value.
+    A non-empty prefix chosen either way, ``SIGANTRY_`` included, replaces
+    the default prefixes (see :class:`_FilteredEnvSource`), as such a prefix
+    replaced ``FDT_`` in 1.0.0. So a prefix is the default only when it is
+    this object; a string passed or declared never is, whatever its value.
     """
 
     __slots__ = ()
@@ -377,12 +378,14 @@ class _FilteredEnvSource(PydanticBaseSettingsSource):
 
     In 1.0.0 the constructor read ``FDT_`` variables itself, and honoured
     ``_env_file``, ``_secrets_dir``, ``_env_prefix`` and the ``env_prefix`` a
-    subclass declares. This keeps all of
-    that: the values passed to the constructor and the inputs 1.0.0 read are
-    resolved the way 1.0.0 resolved them (:func:`_result_1_0_0`), and the
-    ``SIGANTRY_`` variables then fill what that leaves unset. Every input is
-    read through a filter, so no unprefixed name and no section this model
-    does not declare is read.
+    subclass declares. This reads those inputs again: the values passed to
+    the constructor and the names under the ``FDT_`` prefix, or under the
+    caller's own, are resolved by :func:`_result_1_0_0`, and the
+    ``SIGANTRY_`` variables then fill what that leaves unset. CHANGELOG.md,
+    under "Upgrading from 1.0.0", describes ways the result differs from
+    1.0.0's. The environment, the env file and the secrets directory are read
+    through a filter, so no unprefixed name and no section this model does
+    not declare is read from them.
 
     It returns the constructor values too, and pydantic-settings' own init
     source is left out (see ``settings_customise_sources``): merged a second
@@ -424,11 +427,21 @@ class _FilteredEnvSource(PydanticBaseSettingsSource):
         report = _EnvReport()
         prefix = self._env_prefix
         if prefix == "":
-            report.empty_prefix = True
+            # pydantic-settings takes the call's ``_env_prefix``, or else the
+            # ``env_prefix`` in ``model_config``: when that one is not empty,
+            # the empty prefix was passed. When it is empty, the call may have
+            # passed "" too, which this source cannot tell, and the warning
+            # names ``model_config``.
+            name = self.settings_cls.__name__
+            if self.settings_cls.model_config.get("env_prefix") == "":
+                report.empty_prefix = f'env_prefix="" in the model_config of {name}'
+            else:
+                report.empty_prefix = f'{name}(_env_prefix="")'
             prefix = None
-        # A prefix the caller passed, or a subclass declared, is read as
-        # 1.0.0 read it, whatever its value, ``SIGANTRY_`` included; only
-        # the one ``ToolkitSettings`` declares is the default.
+        # A non-empty prefix the caller passed, or a subclass declared,
+        # replaces the default prefixes, whatever its value, ``SIGANTRY_``
+        # included, as it replaced ``FDT_`` in 1.0.0; only the one
+        # ``ToolkitSettings`` declares is the default.
         custom = prefix is not None and not isinstance(prefix, _DefaultEnvPrefix)
         old_prefix = prefix if custom and prefix else _LEGACY_ENV_PREFIX
         dotenv = {k: v for k, v in self._dotenv_vars.items() if v is not None}
@@ -445,7 +458,8 @@ class _FilteredEnvSource(PydanticBaseSettingsSource):
         )
         new: list[list[_Override]] = []
         if not custom:
-            # SIGANTRY_ was never read under a prefix of the caller's choosing.
+            # Under a prefix of the caller's choosing, the default SIGANTRY_
+            # names are not read: only the names under that prefix, above.
             secrets = _read_secrets_dir(self._secrets_dir)
             new = [
                 _collect_overrides(os.environ, _ENV_PREFIX, exact=True, report=report),
@@ -708,7 +722,7 @@ def _same_bytes(first: Path, second: Path) -> bool:
 #: variable of the same name, in any letter case: its section models were
 #: ``BaseSettings`` with no prefix. Used only to name such a variable in a
 #: warning; none of them binds any more. Fields added after 1.0.0
-#: (``auth.expected_group``) are not listed, because 1.0.0 never read them.
+#: (``auth.expected_group``) are not listed: 1.0.0 had no such field to bind.
 _BARE_NAMES_1_0_0: dict[str, tuple[tuple[str, str], ...]] = {
     "tenant_id": (("core", "tenant_id"),),
     "provider": (("auth", "provider"), ("release", "provider")),
@@ -746,12 +760,13 @@ class _EnvReport:
         self.case: list[str] = []
         self.shadowed: list[str] = []
         self.bare: list[tuple[str, list[str]]] = []
-        self.empty_prefix = False
+        #: Where an empty env prefix came from, as the warning names it.
+        self.empty_prefix: str | None = None
 
     def emit(self) -> None:
-        if self.empty_prefix:
+        if self.empty_prefix is not None:
             _warn(
-                'ToolkitSettings(_env_prefix="") is not honoured: an empty prefix '
+                f"{self.empty_prefix} is not honoured: an empty prefix "
                 "would read unprefixed environment variables, so the "
                 f"{_ENV_PREFIX} and {_LEGACY_ENV_PREFIX} variables are read instead. "
                 f"Use load_settings() with {_ENV_PREFIX} variables.",
@@ -868,14 +883,15 @@ class _NotATable:
         self.names = list(names)
 
 
-# -- The inputs sigantry 1.0.0 read, resolved as 1.0.0 resolved them ----------
+# -- The inputs sigantry 1.0.0 read, resolved by steps modelled on 1.0.0's ----
 #
 # 1.0.0's load_settings() wrote its own FDT_ pass over the parsed file and
 # passed the result to ToolkitSettings, whose pydantic-settings sources (2.15,
 # case-insensitive) then did the rest. The functions below repeat those steps
-# on the same inputs, so every result 1.0.0 produced comes out the same. They
-# leave out only what made 1.0.0 fail or write junk keys, and unprefixed names
-# (see _bare_names_1_0_0_would_read).
+# on the same inputs. They leave out what made 1.0.0 fail or write junk keys,
+# and unprefixed names (see _bare_names_1_0_0_would_read). What they return is
+# validated against this release's models, so the result can still differ
+# from 1.0.0's; CHANGELOG.md, under "Upgrading from 1.0.0", describes how.
 
 
 def _deep_update(lower: Mapping[str, Any], higher: Mapping[str, Any]) -> dict[str, Any]:
@@ -1116,8 +1132,8 @@ def _secrets_source_1_0_0(secrets_dir: Any, prefix: str, report: _EnvReport) -> 
 def _result_1_0_0(
     given: Mapping[str, Any], sources: Iterable[Mapping[str, Any]], report: _EnvReport
 ) -> dict[str, Any]:
-    """The values 1.0.0 gave ``ToolkitSettings``, from what it was given and its
-    env sources (highest rank first).
+    """What ``ToolkitSettings`` was given, merged with its env sources (highest
+    rank first) in the order 1.0.0 merged them.
 
     The given values' section names are matched first, as pydantic-settings
     matched the constructor's arguments; the sources are merged below them;
@@ -1275,12 +1291,13 @@ def _fill_new_surfaces(
     *,
     given: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """``old``, the 1.0.0 result, filled from the surfaces 1.0.0 did not read.
+    """``old``, from :func:`_result_1_0_0`, filled from the surfaces 1.0.0 did
+    not read.
 
     ``new_file`` is a ``.sigantry.toml`` 1.0.0 would not have opened, and
     ``new_vars`` the ``SIGANTRY_`` overrides from each input, highest rank
-    first; a variable outranks the file. Together they only add settings
-    ``old`` leaves unset, so no input 1.0.0 read changes its value. A
+    first; a variable outranks the file. Together they only add keys ``old``
+    leaves unset, and change no value ``old`` holds. A
     ``SIGANTRY_`` variable whose value a different legacy value keeps out is
     named in ``report``; one outranked by a value passed to the constructor
     (``given``) is not, since that is not a legacy setting.
@@ -1359,14 +1376,16 @@ def _apply_env_overrides(
     pydantic-settings v2.1 does not have ``TomlConfigSettingsSource`` (added in
     2.2). We emulate env-layer precedence by walking ``os.environ`` ourselves.
 
-    Every input sigantry 1.0.0 read outranks the ones it did not, so no upgrade
-    changes a value 1.0.0 set. The inputs 1.0.0 read -- the file when
-    ``file_read_by_1_0_0`` (an explicit path, or the legacy file), and ``FDT_``
-    variables in any letter case -- are resolved exactly as 1.0.0 resolved
-    them (:func:`_legacy_pass_1_0_0`, :func:`_env_source_1_0_0`,
-    :func:`_result_1_0_0`). In outline: ``FDT_<SECTION>__<KEY>`` spelled with
-    an exact ``FDT_`` wins; then the file; then ``FDT_`` names in another letter
-    case and ``FDT_<SECTION>`` holding a JSON object, which pydantic-settings
+    A value from an input sigantry 1.0.0 read outranks one from an input it
+    did not. The inputs 1.0.0 read -- the file when ``file_read_by_1_0_0`` (an
+    explicit path, or the legacy file), and ``FDT_`` variables in any letter
+    case -- are resolved by steps modelled on 1.0.0's
+    (:func:`_legacy_pass_1_0_0`, :func:`_env_source_1_0_0`,
+    :func:`_result_1_0_0`); CHANGELOG.md, under "Upgrading from 1.0.0",
+    describes ways the result differs from 1.0.0's. In outline:
+    ``FDT_<SECTION>__<KEY>`` spelled with an exact ``FDT_`` wins; then the
+    file; then ``FDT_`` names in another letter case and ``FDT_<SECTION>``
+    holding a JSON object, which pydantic-settings
     read below the file -- but above a file key spelled in another case. The
     surfaces 1.0.0 did not read then fill what that leaves unset:
     ``SIGANTRY_<SECTION>__<KEY>``, over ``.sigantry.toml`` when that is the

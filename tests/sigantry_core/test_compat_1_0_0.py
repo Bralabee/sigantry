@@ -1,4 +1,5 @@
-"""Settings inputs sigantry 1.0.0 read keep the result they had there (1.0.1).
+"""Settings sigantry 1.0.0 read keep the value they had there (1.0.1), except
+for the changes CHANGELOG.md lists under "Upgrading from 1.0.0".
 
 Each test pins one 1.0.0 result for an input 1.0.0 read, or a guard that
 keeps a later fix in place while that result comes back. The config file
@@ -897,15 +898,35 @@ def test_direct_construction_custom_prefix_cannot_reach_unknown_sections(
     assert "SECRET" not in repr(settings.model_dump())
 
 
-def test_direct_construction_refuses_an_empty_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
-    """An empty prefix would read unprefixed names, so the default ones are read."""
+def _declaring_empty_below() -> type[ToolkitSettings]:
+    class Below(_declaring("")):  # type: ignore[misc]
+        pass
+
+    return Below
+
+
+@pytest.mark.parametrize(
+    ("make", "kwargs", "source"),
+    [
+        (lambda: ToolkitSettings, {"_env_prefix": ""}, 'ToolkitSettings(_env_prefix="")'),
+        (lambda: _declaring(""), {}, 'env_prefix="" in the model_config of Declaring'),
+        (_declaring_empty_below, {}, 'env_prefix="" in the model_config of Below'),
+        (lambda: _declaring("MY_"), {"_env_prefix": ""}, 'Declaring(_env_prefix="")'),
+    ],
+    ids=["passed", "declared", "declared-above", "passed-over-declared"],
+)
+def test_direct_construction_refuses_an_empty_prefix(
+    make: Any, kwargs: dict[str, Any], source: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An empty prefix would read unprefixed names, so the default ones are
+    read; the warning names the model_config that holds it, or else the call."""
     monkeypatch.setenv("TENANT_ID", "bare")
     monkeypatch.setenv("SIGANTRY_AUTH__PROVIDER", "sig")
 
-    settings, caught = _construct(_env_prefix="")
+    settings, caught = _build(make(), **kwargs)
 
     assert (settings.core.tenant_id, settings.auth.provider) == (None, "sig")
-    assert any("_env_prefix" in m for m in _messages(caught, UserWarning))
+    assert [m.split(" is not honoured:")[0] for m in _messages(caught, UserWarning)] == [source]
 
 
 def test_direct_construction_reads_exact_case_dict_field_json(

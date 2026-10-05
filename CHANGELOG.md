@@ -10,23 +10,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Upgrading from 1.0.0
-- **Settings that 1.0.0 read keep their 1.0.0 values.** Where this release
-  reads a settings input differently from 1.0.0, it keeps the 1.0.0 value,
-  with a warning wherever that input is deprecated or outranks a newer one.
-  There are two exceptions: `.sigantry.toml` and `SIGANTRY_` variables,
-  which 1.0.0 ignored, now take effect wherever no input 1.0.0 read sets the
-  same setting; and unprefixed variables stay unread (see Security).
+- **The bullets below describe ways this release differs from 1.0.0** when
+  it reads settings or bootstraps a workspace, one subject each: Config
+  file; Env prefix; Invalid values in the new inputs; Settings keys;
+  `ToolkitSettings()` built directly; `auth.expected_group`; Unprefixed
+  variables (and see Security); Settings classes; Warnings as errors;
+  pytest plugin; Workspace bootstrap.
 - **Config file.** `.sigantry.toml` is now read. When it and the legacy config
   file both exist and differ, the legacy file is still the one read, as in
   1.0.0, with a `UserWarning`; two identical files are read without one. A
   `.sigantry.toml` that 1.0.0 ignored because it was the only file present now
   takes effect.
 - **Env prefix.** `SIGANTRY_<SECTION>__<KEY>` is now read. `FDT_` is still
-  read, with a `DeprecationWarning`, and through 1.0.x every `FDT_` form 1.0.0
-  read gives the value it gave there, so it outranks `SIGANTRY_` for the same
-  setting. A `SIGANTRY_` value overrides `.sigantry.toml`, but over the legacy
-  config file, or a file passed by path, it only fills what the file leaves
-  unset, because 1.0.0 read those files and ignored `SIGANTRY_`; in a table
+  read, with a `DeprecationWarning`, and through 1.0.x it outranks
+  `SIGANTRY_` for the same setting. A `SIGANTRY_` value overrides
+  `.sigantry.toml`, but over the legacy config file, or a file passed by
+  path, it only fills what the file leaves unset, because 1.0.0 read those
+  files and ignored `SIGANTRY_`; in a table
   such as `[release.ado]` it fills the keys the table leaves unset. A
   `UserWarning` names each `SIGANTRY_` variable that a different legacy value
   overrides; equal values are silent. `FDT_` names in another letter case
@@ -48,26 +48,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   section is not a settings section (`FDT_MYPLUG__KEY`) as a top-level extra,
   and it now reads `FDT_<SECTION>` holding a JSON object, a spelling 1.0.0's
   `load_settings()` failed on.
+- **Invalid values in the new inputs.** A value from a `.sigantry.toml`
+  found without its path, or from a `SIGANTRY_` variable read without a
+  prefix the caller passed or declared, is validated like any other
+  wherever it takes effect, so an invalid one, such as an empty
+  `SIGANTRY_WORKFLOW__PREVIEW_APIS_ACKNOWLEDGED` or
+  `preview_apis_acknowledged = "maybe"` under `[workflow]`, now raises
+  `ValidationError`, from `load_settings()` and, for a variable, from
+  `ToolkitSettings()` built directly. 1.0.0 read neither that file nor such
+  a variable as settings. Where an input 1.0.0 read outranks a `SIGANTRY_`
+  value in the same load, that value is ignored and does not fail the load.
 - **Settings keys.** A key written in another letter case, such as `TENANT_ID`
-  under `[core]`, sets its field again, as it did on 1.0.0 with
-  pydantic-settings 2.15, with a `DeprecationWarning`, and so does a section
-  name such as `[CORE]`. Where one is spelled more than once, the first
-  spelling wins, as in 1.0.0. Keys that name no field keep their spelling.
+  under `[core]`, sets its field, with a `DeprecationWarning`, and so does a
+  section name such as `[CORE]`. 1.0.0, with pydantic-settings 2.15, set its
+  own fields from such keys too, without a warning; `auth.expected_group`,
+  which it did not have, is described below. Where one is spelled more than
+  once, the first spelling wins, as in 1.0.0. Keys that name no field keep
+  their spelling.
 - **`ToolkitSettings()` built directly** reads settings variables again:
-  `FDT_` ones from the environment, `_env_file` and `_secrets_dir`, with the
-  result 1.0.0 gave, and `SIGANTRY_` ones from the same three inputs, which
-  only fill what those leave unset. Given a non-empty prefix of its own,
-  passed as `_env_prefix` or declared as `env_prefix` in the `model_config`
-  of a subclass, or of a class between it and `ToolkitSettings`, `SIGANTRY_`
-  in any letter case included, it reads the names under that prefix instead
-  (a passed one over a declared one), with the result 1.0.0 gave, and no
-  others. Only names whose section is a
-  settings section are read, in the forms 1.0.0 read
+  `FDT_` ones from the environment, `_env_file` and `_secrets_dir`, ranked
+  in that order as in 1.0.0, and `SIGANTRY_` ones from the same three
+  inputs, which only fill what those leave unset. Given a non-empty prefix
+  of its own, passed as `_env_prefix` or declared as `env_prefix` in the
+  `model_config` of a subclass, or of a class between it and
+  `ToolkitSettings`, `SIGANTRY_` in any letter case included, it reads the
+  names under that prefix instead (a passed one over a declared one), as
+  1.0.0 read them in place of `FDT_` names, and no others. Only names whose
+  section is a settings section are read, in the forms 1.0.0 read
   (`<PREFIX><SECTION>__<KEY>`, and `<PREFIX><SECTION>` holding a JSON object)
-  and as `SIGANTRY_<SECTION>__<KEY>`. Values passed to
+  and as `SIGANTRY_<SECTION>__<KEY>`. A name in `_env_file` that sets no
+  settings field is not kept, where 1.0.0 kept names such as
+  `FDT_MYPLUG__K=v` and an unprefixed `OTHER=o` as top-level extras
+  (`fdt_myplug__k`, `other`) and `model_dump()` rendered them. Values passed to
   the constructor outrank them all. An empty prefix, passed or declared, is
-  refused with a `UserWarning`, because it would read unprefixed names, and
-  the default prefixes are read instead.
+  refused with a `UserWarning` that names it, because it would read
+  unprefixed names, and the default prefixes are read instead; under an
+  empty prefix 1.0.0 set no field from an `FDT_` name.
+- **`auth.expected_group`** is a new field, typed `str | None`, which
+  `diagnose-auth` now reads (see Changed). 1.0.0 had no such field: it kept
+  an `expected_group` key under `[auth]` as an extra, whatever its value,
+  and its `diagnose-auth` loaded no settings. A value that is neither a
+  string nor null, such as `expected_group = 5` or `expected_group = true`,
+  now fails validation where it takes effect, and `load_settings()` or
+  `ToolkitSettings()` raises `ValidationError` where 1.0.0 kept the value as
+  an extra and set the other settings. Measured against 1.0.0 for a key in
+  the legacy config file or in a file passed by path, a value passed to
+  `ToolkitSettings()`, and `FDT_AUTH` holding a JSON object in the
+  environment, an `_env_file` or a `_secrets_dir` given to
+  `ToolkitSettings()` built directly; `load_settings()` on 1.0.0 failed on
+  `FDT_AUTH={"expected_group": 5}` as well. A key in a config file spelled in
+  another letter case, such as `Expected_Group`, now sets the field, with
+  the `DeprecationWarning` described under Settings keys, where 1.0.0 kept
+  it as an extra under that spelling, so a value there that is not a string
+  fails the same way.
 - **Unprefixed variables stay unread** (see Security). A `FutureWarning` names
   each one that 1.0.0 would have read, where nothing else sets the field, with
   its `SIGANTRY_<SECTION>__<KEY>` replacement: `TENANT_ID`, `PROVIDER`, `SINK`,
@@ -204,11 +237,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Config surface renamed to match the product (ADR-0011).** `load_settings()` and
   `FabricDataOps.from_config()` now resolve `.sigantry.toml` by default, and
-  settings env overrides use the `SIGANTRY_<SECTION>__<KEY>` prefix. Before
-  this, the documented `.sigantry.toml` filename was read by nothing: an
-  operator who followed the migration guide got a config file that was
-  silently ignored and a run on all defaults. Inputs 1.0.0 read keep their
-  1.0.0 result through 1.0.x; see Upgrading from 1.0.0.
+  settings env overrides use the `SIGANTRY_<SECTION>__<KEY>` prefix. 1.0.0
+  read the documented `.sigantry.toml` filename only when given its path:
+  an operator who followed the migration guide and relied on the default
+  lookup got a config file that was silently ignored, and a run without the
+  settings in it. Upgrading from 1.0.0 describes ways settings are now read
+  differently from 1.0.0.
 - The workflows' action pins move to `actions/checkout` v7.0.1,
   `actions/setup-python` v7.0.0 and `actions/setup-node` v7.0.0, still pinned
   by commit SHA: 28 pins in 7 workflows, moved together because the pin test
