@@ -82,9 +82,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Tutorial 07 therefore records each release with
   `sigantry release record --fabric-items` and rolls back from a copy of
   the first release's source; the tutorial says these steps have not been
-  run against a tenant. The front page, the user guide and the tutorials
-  index no longer say every tutorial step was verified against a live
-  tenant (the index gave 2026-06-11; steps such as tutorial 01's
+  run against a tenant. The front page, the user guide, the tutorials
+  index and the cover of the tutorials PDF no longer say every tutorial
+  step was verified against a live tenant (the index gave 2026-06-11;
+  steps such as tutorial 01's
   `pip install sigantry` were written after that date), and tutorial 12
   says its JSON example is shortened. `sigantry diff` compares item
   names, types and folders when it is run; it does not run continuously.
