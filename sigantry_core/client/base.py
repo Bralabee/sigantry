@@ -29,9 +29,11 @@ from sigantry_core import _version as _fd_version
 from sigantry_core.auth import TokenProviderProtocol
 from sigantry_core.client import rate_limit as _rate_limit
 from sigantry_core.client.logging import (
+    CredentialClassName,
     configure_client_logging,
     get_correlation_id,
     get_operation_id,
+    redact_url,
     reset_correlation_id,
     set_correlation_id,
 )
@@ -423,7 +425,7 @@ class BaseRestClient:
         if cred:
             logger.info(
                 "client_credential_resolved",
-                extra={"scope": scope, "credential": cred},
+                extra={"scope": scope, "credential": CredentialClassName(cred)},
             )
             self._credential_logged_for.add(scope)
 
@@ -435,11 +437,13 @@ class BaseRestClient:
         elapsed_ms: float,
         retry_count: int,
     ) -> None:
+        # The URL can come from a response (an LRO Location, a pagination
+        # cursor), so its query values are masked before any handler sees it.
         logger.info(
             "request_completed",
             extra={
                 "method": method,
-                "url": url,
+                "url": redact_url(url),
                 "status": resp.status_code,
                 "elapsed_ms": round(elapsed_ms, 2),
                 "retry_count": retry_count,
