@@ -82,13 +82,23 @@ _ENV_ALREADY_MERGED: contextvars.ContextVar[bool] = contextvars.ContextVar(
     "sigantry_env_already_merged", default=False
 )
 
-#: The ``_env_prefix`` the ``ToolkitSettings(...)`` call being built passed,
-#: or ``None`` when it passed none. pydantic-settings resolves an omitted
-#: prefix to ``model_config``'s, so ``_env_prefix="SIGANTRY_"`` would
-#: otherwise look like no argument at all; 1.0.0 read that prefix's names.
-_EXPLICIT_ENV_PREFIX: contextvars.ContextVar[str | None] = contextvars.ContextVar(
-    "sigantry_explicit_env_prefix", default=None
-)
+
+class _DefaultEnvPrefix(str):
+    """The ``env_prefix`` ``ToolkitSettings`` declares: ``SIGANTRY_``, marked.
+
+    pydantic-settings hands the env source one prefix: the call's
+    ``_env_prefix``, or else the ``env_prefix`` of the model's
+    ``model_config``, which a subclass inherits unless it declares its own.
+    sigantry 1.0.0 read the names under a prefix chosen either way,
+    ``SIGANTRY_`` included, and no others. So a prefix is the default only
+    when it is this object; a string passed or declared never is, whatever
+    its value.
+    """
+
+    __slots__ = ()
+
+
+_DEFAULT_ENV_PREFIX = _DefaultEnvPrefix(_ENV_PREFIX)
 
 #: Legacy config files the ``fdt_settings_toml`` pytest fixture wrote, by
 #: resolved path, for as long as the test that asked for them runs. See
@@ -366,7 +376,8 @@ class _FilteredEnvSource(PydanticBaseSettingsSource):
     """The only settings source of a ``ToolkitSettings()`` built directly.
 
     In 1.0.0 the constructor read ``FDT_`` variables itself, and honoured
-    ``_env_file``, ``_secrets_dir`` and ``_env_prefix``. This keeps all of
+    ``_env_file``, ``_secrets_dir``, ``_env_prefix`` and the ``env_prefix`` a
+    subclass declares. This keeps all of
     that: the values passed to the constructor and the inputs 1.0.0 read are
     resolved the way 1.0.0 resolved them (:func:`_result_1_0_0`), and the
     ``SIGANTRY_`` variables then fill what that leaves unset. Every input is
@@ -397,7 +408,6 @@ class _FilteredEnvSource(PydanticBaseSettingsSource):
         super().__init__(settings_cls)
         self._init_kwargs: Mapping[str, Any] = getattr(init_settings, "init_kwargs", None) or {}
         self._env_prefix: str | None = getattr(env_settings, "env_prefix", None)
-        self._prefix_passed = _EXPLICIT_ENV_PREFIX.get() is not None
         self._dotenv_vars: Mapping[str, str | None] = (
             getattr(dotenv_settings, "env_vars", None) or {}
         )
@@ -416,10 +426,10 @@ class _FilteredEnvSource(PydanticBaseSettingsSource):
         if prefix == "":
             report.empty_prefix = True
             prefix = None
-        # A prefix the caller passed is read as 1.0.0 read it, whatever its
-        # value, ``SIGANTRY_`` included; with none passed, the model's own
-        # (``SIGANTRY_``, or a subclass's) decides.
-        custom = prefix is not None and (self._prefix_passed or prefix.upper() != _ENV_PREFIX)
+        # A prefix the caller passed, or a subclass declared, is read as
+        # 1.0.0 read it, whatever its value, ``SIGANTRY_`` included; only
+        # the one ``ToolkitSettings`` declares is the default.
+        custom = prefix is not None and not isinstance(prefix, _DefaultEnvPrefix)
         old_prefix = prefix if custom and prefix else _LEGACY_ENV_PREFIX
         dotenv = {k: v for k, v in self._dotenv_vars.items() if v is not None}
         # Highest rank first, as in pydantic-settings: the process environment,
@@ -460,25 +470,15 @@ class ToolkitSettings(BaseSettings):
     that automatically.
     """
 
-    # ``env_prefix`` names the prefix this model reads when a call passes
-    # none; ``__init__`` records whether one was passed. Neither it nor any
-    # other env option configures pydantic-settings' own env source, which is
-    # never enabled: see ``settings_customise_sources``.
+    # ``env_prefix`` is the marked default (:class:`_DefaultEnvPrefix`), so a
+    # prefix a call passes or a subclass declares can be told from it. Neither
+    # it nor any other env option configures pydantic-settings' own env
+    # source, which is never enabled: see ``settings_customise_sources``.
     model_config = SettingsConfigDict(
         extra="allow",
         case_sensitive=False,
-        env_prefix=_ENV_PREFIX,
+        env_prefix=_DEFAULT_ENV_PREFIX,
     )
-
-    def __init__(self, /, **values: Any) -> None:
-        # pydantic-settings resolves an omitted ``_env_prefix`` to the one in
-        # ``model_config``, so only the call itself shows whether one was
-        # passed; :class:`_FilteredEnvSource` reads it from here.
-        token = _EXPLICIT_ENV_PREFIX.set(values.get("_env_prefix"))
-        try:
-            super().__init__(**values)
-        finally:
-            _EXPLICIT_ENV_PREFIX.reset(token)
 
     @classmethod
     def settings_customise_sources(

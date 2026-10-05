@@ -425,13 +425,47 @@ def test_null_section_drops_its_nested_names(build: str, monkeypatch: pytest.Mon
             pytest.skip("Windows sets FDT_CORE, which load_settings() reads as a table")
         monkeypatch.setenv("fdt_core", "null")
         monkeypatch.setenv("fdt_core__tenant_id", "x")
-        settings, _ = _load()
+        settings, caught = _load()
     else:
         monkeypatch.setenv("FDT_CORE", "null")
         monkeypatch.setenv("FDT_CORE__TENANT_ID", "x")
-        settings, _ = _construct()
+        settings, caught = _construct()
 
     assert settings.core.tenant_id is None
+    assert not any("replace a table" in m for m in _messages(caught, UserWarning))
+
+
+def test_null_section_leaves_a_lower_input_in_place(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``FDT_CORE=null`` in the environment left the section out of that
+    source in 1.0.0, so a name in an env file, which ranks below it, still
+    set the section."""
+    env_file = tmp_path / "settings.env"
+    env_file.write_text("FDT_CORE__TENANT_ID=x\n", encoding="utf-8")
+    monkeypatch.setenv("FDT_CORE", "null")
+
+    settings, caught = _construct(_env_file=env_file)
+
+    assert settings.core.tenant_id == "x"
+    assert not any("replace a table" in m for m in _messages(caught, UserWarning))
+
+
+def test_section_scalar_over_a_legacy_file_table_is_left_out_and_named(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """1.0.0's ``load_settings()`` wrote ``FDT_CORE=5`` over the file's
+    ``[core]`` table and failed validation. The table is kept instead, and
+    the name reported."""
+    _write(_LEGACY_CONFIG_FILENAME, '[core]\ntenant_id = "f"\n')
+    monkeypatch.setenv("FDT_CORE", "5")
+
+    settings, caught = _load()
+
+    assert settings.core.tenant_id == "f"
+    clobbered = [m for m in _messages(caught, UserWarning) if "replace a table" in m]
+    assert len(clobbered) == 1
+    assert "FDT_CORE" in clobbered[0], clobbered
 
 
 @pytest.mark.parametrize("value", ["5", '"s"', "[1]", "true"])
@@ -657,6 +691,194 @@ def test_explicit_sigantry_prefix_matches_any_letter_case(
     settings, _ = _construct(_env_prefix="SIGANTRY_")
 
     assert settings.core.tenant_id == "low"
+
+
+#: Names under ``FDT_`` and ``SIGANTRY_`` set together: 1.0.0 read the
+#: ``SIGANTRY_`` ones, in every form, only under a prefix a subclass declared
+#: or a call passed, and then no ``FDT_`` one.
+_TWO_PREFIX_ENV = {
+    "FDT_CORE__TENANT_ID": "fdt",
+    "SIGANTRY_CORE__TENANT_ID": "sig",
+    "sigantry_core__region": "lowr",
+    "SIGANTRY_RELEASE__ADO": json.dumps({"organization": "o"}),
+    "FDT_AUTH__PROVIDER": "fdtp",
+}
+
+#: Names under ``MY_`` beside the default prefixes.
+_MY_PREFIX_ENV = {
+    "MY_CORE__TENANT_ID": "my",
+    "FDT_AUTH__PROVIDER": "fdtp",
+    "SIGANTRY_DQ__GATE": "sigg",
+}
+
+
+def _set_all(monkeypatch: pytest.MonkeyPatch, names: dict[str, str]) -> None:
+    for name, value in names.items():
+        monkeypatch.setenv(name, value)
+
+
+def _declaring(prefix: str) -> type[ToolkitSettings]:
+    """A subclass that declares ``env_prefix`` in its own ``model_config``."""
+
+    class Declaring(ToolkitSettings):
+        model_config = SettingsConfigDict(env_prefix=prefix)
+
+    return Declaring
+
+
+def _build(
+    cls: type[ToolkitSettings], **kwargs: Any
+) -> tuple[ToolkitSettings, list[warnings.WarningMessage]]:
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        settings = cls(**kwargs)
+    return settings, caught
+
+
+def _assert_read_sigantry_prefix_only(settings: ToolkitSettings) -> None:
+    assert settings.core.tenant_id == "sig"
+    assert settings.core.model_extra == {"region": "lowr"}
+    assert settings.release.ado == {"organization": "o"}
+    assert settings.auth.provider is None
+
+
+@pytest.mark.parametrize("prefix", ["SIGANTRY_", "sigantry_", "Sigantry_"])
+def test_subclass_reads_its_own_sigantry_prefix_as_1_0_0_did(
+    prefix: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A subclass that declares ``env_prefix="SIGANTRY_"``, in any letter
+    case, read every form under it in 1.0.0 and no ``FDT_`` name, as under a
+    prefix passed to the constructor, although it spells the default."""
+    _set_all(monkeypatch, _TWO_PREFIX_ENV)
+
+    settings, caught = _build(_declaring(prefix))
+
+    _assert_read_sigantry_prefix_only(settings)
+    assert [str(w.message) for w in caught] == []
+
+
+@pytest.mark.parametrize("own_config", [False, True])
+def test_grandchild_reads_the_prefix_its_parent_declared(
+    own_config: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A class below one that declares ``env_prefix`` inherits that prefix,
+    with or without a ``model_config`` of its own that leaves it out."""
+    _set_all(monkeypatch, _TWO_PREFIX_ENV)
+    parent = _declaring("SIGANTRY_")
+    if own_config:
+
+        class GrandChild(parent):  # type: ignore[valid-type,misc]
+            model_config = SettingsConfigDict(case_sensitive=False)
+
+    else:
+
+        class GrandChild(parent):  # type: ignore[valid-type,misc,no-redef]
+            pass
+
+    settings, caught = _build(GrandChild)
+
+    _assert_read_sigantry_prefix_only(settings)
+    assert [str(w.message) for w in caught] == []
+
+
+def test_subclass_reads_its_own_custom_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A prefix a subclass declares is read whatever the call passes, and
+    replaces both default prefixes."""
+    _set_all(monkeypatch, _MY_PREFIX_ENV)
+
+    settings, caught = _build(_declaring("MY_"))
+
+    assert (settings.core.tenant_id, settings.auth.provider, settings.dq.gate) == (
+        "my",
+        None,
+        None,
+    )
+    assert [str(w.message) for w in caught] == []
+
+
+@pytest.mark.parametrize("own_config", [False, True])
+def test_subclass_without_its_own_prefix_reads_what_toolkit_settings_reads(
+    own_config: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Guard: a subclass that declares no ``env_prefix``, and a class below
+    it, inherit the default prefixes, as 1.0.0's inherited ``FDT_``."""
+    _set_all(monkeypatch, _TWO_PREFIX_ENV)
+    if own_config:
+
+        class Plain(ToolkitSettings):
+            model_config = SettingsConfigDict(case_sensitive=False)
+
+    else:
+
+        class Plain(ToolkitSettings):  # type: ignore[no-redef]
+            pass
+
+    class GrandPlain(Plain):
+        pass
+
+    expected, _ = _construct()
+
+    assert (expected.core.tenant_id, expected.auth.provider) == ("fdt", "fdtp")
+    for cls in (Plain, GrandPlain):
+        settings, caught = _build(cls)
+        assert settings.model_dump() == expected.model_dump()
+        assert any("FDT_CORE__TENANT_ID" in m for m in _messages(caught, DeprecationWarning))
+
+
+@pytest.mark.parametrize("prefix", ["SIGANTRY_", "MY_"])
+def test_prefix_passed_to_a_subclass_without_its_own(
+    prefix: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``_env_prefix`` on a subclass that declares none reads as on
+    ``ToolkitSettings`` itself."""
+
+    class Plain(ToolkitSettings):
+        pass
+
+    if prefix == "SIGANTRY_":
+        _set_all(monkeypatch, _TWO_PREFIX_ENV)
+        settings, caught = _build(Plain, _env_prefix=prefix)
+        _assert_read_sigantry_prefix_only(settings)
+    else:
+        _set_all(monkeypatch, _MY_PREFIX_ENV)
+        settings, caught = _build(Plain, _env_prefix=prefix)
+        assert (settings.core.tenant_id, settings.auth.provider, settings.dq.gate) == (
+            "my",
+            None,
+            None,
+        )
+    assert [str(w.message) for w in caught] == []
+
+
+def test_pydantic_settings_hands_the_env_source_the_declared_prefix_object() -> None:
+    """The default prefix is told from a declared one by its type, so the
+    object ``model_config`` holds must reach the env source unchanged. A
+    pydantic-settings release that turned it into a plain string would make
+    every construction read as if ``SIGANTRY_`` had been declared; this
+    fails instead."""
+    seen: list[Any] = []
+
+    class Probe(ToolkitSettings):
+        @classmethod
+        def settings_customise_sources(
+            cls,
+            settings_cls: type[BaseSettings],
+            init_settings: PydanticBaseSettingsSource,
+            env_settings: PydanticBaseSettingsSource,
+            dotenv_settings: PydanticBaseSettingsSource,
+            file_secret_settings: PydanticBaseSettingsSource,
+        ) -> tuple[PydanticBaseSettingsSource, ...]:
+            seen.append(env_settings.env_prefix)  # type: ignore[attr-defined]
+            return super().settings_customise_sources(
+                settings_cls, init_settings, env_settings, dotenv_settings, file_secret_settings
+            )
+
+    Probe()
+
+    declared = ToolkitSettings.model_config["env_prefix"]
+    assert type(declared) is not str
+    assert seen == [declared]
+    assert type(seen[0]) is type(declared)
 
 
 def test_direct_construction_custom_prefix_cannot_reach_unknown_sections(

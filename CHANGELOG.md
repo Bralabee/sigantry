@@ -56,15 +56,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`ToolkitSettings()` built directly** reads settings variables again:
   `FDT_` ones from the environment, `_env_file` and `_secrets_dir`, with the
   result 1.0.0 gave, and `SIGANTRY_` ones from the same three inputs, which
-  only fill what those leave unset. Passed a non-empty `_env_prefix`,
-  `SIGANTRY_` included, it reads the names under that prefix instead, with
-  the result 1.0.0 gave, and no others. Only names whose section is a
+  only fill what those leave unset. Given a non-empty prefix of its own,
+  passed as `_env_prefix` or declared as `env_prefix` in the `model_config`
+  of a subclass, or of a class between it and `ToolkitSettings`, `SIGANTRY_`
+  in any letter case included, it reads the names under that prefix instead
+  (a passed one over a declared one), with the result 1.0.0 gave, and no
+  others. Only names whose section is a
   settings section are read, in the forms 1.0.0 read
   (`<PREFIX><SECTION>__<KEY>`, and `<PREFIX><SECTION>` holding a JSON object)
   and as `SIGANTRY_<SECTION>__<KEY>`. Values passed to
-  the constructor outrank them all. `_env_prefix=""` is refused with a
-  `UserWarning`, because it would read unprefixed names, and the default
-  prefixes are read instead.
+  the constructor outrank them all. An empty prefix, passed or declared, is
+  refused with a `UserWarning`, because it would read unprefixed names, and
+  the default prefixes are read instead.
 - **Unprefixed variables stay unread** (see Security). A `FutureWarning` names
   each one that 1.0.0 would have read, where nothing else sets the field, with
   its `SIGANTRY_<SECTION>__<KEY>` replacement: `TENANT_ID`, `PROVIDER`, `SINK`,
