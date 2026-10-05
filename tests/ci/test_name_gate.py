@@ -15,6 +15,7 @@ import gzip
 import hashlib
 import io
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -363,7 +364,7 @@ def test_wheel_metadata_units_carry_no_version(tmp_path: Path) -> None:
     with zipfile.ZipFile(path, "w") as z:
         z.writestr("demo-1.2.3.dist-info/METADATA", "Name: demo\nSummary: zqplant\n")
     proc = _run(root, tmp_path, LIST, "--archive", str(path))
-    assert _hits(proc) == ["wheel!demo.dist-info/METADATA:2 S01"]
+    assert _hits(proc) == ["wheel!demo.dist-info/METADATA#Summary:1 S01"]
 
 
 def test_clean_built_artifacts_pass(tmp_path: Path) -> None:
@@ -518,6 +519,393 @@ def test_a_non_repository_root_is_an_error_not_a_pass(tmp_path: Path) -> None:
     empty.mkdir()
     proc = _run(empty, tmp_path)
     assert proc.returncode == 2
+
+
+# ---------------------------------------------------------------------------
+# Built artifacts, read against the tree they were built from (--dist)
+# ---------------------------------------------------------------------------
+
+_README = "# Demo\nmade by zqplant\n"
+_PYPROJECT = '[project]\nname = "demo"\nreadme = "README.md"\n'
+_README_ENTRY = "exception README.md:2 S01\n"
+_WHEEL_AUTHOR = "exception wheel!demo.dist-info/METADATA#Author:1 S01\n"
+_SDIST_AUTHOR = "exception sdist!PKG-INFO#Author:1 S01\n"
+
+
+def _zip_of(path: Path, members: dict[str, str | bytes]) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(path, "w") as z:
+        for member, content in members.items():
+            z.writestr(member, content)
+    return path
+
+
+def _sdist_of(
+    path: Path, members: dict[str, str | bytes], top: str = "demo-1.2.3", owner: str = ""
+) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(path, "w:gz") as tar:
+        for member, content in members.items():
+            data = content.encode("utf-8") if isinstance(content, str) else content
+            info = tarfile.TarInfo(f"{top}/{member}")
+            info.size = len(data)
+            info.uname = info.gname = owner
+            tar.addfile(info, io.BytesIO(data))
+    return path
+
+
+def _dist(
+    tmp_path: Path,
+    wheel: dict[str, str | bytes] | None = None,
+    sdist: dict[str, str | bytes] | None = None,
+    version: str = "1.2.3",
+) -> Path:
+    """A dist directory holding one wheel and one sdist, as a build writes it."""
+    dist = tmp_path / f"dist-{version}"
+    _zip_of(dist / f"demo-{version}-py3-none-any.whl", wheel or {"demo/__init__.py": "x = 1\n"})
+    _sdist_of(
+        dist / f"demo-{version}.tar.gz", sdist or {"demo/__init__.py": "x = 1\n"}, f"demo-{version}"
+    )
+    return dist
+
+
+def _metadata(version: str = "1.2.3", extra: str = "", body: str = _README) -> str:
+    return (
+        f"Metadata-Version: 2.4\nName: demo\nVersion: {version}\n{extra}Author: zqplant\n"
+        f"Description-Content-Type: text/markdown\n\n{body}"
+    )
+
+
+def _metadata_tree(tmp_path: Path, pyproject: str = _PYPROJECT, readme: str = _README) -> Path:
+    return _tree(tmp_path, {**BASE, "README.md": readme, "pyproject.toml": pyproject})
+
+
+def test_a_member_identical_to_the_tree_file_at_its_path_is_judged_by_the_tree_entry(
+    tmp_path: Path,
+) -> None:
+    root = _tree(tmp_path, {**BASE, "README.md": _README})
+    dist = _dist(tmp_path, sdist={"README.md": _README})
+    proc = _run(root, tmp_path, LIST + _README_ENTRY, "--dist", str(dist))
+    assert proc.returncode == 0, proc.stdout
+    assert "1 artifact member(s) identical to the tree" in proc.stdout
+    # Without the tree entry the hit is reported once, under the tree file's name.
+    proc = _run(root, tmp_path, LIST, "--dist", str(dist))
+    assert proc.returncode == 1
+    assert _hits(proc) == ["README.md:2 S01"]
+    _assert_no_leak(proc)
+
+
+def test_a_member_that_differs_from_the_tree_file_is_read_in_full(tmp_path: Path) -> None:
+    root = _tree(tmp_path, {**BASE, "README.md": _README})
+    dist = _dist(tmp_path, sdist={"README.md": _README + "\n"})  # one byte more
+    proc = _run(root, tmp_path, LIST + _README_ENTRY, "--dist", str(dist))
+    assert proc.returncode == 1
+    assert _hits(proc) == ["sdist!README.md:2 S01"]
+    assert "0 artifact member(s) identical to the tree" in proc.stdout
+
+
+def test_the_same_bytes_at_another_member_path_are_read_as_that_member(tmp_path: Path) -> None:
+    root = _tree(tmp_path, {**BASE, "README.md": _README})
+    dist = _dist(tmp_path, wheel={"demo/README.md": _README})
+    proc = _run(root, tmp_path, LIST + _README_ENTRY, "--dist", str(dist))
+    assert proc.returncode == 1
+    assert _hits(proc) == ["wheel!demo/README.md:2 S01"]
+
+
+def test_a_wheel_licence_file_is_read_as_the_tree_file_it_was_taken_from(tmp_path: Path) -> None:
+    licence = "Copyright zqplant\n"
+    root = _tree(tmp_path, {**BASE, "LICENSE": licence})
+    listed = LIST + "exception LICENSE:1 S01\n"
+    copied = _dist(tmp_path, wheel={"demo-1.2.3.dist-info/licenses/LICENSE": licence})
+    proc = _run(root, tmp_path, listed, "--dist", str(copied))
+    assert proc.returncode == 0, proc.stdout
+    elsewhere = _dist(
+        tmp_path, wheel={"demo-1.2.3.dist-info/licenses/NOTICE": licence}, version="1.2.4"
+    )
+    proc = _run(root, tmp_path, listed, "--dist", str(elsewhere))
+    assert proc.returncode == 1
+    assert _hits(proc) == ["wheel!demo.dist-info/licenses/NOTICE:1 S01"]
+
+
+def test_an_artifact_run_judges_the_tree_as_well(tmp_path: Path) -> None:
+    root = _tree(tmp_path, {**BASE, "a.py": "zqplant\n"})
+    proc = _run(root, tmp_path, LIST, "--dist", str(_dist(tmp_path)))
+    assert proc.returncode == 1
+    assert _hits(proc) == ["a.py:1 S01"]
+
+
+def test_a_metadata_header_hit_is_keyed_by_its_field_not_its_line(tmp_path: Path) -> None:
+    root = _metadata_tree(tmp_path)
+    listed = LIST + _README_ENTRY + _WHEEL_AUTHOR
+    dist = _dist(tmp_path, wheel={"demo-1.2.3.dist-info/METADATA": _metadata()})
+    proc = _run(root, tmp_path, listed, "--dist", str(dist))
+    assert proc.returncode == 0, proc.stdout
+    # Fields above Author move its line and not its key.
+    moved = _metadata(extra="Project-URL: Home, https://example.invalid\nClassifier: A\n")
+    dist = _dist(tmp_path, wheel={"demo-1.2.3.dist-info/METADATA": moved}, version="1.2.4")
+    proc = _run(root, tmp_path, listed, "--dist", str(dist))
+    assert proc.returncode == 0, proc.stdout
+    # The n-th line of a repeated field, and a token in another field, are each their own key.
+    other = _metadata(
+        extra="Classifier: A\nClassifier: B\nClassifier: zqplant\nMaintainer: zqplant\n"
+    )
+    dist = _dist(tmp_path, wheel={"demo-1.2.3.dist-info/METADATA": other}, version="1.2.5")
+    proc = _run(root, tmp_path, listed, "--dist", str(dist))
+    assert proc.returncode == 1
+    assert _hits(proc) == [
+        "wheel!demo.dist-info/METADATA#Classifier:3 S01",
+        "wheel!demo.dist-info/METADATA#Maintainer:1 S01",
+    ]
+    _assert_no_leak(proc)
+
+
+def test_the_sdist_core_metadata_is_keyed_by_field_too(tmp_path: Path) -> None:
+    root = _metadata_tree(tmp_path)
+    dist = _dist(tmp_path, sdist={"PKG-INFO": _metadata()})
+    proc = _run(root, tmp_path, LIST + _README_ENTRY, "--dist", str(dist))
+    assert proc.returncode == 1
+    assert _hits(proc) == ["sdist!PKG-INFO#Author:1 S01"]
+    proc = _run(root, tmp_path, LIST + _README_ENTRY + _SDIST_AUTHOR, "--dist", str(dist))
+    assert proc.returncode == 0, proc.stdout
+
+
+@pytest.mark.parametrize(
+    ("pyproject", "body"),
+    [
+        (_PYPROJECT, "# Demo\n\nmade by zqplant\n"),  # the body differs from the readme
+        ('[project]\nname = "demo"\n', _README),  # pyproject.toml names no readme
+        (_PYPROJECT, "# Notes\nmade by zqplant\n"),  # identical to a tree file, not the readme
+    ],
+)
+def test_a_metadata_body_not_copied_from_the_readme_is_read_as_itself(
+    tmp_path: Path, pyproject: str, body: str
+) -> None:
+    root = _tree(
+        tmp_path,
+        {
+            **BASE,
+            "README.md": _README,
+            "pyproject.toml": pyproject,
+            "docs/notes.md": "# Notes\nmade by zqplant\n",
+        },
+    )
+    listed = LIST + _README_ENTRY + "exception docs/notes.md:2 S01\n" + _WHEEL_AUTHOR
+    dist = _dist(tmp_path, wheel={"demo-1.2.3.dist-info/METADATA": _metadata(body=body)})
+    proc = _run(root, tmp_path, listed, "--dist", str(dist))
+    assert proc.returncode == 1
+    line = body.split("\n").index("made by zqplant") + 1
+    assert _hits(proc) == [f"wheel!demo.dist-info/METADATA#body:{line} S01"]
+
+
+def test_a_metadata_header_that_is_not_field_lines_is_keyed_by_line(tmp_path: Path) -> None:
+    """A header the gate cannot parse is keyed by line, which fails closed.
+
+    Two unparsed lines sit above the hit, so a reading that skipped them, or
+    took them as continuations of the field above, would give another key.
+    """
+    root = _metadata_tree(tmp_path)
+    text = "Name: demo\nnot a field\nnot one either\nAuthor: zqplant\n\nbody\n"
+    dist = _dist(tmp_path, wheel={"demo-1.2.3.dist-info/METADATA": text})
+    proc = _run(root, tmp_path, LIST + _README_ENTRY, "--dist", str(dist))
+    assert proc.returncode == 1
+    assert _hits(proc) == ["wheel!demo.dist-info/METADATA:4 S01"]
+
+
+def _record_digest(body: bytes) -> str:
+    return base64.urlsafe_b64encode(hashlib.sha256(body).digest()).rstrip(b"=").decode()
+
+
+@pytest.mark.parametrize(
+    ("member", "record_body", "size_delta", "reads"),
+    [
+        ("demo/__init__.py", b"x = 1\n", 0, False),  # path, digest and size check out
+        ("demo/__init__.py", b"x = 1\n", 1, True),  # the size is forged
+        ("demo/__init__.py", b"x = 2\n", 0, True),  # the digest is another file's
+        ("demo/other.py", b"x = 1\n", 0, True),  # the path is not a member
+    ],
+)
+def test_a_record_line_is_read_as_empty_only_when_it_checks_out(
+    tmp_path: Path, member: str, record_body: bytes, size_delta: int, reads: bool
+) -> None:
+    root = _tree(tmp_path, BASE)
+    body = b"x = 1\n"
+    digest = _record_digest(record_body)
+    # A token the digest happens to contain: what a short name does by chance.
+    listed = LIST + f"token S09 {re.escape(digest[4:16])}\n"
+    record = (
+        f"{member},sha256={digest},{len(record_body) + size_delta}\ndemo-1.2.3.dist-info/RECORD,,\n"
+    )
+    dist = _dist(tmp_path, wheel={"demo/__init__.py": body, "demo-1.2.3.dist-info/RECORD": record})
+    proc = _run(root, tmp_path, listed, "--dist", str(dist))
+    if reads:
+        assert proc.returncode == 1
+        assert _hits(proc) == ["wheel!demo.dist-info/RECORD:1 S09"]
+    else:
+        assert proc.returncode == 0, proc.stdout
+
+
+def test_a_field_entry_that_matches_no_hit_is_stale_and_a_tree_run_ignores_it(
+    tmp_path: Path,
+) -> None:
+    root = _metadata_tree(tmp_path)
+    listed = (
+        LIST
+        + _README_ENTRY
+        + _WHEEL_AUTHOR
+        + "exception wheel!demo.dist-info/METADATA#Summary:1 S01\n"
+    )
+    dist = _dist(tmp_path, wheel={"demo-1.2.3.dist-info/METADATA": _metadata()})
+    proc = _run(root, tmp_path, listed, "--dist", str(dist))
+    assert proc.returncode == 1
+    assert _hits(proc) == ["stale exception wheel!demo.dist-info/METADATA#Summary:1 S01"]
+    tree_run = _run(root, tmp_path, listed)
+    assert tree_run.returncode == 0, tree_run.stdout
+
+
+def test_an_inherited_hit_needs_no_artifact_entry_and_a_line_entry_for_it_is_stale(
+    tmp_path: Path,
+) -> None:
+    root = _tree(tmp_path, {**BASE, "README.md": _README})
+    dist = _dist(tmp_path, sdist={"README.md": _README})
+    listed = LIST + _README_ENTRY + "exception sdist!README.md:2 S01\n"
+    proc = _run(root, tmp_path, listed, "--dist", str(dist))
+    assert proc.returncode == 1
+    assert _hits(proc) == ["stale exception sdist!README.md:2 S01"]
+
+
+def test_an_unreadable_member_still_fails_and_no_list_is_still_an_error(tmp_path: Path) -> None:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("demo/a.txt", " ".join(str(i * 7919 % 10007) for i in range(400)))
+    data = bytearray(buf.getvalue())
+    start = data.index(b"demo/a.txt") + len(b"demo/a.txt")
+    for i in range(start + 100, start + 120):
+        data[i] ^= 0xFF
+    dist = _dist(tmp_path)
+    (dist / "demo-1.2.3-py3-none-any.whl").write_bytes(bytes(data))
+    root = _tree(tmp_path, BASE)
+    proc = _run(root, tmp_path, LIST, "--dist", str(dist))
+    assert proc.returncode == 1
+    assert "wheel!demo/a.txt:0 UNREADABLE" in _hits(proc)
+    proc = _run(root, tmp_path, None, "--dist", str(dist))
+    assert proc.returncode == 2
+    assert "fails closed" in proc.stderr
+
+
+def _plant(dist: Path, name: str, content: bytes | None = None) -> None:
+    if content is None:
+        (dist / name).mkdir()
+    else:
+        (dist / name).write_bytes(content)
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "empty",
+        "missing",
+        "stray file",
+        "dot file",
+        "directory",
+        "two wheels",
+        "no sdist",
+        "fake wheel",
+        "dot-named sdist",
+    ],
+)
+def test_dist_must_hold_exactly_one_wheel_and_one_sdist(tmp_path: Path, case: str) -> None:
+    root = _tree(tmp_path, BASE)
+    dist = _dist(tmp_path)
+    assert _run(root, tmp_path, LIST, "--dist", str(dist)).returncode == 0  # the control
+    wheel = (dist / "demo-1.2.3-py3-none-any.whl").read_bytes()
+    if case == "empty":
+        shutil.rmtree(dist)
+        dist.mkdir()
+    elif case == "missing":
+        shutil.rmtree(dist)
+    elif case == "stray file":
+        _plant(dist, "notes.txt", b"x\n")
+    elif case == "dot file":
+        _plant(dist, ".gitkeep", b"")
+    elif case == "directory":
+        _plant(dist, "demo-1.2.3-py3-none-any.whl.d")
+    elif case == "two wheels":
+        _plant(dist, "demo-1.2.3-cp311-none-any.whl", wheel)
+    elif case == "no sdist":
+        (dist / "demo-1.2.3.tar.gz").unlink()
+    elif case == "fake wheel":
+        (dist / "demo-1.2.3-py3-none-any.whl").write_bytes(b"not a zip\n")
+    elif case == "dot-named sdist":  # an upload's `dist/*` glob would not send it
+        (dist / "demo-1.2.3.tar.gz").rename(dist / ".demo-1.2.3.tar.gz")
+    proc = _run(root, tmp_path, LIST, "--dist", str(dist))
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert "Traceback" not in proc.stderr
+
+
+def test_dist_and_archive_cannot_be_combined(tmp_path: Path) -> None:
+    root = _tree(tmp_path, BASE)
+    dist = _dist(tmp_path)
+    wheel = dist / "demo-1.2.3-py3-none-any.whl"
+    proc = _run(root, tmp_path, LIST, "--dist", str(dist), "--archive", str(wheel))
+    assert proc.returncode == 2
+
+
+def test_an_artifact_file_name_is_read_as_a_path(tmp_path: Path) -> None:
+    root = _tree(tmp_path, BASE)
+    dist = _dist(tmp_path)
+    (dist / "demo-1.2.3-py3-none-any.whl").rename(dist / "zqplant-1.2.3-py3-none-any.whl")
+    proc = _run(root, tmp_path, LIST, "--dist", str(dist))
+    assert proc.returncode == 1
+    assert _hits(proc) == ["wheel:0 S01"]
+    _assert_no_leak(proc)
+
+
+@pytest.mark.parametrize("field_name", ["uname", "gname"])
+def test_a_tar_member_owner_and_group_are_read(tmp_path: Path, field_name: str) -> None:
+    root = _tree(tmp_path, {**BASE, "README.md": "# Demo\n"})
+    raw = io.BytesIO()
+    with tarfile.open(fileobj=raw, mode="w") as tar:
+        info = tarfile.TarInfo("demo-1.2.3/README.md")
+        info.size = len(b"# Demo\n")
+        setattr(info, field_name, "zqplant")
+        tar.addfile(info, io.BytesIO(b"# Demo\n"))
+    dist = _dist(tmp_path)
+    (dist / "demo-1.2.3.tar.gz").write_bytes(gzip.compress(raw.getvalue()))
+    proc = _run(root, tmp_path, LIST, "--dist", str(dist))
+    assert proc.returncode == 1
+    assert _hits(proc) == ["sdist!README.md#tar-header:1 S01"]
+    _assert_no_leak(proc)
+
+
+def test_a_version_bump_needs_no_register_edit(tmp_path: Path) -> None:
+    """Two releases that differ in version, field order and readme length share one register.
+
+    The second build adds a URL and a classifier above Author and a paragraph
+    to the readme below the registered line, as an ordinary release does.
+    """
+    listed = LIST + _README_ENTRY + _WHEEL_AUTHOR + _SDIST_AUTHOR
+    builds = [
+        ("1.2.3", "", _README),
+        (
+            "1.3.0",
+            "Project-URL: Home, https://example.invalid\nClassifier: B\n",
+            _README + "\nMore.\n",
+        ),
+    ]
+    for version, extra, readme in builds:
+        base = tmp_path / version
+        base.mkdir()
+        root = _metadata_tree(base, readme=readme)
+        metadata = _metadata(version, extra, readme)
+        dist = _dist(
+            base,
+            wheel={f"demo-{version}.dist-info/METADATA": metadata, "demo/__init__.py": "x = 1\n"},
+            sdist={"PKG-INFO": metadata, "README.md": readme, "pyproject.toml": _PYPROJECT},
+            version=version,
+        )
+        proc = _run(root, base, listed, "--dist", str(dist))
+        assert proc.returncode == 0, (version, proc.stdout)
+        assert "3 excused, 0 stale exception(s)" in proc.stdout, proc.stdout
 
 
 # ---------------------------------------------------------------------------

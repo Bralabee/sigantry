@@ -28,6 +28,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   matches is printed as a hash. An exception register in the same secret
   excuses exact lines, and an entry that no longer matches fails the run.
   Without the list, as on a fork's pull request, it fails closed.
+- **The name gate reads built distributions against the tree they were built
+  from.** `check-name-gate.py --root . --dist dist` scans the tree, then the
+  wheel and the sdist in `dist/`, in one run with one verdict; `dist/` must
+  hold exactly one of each and nothing else, dot files included, because it
+  is what the upload sends. A member whose bytes are identical to the tree
+  file at the same path (a wheel's PEP 639 licence copy included) is judged
+  by that file's register entries rather than reported twice. A hit in the
+  core metadata is keyed by its header field (`METADATA#Author:1`), or by
+  the readme's line when the body is a byte-identical copy of the readme,
+  so a version bump or a new classifier moves no key. A wheel `RECORD` line
+  whose path, SHA-256 and size all check out is read as empty, because a
+  random digest can contain a short token by chance. The artifact file
+  names and each sdist member's owner and group names are read as well.
+  `--archive` keeps working for local use and now scans the tree too.
 - `tests/ci/test_distribution_name.py` keeps the shipped surface — templates,
   workflows, scripts and the package — free of the dead distribution name, so
   it cannot creep back. It reads `pyproject.toml` as a *precondition* — the

@@ -39,18 +39,50 @@ What is read (no path, basename or suffix is exempt):
   text only;
 - zip containers (``.pptx``, ``.docx``, ``.xlsx``, ``.zip``, wheels) and
   gzip tar archives (sdists), member by member: every member's name,
-  directories and links included, a link's target, zip comments and tar
-  pax headers. A member that cannot be read, or a tar with data after its
-  last readable member, fails the run. An uncompressed tar is a binary
-  file with no reader;
+  directories and links included, a link's target, zip comments, tar pax
+  headers and a tar member's owner and group names. A member that cannot
+  be read, or a tar with data after its last readable member, fails the
+  run. An uncompressed tar is a binary file with no reader;
 - a git LFS pointer is UNREADABLE: the checkout holds the pointer, not
   the file;
-- with ``--archive``, a built wheel or sdist instead of the tree. Its
-  units are named ``wheel!<member>`` or ``sdist!<member>``, with the
-  version taken out of member paths (the sdist's ``<name>-<version>/`` top
-  directory dropped, the wheel's ``<name>-<version>.dist-info/`` written
-  ``<name>.dist-info/``), so an exception survives a version bump and can
-  never be confused with a tree file.
+- with ``--dist`` or ``--archive``, built wheels and sdists AS WELL AS the
+  tree at ``--root``, which is always scanned first: an artifact is judged
+  together with the tree it was built from, in one run with one verdict.
+  ``--dist DIR`` is what a release runs: DIR must hold exactly one wheel
+  (``.whl``) and one sdist (``.tar.gz``) and nothing else, dot files
+  included, because that directory is what the upload sends. Each
+  artifact's file name is read as a path under the unit ``wheel`` or
+  ``sdist``. Its members are named ``wheel!<member>`` or
+  ``sdist!<member>``, with the version taken out of member paths (the
+  sdist's ``<name>-<version>/`` top directory dropped, the wheel's
+  ``<name>-<version>.dist-info/`` written ``<name>.dist-info/``), so an
+  exception survives a version bump and can never be confused with a tree
+  file. Every member is read; three kinds are reported differently from
+  other text:
+
+  * a member whose bytes are identical to the file at the same path in
+    the tree (a wheel's ``<name>.dist-info/licenses/<path>`` is at
+    ``<path>``, where PEP 639 says it was taken from) has exactly that
+    file's hits, which this run has already reported under the tree
+    file's name and judged by the tree file's register entries, so its
+    content is not reported a second time. Its member path, link target
+    and headers still are. The same bytes at another path are read as any
+    other member;
+  * the core metadata (a wheel's ``<name>.dist-info/METADATA``, an
+    sdist's top-level ``PKG-INFO``) is read whole, and a hit in it is
+    reported by where it sits rather than by its line: in the header
+    block as ``<unit>#<Field>:<n>``, the ``n``-th line carrying that
+    field (``METADATA#Author:1``); in the body as the readme file's
+    ``<path>:<line>`` when the body is byte-identical to the file
+    ``pyproject.toml`` names as ``readme``, else as ``<unit>#body:<line>``
+    counted from the body's first line. Adding a classifier, a dependency
+    or a URL moves no key. A header block that is not ``Field: value``
+    lines is keyed by line, as any text;
+  * a line of a wheel's ``RECORD`` that names a member and carries that
+    member's SHA-256 and size is read as empty: everything on it is
+    recomputed from bytes the gate reads, and a random digest matches a
+    short token by chance. A line that does not check out is read as
+    written.
 
 A file is binary when its first 8000 bytes hold a control byte other
 than tab, line and page breaks, SUB and ESC (a NUL included), unless it
@@ -81,8 +113,9 @@ path even where the output redacts it (a container member is
 ``#pdf-text``). ``exception <file>:0 BINARY`` accepts one binary file.
 An exception that matches no hit is stale and fails the run, so the
 register cannot drift away from the lines it excuses. A tree run checks
-the tree entries and an ``--archive`` run the ``wheel!``/``sdist!``
-entries, so neither reads the other's entries as stale.
+the tree entries; a run with artifacts checks the tree entries and the
+``wheel!``/``sdist!`` entries of the kinds it read, so a tree run never
+reads an artifact entry as stale.
 
 The list is read from the ``NAME_GATE_TOKENS`` environment variable, or
 from ``--list-file``. The value may be plain text or gzip + base64 (for
@@ -94,15 +127,18 @@ everything.
 Usage:
     python scripts/ci/check-name-gate.py                    # the repo tree
     python scripts/ci/check-name-gate.py --root <path>
-    python scripts/ci/check-name-gate.py --archive dist/x.whl --archive dist/x.tar.gz
+    python scripts/ci/check-name-gate.py --root . --dist dist   # the tree, then dist/
+    python scripts/ci/check-name-gate.py --root . --archive dist/x.whl --archive dist/x.tar.gz
     python scripts/ci/check-name-gate.py --list-file <private list>
 
 Exit codes:
     0 -- no unexcused hit and no stale exception.
     1 -- at least one unexcused hit (UNREADABLE and BINARY included) or
          stale exception.
-    2 -- the list is unavailable or invalid, the tree cannot be listed, or
-         an --archive argument is not a wheel or sdist.
+    2 -- the list is unavailable or invalid, the tree cannot be listed, an
+         --archive argument or an entry of --dist is not a wheel or sdist,
+         or --dist cannot be listed or does not hold exactly one wheel and
+         one sdist.
 """
 
 from __future__ import annotations
@@ -111,6 +147,7 @@ import argparse
 import base64
 import binascii
 import bisect
+import csv
 import gzip
 import hashlib
 import html
@@ -122,6 +159,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import tomllib
 import zipfile
 import zlib
 from collections.abc import Callable, Iterator
@@ -176,6 +214,10 @@ class TokenList:
 class Report:
     files: int = 0
     hits: set[Hit] = field(default_factory=set)
+    # The tree scan's record: each path -> SHA-256 of the bytes it read there.
+    tree: dict[str, str] = field(default_factory=dict)
+    readme: str | None = None  # the tree path pyproject.toml names as the readme
+    inherited: int = 0  # artifact members identical to the tree file at their path
 
 
 # ---------------------------------------------------------------------------
@@ -283,6 +325,13 @@ class Unit:
     name: str
     texts: tuple[str, ...] | None
     binary: bool = False
+    # Core metadata only: maps (unit, line) of a hit to the key it is reported under.
+    rekey: Callable[[str, int], tuple[str, int]] | None = field(default=None, compare=False)
+
+
+# An artifact's top-level members pass through this: None reads the member as
+# usual; a list of units is read instead (empty: the tree scan read these bytes).
+MemberHook = Callable[[str, bytes], "list[Unit] | None"]
 
 
 def _decodings(data: bytes) -> tuple[str, ...]:
@@ -349,7 +398,7 @@ def _pdf_units(data: bytes, name: str) -> Iterator[Unit]:
     yield Unit(f"{name}#pdf-raw", (raw,))
 
 
-def _zip_units(data: bytes, name: str, depth: int) -> Iterator[Unit]:
+def _zip_units(data: bytes, name: str, depth: int, hook: MemberHook | None) -> Iterator[Unit]:
     try:
         archive = zipfile.ZipFile(io.BytesIO(data))
         infos = archive.infolist()
@@ -370,7 +419,8 @@ def _zip_units(data: bytes, name: str, depth: int) -> Iterator[Unit]:
         except Exception:  # any member that cannot be read is reported, never skipped
             yield Unit(unit, None)
             continue
-        yield from extract_units(content, unit, depth + 1)
+        replaced = None if hook is None else hook(unit, content)
+        yield from extract_units(content, unit, depth + 1) if replaced is None else replaced
 
 
 class _NotATarError(Exception):
@@ -398,7 +448,9 @@ def _read_tar(raw: bytes) -> tuple[list[_TarMember], bytes]:
     with tar:
         members: list[_TarMember] = []
         for info in tar.getmembers():
-            extra = "\n".join([info.linkname, *(f"{k}={v}" for k, v in info.pax_headers.items())])
+            # Owner and group names come last, so the lines before them keep their numbers.
+            pax = (f"{k}={v}" for k, v in info.pax_headers.items())
+            extra = "\n".join([info.linkname, *pax, info.uname, info.gname])
             content: bytes | None = None
             if info.isfile():
                 handle = tar.extractfile(info)
@@ -407,7 +459,7 @@ def _read_tar(raw: bytes) -> tuple[list[_TarMember], bytes]:
         return members, raw[tar.offset :]
 
 
-def _gzip_units(data: bytes, name: str, depth: int) -> Iterator[Unit]:
+def _gzip_units(data: bytes, name: str, depth: int, hook: MemberHook | None) -> Iterator[Unit]:
     try:
         raw = gzip.decompress(data)
     except (OSError, EOFError, zlib.error):
@@ -432,17 +484,21 @@ def _gzip_units(data: bytes, name: str, depth: int) -> Iterator[Unit]:
         if member.content is None:
             yield Unit(unit, None)
             continue
-        yield from extract_units(member.content, unit, depth + 1)
+        replaced = None if hook is None else hook(unit, member.content)
+        yield from extract_units(member.content, unit, depth + 1) if replaced is None else replaced
     if tail.strip(b"\0"):
         yield Unit(f"{name}#tar-tail", None)
 
 
-def extract_units(data: bytes, name: str, depth: int = 0) -> Iterator[Unit]:
+def extract_units(
+    data: bytes, name: str, depth: int = 0, hook: MemberHook | None = None
+) -> Iterator[Unit]:
     """Yield the readable units of ``data``.
 
     A path unit (``binary=True`` with the path as its only text) marks a
     container member's name, which is scanned at line 0. A binary file
     with no reader yields a single ``Unit(name, None, binary=True)``.
+    ``hook`` sees the top-level members of a container, never deeper ones.
     """
     if depth > MAX_NESTING:
         yield Unit(name, None)
@@ -451,10 +507,10 @@ def extract_units(data: bytes, name: str, depth: int = 0) -> Iterator[Unit]:
         yield Unit(name, None)
         return
     if data.startswith((b"PK\x03\x04", b"PK\x05\x06")):
-        yield from _zip_units(data, name, depth)
+        yield from _zip_units(data, name, depth, hook)
         return
     if data.startswith(b"\x1f\x8b"):
-        yield from _gzip_units(data, name, depth)
+        yield from _gzip_units(data, name, depth, hook)
         return
     if data[257:262] == b"ustar":  # an uncompressed tar: no reader
         yield Unit(name, None, binary=True)
@@ -478,8 +534,13 @@ def extract_units(data: bytes, name: str, depth: int = 0) -> Iterator[Unit]:
 # ---------------------------------------------------------------------------
 
 
+def _normalise(text: str) -> str:
+    """The text whose lines are counted: no BOM, LF line ends, no page breaks."""
+    return text.removeprefix("\ufeff").replace("\r\n", "\n").replace("\r", "\n").replace("\f", "")
+
+
 def scan_text(unit: str, text: str, tokens: Tokens) -> set[Hit]:
-    text = text.removeprefix("\ufeff").replace("\r\n", "\n").replace("\r", "\n").replace("\f", "")
+    text = _normalise(text)
     hits: set[Hit] = set()
     for variant in (text, _read_as_text(text)):
         starts = [0] + [m.end() for m in re.finditer("\n", variant)]
@@ -504,7 +565,11 @@ def scan_units(
             report.hits.add(Hit(name, 0, BINARY_ID if unit.binary else UNREADABLE_ID))
         else:
             for text in unit.texts:
-                report.hits |= scan_text(name, text, tokens)
+                hits = scan_text(name, text, tokens)
+                if unit.rekey is not None:
+                    rekey = unit.rekey
+                    hits = {Hit(*rekey(h.unit, h.line), h.pattern_id) for h in hits}
+                report.hits |= hits
 
 
 def list_tree(root: Path) -> list[str]:
@@ -530,7 +595,22 @@ def scan_tree(root: Path, tokens: Tokens, report: Report) -> None:
             data = path.read_bytes()
         else:
             continue  # a gitlink, or tracked but deleted in the work tree: the path was read
+        report.tree[relative] = hashlib.sha256(data).hexdigest()
+        if relative == "pyproject.toml":
+            report.readme = _declared_readme(data)
         scan_units(extract_units(data, relative), tokens, report, lambda n: n)
+
+
+def _declared_readme(pyproject: bytes) -> str | None:
+    """The path ``[project].readme`` names, or None when there is none to read."""
+    try:
+        project = tomllib.loads(pyproject.decode("utf-8")).get("project", {})
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError):
+        return None
+    readme = project.get("readme") if isinstance(project, dict) else None
+    if isinstance(readme, dict):
+        readme = readme.get("file")
+    return readme if isinstance(readme, str) else None
 
 
 def archive_kind(path: Path, data: bytes) -> str:
@@ -541,11 +621,36 @@ def archive_kind(path: Path, data: bytes) -> str:
         try:
             inner = gzip.decompress(data)
         except (OSError, EOFError, zlib.error):
-            raise GateError("--archive sdist is not a readable gzip") from None
+            raise GateError("an sdist artifact is not a readable gzip") from None
         if inner[257:262] != b"ustar":
-            raise GateError("--archive sdist is not a gzip tar")
+            raise GateError("an sdist artifact is not a gzip tar")
         return "sdist"
-    raise GateError("--archive takes a wheel (.whl, zip) or an sdist (.tar.gz, gzip)")
+    raise GateError("an artifact must be a wheel (.whl, zip) or an sdist (.tar.gz, gzip)")
+
+
+def dist_files(directory: Path) -> list[Path]:
+    """The wheel and the sdist in ``directory``, which must hold those two and nothing else.
+
+    Every entry is listed, dot files included: the directory is what the
+    upload sends, so an entry the scan skipped could be published unread,
+    and a second wheel or sdist would share the first one's unversioned
+    unit names. Names are never printed, because a name can carry a token.
+    """
+    try:
+        with os.scandir(directory) as listing:
+            entries = sorted(Path(entry.path) for entry in listing)
+    except OSError:
+        raise GateError("--dist cannot be listed") from None
+    wheels = [p for p in entries if p.name.endswith(".whl")]
+    sdists = [p for p in entries if p.name.endswith(".tar.gz")]
+    hidden = [p for p in entries if p.name.startswith(".")]
+    if len(entries) != 2 or len(wheels) != 1 or len(sdists) != 1 or hidden:
+        raise GateError(
+            f"--dist must hold exactly one wheel (.whl) and one sdist (.tar.gz) and nothing "
+            f"else; it holds {len(entries)} entr{'y' if len(entries) == 1 else 'ies'}: "
+            f"{len(wheels)} wheel(s), {len(sdists)} sdist(s), {len(hidden)} dot file(s)"
+        )
+    return [*wheels, *sdists]
 
 
 def _unversion(kind: str) -> Callable[[str], str]:
@@ -562,15 +667,128 @@ def _unversion(kind: str) -> Callable[[str], str]:
     return rename
 
 
+_CORE_METADATA = {
+    "wheel": re.compile(r"wheel![^/]+\.dist-info/METADATA"),
+    "sdist": re.compile(r"sdist![^/]+/PKG-INFO"),
+}
+_WHEEL_RECORD = re.compile(r"wheel![^/]+\.dist-info/RECORD")
+_WHEEL_LICENSE = re.compile(r"[^/]+\.dist-info/licenses/(.+)")
+_FIELD = re.compile(r"([A-Za-z0-9][A-Za-z0-9_-]*):")
+
+
+def _metadata_rekey(content: bytes, report: Report) -> Callable[[str, int], tuple[str, int]]:
+    """Key core-metadata hits by header field, or by body line (see the module docstring).
+
+    Lines are split exactly as ``scan_text`` counts them. The header block
+    runs to the first empty line; a line that starts with a space or a tab
+    continues the field above it.
+    """
+    lines = _normalise(_decodings(content)[0]).split("\n")
+    keys: list[tuple[str, int]] = []
+    seen: dict[str, int] = {}
+    current: str | None = None
+    for line in lines:
+        if line == "":
+            break
+        if current is None or line[:1] not in (" ", "\t"):
+            match = _FIELD.match(line)
+            if match is None:
+                return lambda unit, number: (unit, number)  # not Field: value lines
+            current = match[1]
+        seen[current] = seen.get(current, 0) + 1
+        keys.append((current, seen[current]))
+    header = len(keys)
+    head, blank, body = content.partition(b"\n\n")
+    same_split = bool(blank) and head.count(b"\n") == header - 1
+    readme = report.readme
+    digest = hashlib.sha256(body).hexdigest()
+    origin = readme if same_split and readme and report.tree.get(readme) == digest else None
+
+    def rekey(unit: str, number: int) -> tuple[str, int]:
+        if 1 <= number <= header:
+            return f"{unit}#{keys[number - 1][0]}", keys[number - 1][1]
+        if number > header + 1:
+            body_line = number - header - 1
+            return (origin, body_line) if origin else (f"{unit}#body", body_line)
+        return unit, number
+
+    return rekey
+
+
+def _record_mask(content: bytes, record: str, members: dict[str, tuple[str, int]]) -> bytes:
+    """Blank each RECORD line whose path, SHA-256 and size all match a member."""
+    out = []
+    for raw in content.split(b"\n"):
+        try:
+            fields = next(csv.reader([raw.removesuffix(b"\r").decode("utf-8")]), [])
+        except (UnicodeDecodeError, csv.Error):
+            fields = []
+        verified = False
+        if len(fields) == 3:
+            path, digest, size = fields
+            if path == record:
+                verified = digest == size == ""
+            elif path in members:
+                verified = (digest, size) == (f"sha256={members[path][0]}", str(members[path][1]))
+        out.append(b"" if verified else raw)
+    return b"\n".join(out)
+
+
+class _ArtifactHook:
+    """How an artifact's top-level members are read (see the module docstring)."""
+
+    def __init__(self, kind: str, data: bytes, report: Report) -> None:
+        self.kind = kind
+        self.report = report
+        self.rename = _unversion(kind)
+        self.members: dict[str, tuple[str, int]] = {}  # wheel member -> (RECORD digest, size)
+        if kind != "wheel":
+            return
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                for info in archive.infolist():
+                    try:
+                        body = archive.read(info)
+                    except Exception:  # read again, and reported UNREADABLE, by the scan
+                        continue
+                    digest = base64.urlsafe_b64encode(hashlib.sha256(body).digest())
+                    self.members[info.filename] = (digest.rstrip(b"=").decode(), len(body))
+        except (zipfile.BadZipFile, OSError, RuntimeError, EOFError, ValueError):
+            pass  # the scan reports the archive UNREADABLE
+
+    def __call__(self, unit: str, content: bytes) -> list[Unit] | None:
+        path = self.rename(unit).partition("!")[2]
+        licence = _WHEEL_LICENSE.fullmatch(path) if self.kind == "wheel" else None
+        path = licence[1] if licence else path  # PEP 639 keeps the path from the project root
+        if self.report.tree.get(path) == hashlib.sha256(content).hexdigest():
+            self.report.inherited += 1
+            return []  # the tree scan read these bytes at this path and reported their hits
+        if _CORE_METADATA[self.kind].fullmatch(unit):
+            units = list(extract_units(content, unit, 1))
+            if len(units) == 1 and units[0].texts is not None and not units[0].binary:
+                return [Unit(unit, units[0].texts, rekey=_metadata_rekey(content, self.report))]
+            return units
+        if self.kind == "wheel" and _WHEEL_RECORD.fullmatch(unit):
+            masked = _record_mask(content, unit.partition("!")[2], self.members)
+            return list(extract_units(masked, unit, 1))
+        return None
+
+
 def scan_archive(path: Path, tokens: Tokens, report: Report) -> str:
-    """Scan a built wheel or sdist, naming its units by kind, not version."""
+    """Scan a built wheel or sdist, naming its units by kind, not version.
+
+    The tree is scanned first, in the same run: members are read against it.
+    """
     try:
         data = path.read_bytes()
     except OSError:
-        raise GateError("an --archive argument cannot be read") from None
+        raise GateError("an artifact cannot be read") from None
     kind = archive_kind(path, data)
     report.files += 1
-    scan_units(extract_units(data, kind), tokens, report, _unversion(kind))
+    # Its file name, as a path: the unit carries the kind, not the versioned name.
+    report.hits |= scan_path(kind, path.name, tokens)
+    hook = _ArtifactHook(kind, data, report)
+    scan_units(extract_units(data, kind, hook=hook), tokens, report, _unversion(kind))
     return kind
 
 
@@ -580,11 +798,9 @@ def scan_archive(path: Path, tokens: Tokens, report: Report) -> str:
 
 
 def in_scope(entry: Hit, kinds: tuple[str, ...]) -> bool:
-    """Is this register entry checked by a run over ``kinds`` (empty = the tree)?"""
+    """Is this register entry checked by a run over the tree plus ``kinds``?"""
     prefix = re.split(r"[!#]", entry.unit, maxsplit=1)[0]
-    if not kinds:
-        return prefix not in ARCHIVE_KINDS
-    return prefix in kinds
+    return prefix not in ARCHIVE_KINDS or prefix in kinds
 
 
 def _order(hit: Hit) -> tuple[str, int, str]:
@@ -621,11 +837,16 @@ def display(unit: str, tokens: Tokens) -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
     parser.add_argument("--root", default=".", help="git work tree to scan (default: .)")
-    parser.add_argument(
+    artifacts_from = parser.add_mutually_exclusive_group()
+    artifacts_from.add_argument(
+        "--dist",
+        help="also scan this directory, which must hold exactly one wheel and one sdist",
+    )
+    artifacts_from.add_argument(
         "--archive",
         action="append",
         default=[],
-        help="scan a built wheel or sdist instead of the tree (repeatable)",
+        help="also scan a built wheel or sdist, read against the tree (repeatable)",
     )
     parser.add_argument("--list-file", help="read the list from this file instead of the env var")
     args = parser.parse_args(argv)
@@ -636,12 +857,14 @@ def main(argv: list[str] | None = None) -> int:
     report = Report()
     try:
         token_list = load_list(args.list_file)
+        dist = args.dist
+        artifacts = dist_files(Path(dist)) if dist is not None else [Path(a) for a in args.archive]
+        # The tree first, always: an artifact's members are read against it.
+        scan_tree(Path(args.root), token_list.tokens, report)
         scanned_kinds: set[str] = set()
-        for archive in args.archive:
-            scanned_kinds.add(scan_archive(Path(archive), token_list.tokens, report))
+        for artifact in artifacts:
+            scanned_kinds.add(scan_archive(artifact, token_list.tokens, report))
         kinds = tuple(sorted(scanned_kinds))
-        if not args.archive:
-            scan_tree(Path(args.root), token_list.tokens, report)
     except GateError as exc:
         print(f"name-gate: ERROR: {exc}", file=sys.stderr)
         return 2
@@ -658,9 +881,10 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"name-gate: stale exception {display(entry.unit, tokens)}:{entry.line} {entry.pattern_id}"
         )
+    inherited = f", {report.inherited} artifact member(s) identical to the tree" if kinds else ""
     print(
         f"name-gate: {report.files} file(s) scanned, {len(unexcused)} unexcused hit(s), "
-        f"{excused} excused, {len(stale)} stale exception(s)"
+        f"{excused} excused, {len(stale)} stale exception(s){inherited}"
     )
     return 1 if unexcused or stale else 0
 
