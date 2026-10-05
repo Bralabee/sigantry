@@ -124,11 +124,10 @@ az devops project create --name demo-sigantry --org "$ADO_ORG" --visibility publ
 Wire the four `SIGANTRY_DEMO_*` GitHub Actions secrets and the
 `sigantry-demo-secrets` ADO variable group per Section 2.
 
-## 5. Demo CI checks
+## 5. Demo CI notes
 
 The demo does not run end to end on the shipped demo tree yet, so this
-runbook has no recovery procedure for a failed demo CI run. Checks that
-do not depend on the demo tree:
+runbook has no recovery procedure for a failed demo CI run.
 
 - **Credentials:** check the SPN with the commands in Section 1;
   rotate per Section 2.

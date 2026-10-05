@@ -246,12 +246,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   made the same diff and rollback claims (continuous topology comparison,
   and a rollback restoring historical item states) and are corrected in
   place. The demo walkthrough, its operator runbook, the demo template's
-  README, quickstart, `parameters.yml` and CI files, and the demo lines of
-  the product brief, `CONSUMING.md`, `CAPABILITIES.md` and
+  README, quickstart, `parameters.yml` and CI files, and a demo entry in
+  each of the product brief, `CONSUMING.md`, `CAPABILITIES.md` and
   `templates/README.md` say the demo does not run end to end on the shipped
-  demo tree yet, and give the demo's steps without their results. The
-  runbook's service principal check now gets a Fabric access token with the
-  Azure CLI before it calls the API; it has not been run against a tenant.
+  demo tree yet. The runbook's service principal check now gets a Fabric
+  access token with the Azure CLI before it calls the API; it has not been
+  run against a tenant.
 - The documentation says how version numbers relate: public 1.0.0
   continues an internal 3.x line (1.0.0 corresponds to internal 3.4.x),
   and the v2.x and v3.x numbers in older pages refer to that line. The
@@ -680,11 +680,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   behaviour and says who is responsible for checking.
 - The demo CI workflow for GitHub Actions
   (`templates/demo/.github/workflows/sigantry-demo-ci.yml`) read `secrets`
-  in its step conditions, which GitHub does not allow, so GitHub rejected
-  the file before any step ran. The steps now test a job-level flag that
-  records whether the token secret is set. Its Python setup step no longer
-  asks for a pip cache: with no `requirements.txt` or `pyproject.toml` in
-  the demo tree, that failed the job before the deploy step.
+  in its step conditions, which GitHub does not allow there. The steps now
+  test a job-level flag that records whether the token secret is set. Its
+  Python setup step no longer asks for a pip cache, which looks for a
+  `requirements.txt` or `pyproject.toml`; the demo tree has neither.
 
 ### Security
 - **`publish-pypi.yml` no longer has a manual trigger.** `workflow_dispatch`

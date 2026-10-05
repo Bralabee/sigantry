@@ -3,8 +3,7 @@
 > The demo does not run end to end on the shipped demo tree yet.
 >
 > Phase 15 / DEMO-04. This walkthrough is for outside reviewers who
-> did not build Sigantry. It gives the demo's commands and says what
-> each step is for.
+> did not build Sigantry.
 
 ## What you will do
 
@@ -76,7 +75,7 @@ export SIGANTRY_DEMO_FABRIC_TOKEN="..."
 If you prefer a dotenv-style file, copy `scripts/live-creds.template`
 from the [sigantry monorepo](https://github.com/Bralabee/sigantry)
 into `.env.live` (do not commit it), populate the four `SIGANTRY_DEMO_*`
-keys, and `source` it.
+keys, and load it with `set -a; source .env.live; set +a`.
 
 ## Step 3 -- Validate parameters.yml
 

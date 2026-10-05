@@ -33,7 +33,7 @@ See the canonical version: <DOCS-URL-DEMO-QUICKSTART>
    - `SIGANTRY_FABRIC_WORKSPACE_ID_PREPROD`, `SIGANTRY_FABRIC_WORKSPACE_ID_PROD`,
      `SIGANTRY_FABRIC_CAPACITY_ID_PREPROD` and `SIGANTRY_FABRIC_CAPACITY_ID_PROD`
      (the demo uses only `DEV`, but step 3 needs every `$ENV:` reference
-     set; the demo IDs will do)
+     set; set these to the demo IDs)
 3. Validate parameters: `sigantry config validate parameters.yml`
 4. Reconcile the workspace's folder layout with the manifest: `sigantry sync apply --manifest sync.yml --workspace-id $SIGANTRY_DEMO_WORKSPACE_ID`
 5. Compare the workspace with the manifest: `sigantry diff --workspace-id $SIGANTRY_DEMO_WORKSPACE_ID --manifest sync.yml`
