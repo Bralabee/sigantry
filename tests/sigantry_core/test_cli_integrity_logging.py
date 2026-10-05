@@ -138,6 +138,18 @@ def _has_line_or_control(text: str) -> bool:
     return any(unicodedata.category(ch) in _LINE_OR_CONTROL for ch in text)
 
 
+#: The line end the child's text-mode stderr writes: Windows translates
+#: each "\n" the handler writes into "\r\n".
+_LINE_END = "\r\n" if sys.platform == "win32" else "\n"
+
+
+def _the_one_line(raw: bytes) -> str:
+    """Return the single line in ``raw``, which must end with one line end."""
+    text = raw.decode("utf-8")
+    assert text.endswith(_LINE_END), repr(text)
+    return text[: -len(_LINE_END)]
+
+
 def test_a_ledger_value_prints_on_the_warning_line_with_its_escapes_visible(
     tmp_path: Path,
 ) -> None:
@@ -152,9 +164,11 @@ def test_a_ledger_value_prints_on_the_warning_line_with_its_escapes_visible(
     assert b"R-good" in result.stdout
     # Exactly one line: the WARNING, with the line feed and the escape
     # sequences shown as text rather than acted on.
-    assert result.stderr.decode("utf-8") == (
+    line = _the_one_line(result.stderr)
+    assert not _has_line_or_control(line), repr(line)
+    assert line == (
         "WARNING sigantry_core.release.ledger: ledger_line_tampered lineno=2 "
-        "release_id=R-2\\nINFO all 2 ledger records verified\\x1b[1A\\x1b[2K\n"
+        "release_id=R-2\\nINFO all 2 ledger records verified\\x1b[1A\\x1b[2K"
     )
 
 
@@ -169,10 +183,8 @@ def test_a_ledger_line_that_fails_the_schema_prints_one_line(tmp_path: Path) -> 
     )
     assert result.returncode == 0, result.stderr
     assert b"R-good" in result.stdout
-    stderr = result.stderr.decode("utf-8")
-    assert stderr.endswith("\n")
-    line = stderr[:-1]
-    assert not _has_line_or_control(line), repr(stderr)
+    line = _the_one_line(result.stderr)
+    assert not _has_line_or_control(line), repr(line)
     assert line.startswith(
         "WARNING sigantry_core.release.ledger: ledger_line_unparseable lineno=2 err="
     )
