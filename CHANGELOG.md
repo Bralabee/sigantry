@@ -658,7 +658,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Drift Detection (`sigantry diff`)**:
   - Point-in-time topology comparison between a committed manifest and a live Fabric workspace, by item name, type and folder (not item content), run when invoked.
   - Rich color-coded terminal tables and SemVer-pinned JSON output (`--fail-on-drift` CI alerting).
-- **Deployment & Automated Rollback (`sigantry deploy`)**:
+- **Deployment & Rollback (`sigantry deploy`)**:
   - Forward deployments with topological dependency ordering and `$ENV:` parameter substitution.
   - One-command release rollback (`--rollback --to-release <release-id> --rollback-force`) that publishes again the items a recorded release names, with their content read from the `--source` checkout (the record holds no content and no commit).
 - **Audit & Provenance Ledger (`sigantry release` & `governance.audit`)**:

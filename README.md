@@ -7,7 +7,7 @@
 
 **Sigantry** is an enterprise-grade governance, drift detection, and rollback engine for Microsoft Fabric CI/CD pipelines.
 
-Built by **JToye Digital**, Sigantry wraps Microsoft's official deployment tooling (`fabric-cicd`, `fab` CLI, and Fabric REST APIs) rather than replacing them. While Microsoft owns the automation lane, Sigantry provides the mission-critical governance layer enterprise platform teams require: **integrity-checked deploy ledgers, automated rollback, scheduled drift detection, destructive-operation gating, and headless PR-review bots**.
+Built by **JToye Digital**, Sigantry wraps Microsoft's official deployment tooling (`fabric-cicd`, `fab` CLI, and Fabric REST APIs) rather than replacing them. While Microsoft owns the automation lane, Sigantry provides the mission-critical governance layer enterprise platform teams require: **integrity-checked deploy ledgers, release rollback, scheduled drift detection, destructive-operation gating, and headless PR-review bots**.
 
 ---
 

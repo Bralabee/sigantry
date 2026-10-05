@@ -890,9 +890,9 @@ an id you choose and link it to work items, run
 listing the items you deployed if you want to be able to roll back to
 it.
 
-The five-stage ADO + GHA template pair under
-`templates/stages/cd-{dev,test,prod}.yml` shows how this composes
-with build, test, and approval-gate stages.
+The five-stage ADO + GHA template pair, `templates/stages/sigantry-cd.yml`
+and `.github/workflows/sigantry-cd.yml`, shows how this composes with
+test and approval stages.
 
 ### 14.2 Rolling back
 
@@ -977,8 +977,9 @@ graph LR
 }
 ```
 
-The model is `extra="forbid"` plus `frozen=True`, so a `DeployRecord`
-object cannot be changed in place. That does not protect the ledger
+The model is `extra="forbid"` plus `frozen=True`, so a `DeployRecord`'s
+fields cannot be reassigned (its lists and dicts can still be edited in
+place). That does not protect the ledger
 file: a line edited on disk is caught by the hash check only if its
 hash was not recomputed (see 15.2).
 

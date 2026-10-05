@@ -69,7 +69,7 @@ sigantry deploy run --source . --workspace-id "$TUT06_WSID" --environment DEV \
   --params parameters.yml
 # expect: per-item "Published ..." lines, then a JSON summary of item counts
 #   (no release_id: a forward deploy writes no ledger record)
-ITEMS=$(ls -d */ | sed 's#/$##' | paste -sd, -)
+ITEMS=$(ls -d */ | sed 's#/$##' | grep -E '\.(Lakehouse|Environment|Notebook|DataPipeline)$' | paste -sd, -)
 sigantry release record --release-id tut07-A --workspace "$TUT06_WSID" \
   --fabric-items "$ITEMS" --work-items "$TUT07_ISSUE" --approver "$USER" \
   --provider github --github-owner "$TUT07_OWNER" --github-repo "$TUT07_REPO" \
@@ -78,9 +78,9 @@ sigantry release record --release-id tut07-A --workspace "$TUT06_WSID" \
 sigantry release list --audit-dir "$AUDIT_DIR"
 ```
 
-`--fabric-items` is what a rollback reads: it lists the item folders of the tree as
-`<name>.<type>`. A record without it names no items, and a rollback to it publishes
-nothing.
+`--fabric-items` is what a rollback reads: `ITEMS` lists the item folders of the types
+`deploy run` publishes by default (`--item-types`), as `<name>.<type>`. A record
+without it names no items, and a rollback to it publishes nothing.
 
 ## Step 3 — Make the "bad" change and ship Release B
 
