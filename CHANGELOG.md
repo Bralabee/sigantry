@@ -22,29 +22,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `.sigantry.toml` that 1.0.0 ignored because it was the only file present now
   takes effect.
 - **Env prefix.** `SIGANTRY_<SECTION>__<KEY>` is now read. `FDT_` is still
-  read, with a `DeprecationWarning`, and through 1.0.x it outranks `SIGANTRY_`
-  for the same setting. A `SIGANTRY_` value overrides `.sigantry.toml`, but
-  over the legacy config file, or a file passed by path, it only fills what the
-  file leaves unset, because 1.0.0 read those files and ignored `SIGANTRY_`. A
+  read, with a `DeprecationWarning`, and through 1.0.x every `FDT_` form 1.0.0
+  read gives the value it gave there, so it outranks `SIGANTRY_` for the same
+  setting. A `SIGANTRY_` value overrides `.sigantry.toml`, but over the legacy
+  config file, or a file passed by path, it only fills what the file leaves
+  unset, because 1.0.0 read those files and ignored `SIGANTRY_`; in a table
+  such as `[release.ado]` it fills the keys the table leaves unset. A
   `UserWarning` names each `SIGANTRY_` variable that a different legacy value
   overrides; equal values are silent. `FDT_` names in another letter case
-  (`fdt_core__tenant_id`) are read again, below the file as in 1.0.0, and
-  `load_settings()` again keeps an `FDT_` name whose section is not a settings
-  section (`FDT_MYPLUG__KEY`) as a top-level extra. `FDT_<SECTION>` holding a
-  JSON object fills that section; 1.0.0 read that form only in a
-  `ToolkitSettings()` built directly, and `load_settings()` failed on it.
+  (`fdt_core__tenant_id`), and `fdt_<section>` holding a JSON object, are read
+  again and ranked as in 1.0.0: below a file key spelled `tenant_id`, above
+  one spelled in another case such as `TENANT_ID`, and with
+  `<SECTION>__<KEY>` names laid over the JSON object. Where several `FDT_`
+  names set one setting, the one 1.0.0 used still wins, which for names that
+  differ only in letter case depends, as in 1.0.0, on the order the
+  environment lists them. `load_settings()` again keeps an `FDT_` name whose
+  section is not a settings section (`FDT_MYPLUG__KEY`) as a top-level extra,
+  and it now reads `FDT_<SECTION>` holding a JSON object, a spelling 1.0.0's
+  `load_settings()` failed on.
 - **Settings keys.** A key written in another letter case, such as `TENANT_ID`
   under `[core]`, sets its field again, as it did on 1.0.0 with
-  pydantic-settings 2.15, with a `DeprecationWarning`. The lower-case spelling
-  wins where both are given. Keys that name no field keep their spelling.
-- **`ToolkitSettings()` built directly** reads `FDT_` and `SIGANTRY_` settings
-  variables again, and honours `_env_file`, `_secrets_dir` and a non-empty
-  `_env_prefix`, all through the filter `load_settings()` uses: only
-  `<PREFIX><SECTION>__<KEY>` names, or `<PREFIX><SECTION>` holding a JSON
-  object, whose section is a settings section. Values passed to the
-  constructor outrank them. `_env_prefix=""` is refused with a `UserWarning`,
-  because it would read unprefixed names, and the default prefixes are read
-  instead.
+  pydantic-settings 2.15, with a `DeprecationWarning`, and so does a section
+  name such as `[CORE]`. Where one is spelled more than once, the first
+  spelling wins, as in 1.0.0. Keys that name no field keep their spelling.
+- **`ToolkitSettings()` built directly** reads settings variables again:
+  `FDT_` ones from the environment, `_env_file` and `_secrets_dir`, or the
+  names under a non-empty `_env_prefix`, each with the result 1.0.0 gave, and
+  `SIGANTRY_` ones from the same three inputs, which only fill what those
+  leave unset. Only names whose section is a settings section are read, in
+  the forms 1.0.0 read (`<PREFIX><SECTION>__<KEY>`, and `<PREFIX><SECTION>`
+  holding a JSON object) and as `SIGANTRY_<SECTION>__<KEY>`. Values passed to
+  the constructor outrank them all. `_env_prefix=""` is refused with a
+  `UserWarning`, because it would read unprefixed names, and the default
+  prefixes are read instead.
 - **Unprefixed variables stay unread** (see Security). A `FutureWarning` names
   each one that 1.0.0 would have read, where nothing else sets the field, with
   its `SIGANTRY_<SECTION>__<KEY>` replacement: `TENANT_ID`, `PROVIDER`, `SINK`,
@@ -60,21 +70,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `load_settings()`.
 - **Warnings as errors.** Library code run with `PYTHONWARNINGS=error`,
   `-W error` or pytest's `filterwarnings = error` turns these warnings into
-  exceptions. `sigantry sync apply` and `sigantry sync pull` record them and
-  print none, as 1.0.0 printed none, so neither a warnings-as-errors setting
-  nor a pipeline step that fails on any stderr output stops them. A
-  `DeprecationWarning` from the settings loader is attributed to the first
-  caller outside sigantry, so Python shows it by default when the script being
-  run made the call, `FabricDataOps.from_config()` included.
-- **pytest plugin.** The `fdt_settings_toml` fixture also writes
-  `.sigantry.toml`, byte-identical to the legacy file whose path it still
-  returns, so a test that changes into that directory and calls
-  `FabricDataOps.from_config()` no longer fails under
-  `-W error::DeprecationWarning`.
-- **Env override order.** Settings variables that set one setting in two
-  incompatible ways, such as `FDT_DEPLOY__X=a` with `FDT_DEPLOY__X__Y=b`,
-  resolve the same way on every run; in 1.0.0 the result depended on the order
-  the variables were exported in.
+  exceptions. `sigantry sync apply`, `sigantry sync pull` and `diagnose-auth`
+  record them and print none, as 1.0.0 printed none, so neither a
+  warnings-as-errors setting nor a pipeline step that fails on any stderr
+  output stops them. A `DeprecationWarning` from the settings loader is
+  attributed to the first caller outside sigantry, so Python shows it by
+  default when the script being run made the call,
+  `FabricDataOps.from_config()` included.
+- **pytest plugin.** The `fdt_settings_toml` fixture still returns the legacy
+  file's path, and also makes `.sigantry.toml` the same file (a hard link, or
+  a copy where the filesystem has none). A test that changes into that
+  directory and calls `FabricDataOps.from_config()`, after editing the
+  returned file in place or not, no longer fails under warnings as errors.
 
 ### Added
 - **A name gate** (`scripts/ci/check-name-gate.py`, run by

@@ -21,17 +21,20 @@ Legacy surface, honoured for one more minor release with a
 - the config filename ``.fabric-dataops.toml``;
 - the env prefix ``FDT_``.
 
-Through 1.0.x, every input sigantry 1.0.0 read keeps the result it had there:
+Through 1.0.x, every input sigantry 1.0.0 read keeps the result it had there.
+The inputs 1.0.0 read are resolved the way 1.0.0 resolved them (see
+:func:`_result_1_0_0`), and the new surfaces, ``.sigantry.toml`` and
+``SIGANTRY_`` variables, then fill only the settings that result leaves
+unset:
 
 - when ``.sigantry.toml`` and the legacy file both exist and differ, the
   legacy file is read, with a ``UserWarning``;
-- an ``FDT_`` value outranks a ``SIGANTRY_`` value for the same setting;
-- a ``SIGANTRY_`` value only fills a setting the file leaves unset when the
-  file is one 1.0.0 read as well (an explicit ``path``, or the legacy file);
-  over a ``.sigantry.toml`` found by default resolution it wins;
-- ``FDT_`` names in another letter case, and ``FDT_<SECTION>`` holding a JSON
-  object, are read again, below the file as in 1.0.0;
-- a key in a settings section matches its field whatever its letter case;
+- an ``FDT_`` value, in any letter case, outranks a ``SIGANTRY_`` value for
+  the same setting, and so does a file 1.0.0 read as well (an explicit
+  ``path``, or the legacy file); over a ``.sigantry.toml`` found by default
+  resolution, ``SIGANTRY_`` wins;
+- a key or section name matches its field whatever its letter case, and
+  where it is spelled twice the first spelling wins, as in 1.0.0;
 - ``ToolkitSettings()`` built directly reads the environment again, through
   the same filter as :func:`load_settings`.
 
@@ -50,7 +53,7 @@ import warnings
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 from types import FrameType
-from typing import Any, Literal, NamedTuple, get_origin
+from typing import Any, NamedTuple, get_origin
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.fields import FieldInfo
@@ -138,9 +141,13 @@ class _SeamSubSettings(BaseModel):
         ``case_sensitive=False``, so ``TENANT_ID`` under ``[core]`` set
         ``tenant_id``. A plain model matches names exactly and would keep that
         key as an extra, leaving the field at its default with no error. Only
-        declared fields are matched; any other key keeps its spelling. The
-        exact spelling wins over a variant, and among variants the first one
-        does. Each variant is reported with a ``DeprecationWarning``.
+        declared fields are matched; any other key keeps its spelling. Where a
+        field is spelled more than once, the first spelling wins, as it did in
+        1.0.0. Each variant is reported with a ``DeprecationWarning``.
+
+        :func:`load_settings` and a ``ToolkitSettings()`` built directly hand
+        these models keys already matched this way (:func:`_fold_case`), so
+        this only acts on a section model built directly.
         """
         if not isinstance(data, dict):
             return data
@@ -149,25 +156,31 @@ class _SeamSubSettings(BaseModel):
         folded: list[str] = []
         for key, value in data.items():
             target = None
-            if isinstance(key, str) and key not in cls.model_fields:
+            if isinstance(key, str):
                 target = declared.get(key.lower())
             if target is None:
                 out[key] = value
                 continue
-            folded.append(key)
-            if target not in data and target not in out:
+            if key != target:
+                folded.append(key)
+            if target not in out:
                 out[target] = value
         if folded:
             section = _section_name_of(cls)
-            names = ", ".join(f"[{section}] {key}" if section else key for key in folded)
             _warn(
-                f"Settings key(s) {names} match a settings field only when case is "
-                "ignored, which sigantry 1.0.0 allowed. Write them in lower case "
-                "(for example tenant_id); case-insensitive matching will be removed "
-                "in a future minor release.",
+                _case_message(f"[{section}] {key}" if section else key for key in folded),
                 DeprecationWarning,
             )
         return out
+
+
+def _case_message(names: Iterable[str]) -> str:
+    return (
+        f"Settings key(s) {_names(names)} match a settings field only when case is "
+        "ignored, which sigantry 1.0.0 allowed. Write them in lower case "
+        "(for example tenant_id); case-insensitive matching will be removed "
+        "in a future minor release."
+    )
 
 
 class CoreSettings(_SeamSubSettings):
@@ -331,15 +344,20 @@ class WorkflowSettings(_SeamSubSettings):
 
 
 class _FilteredEnvSource(PydanticBaseSettingsSource):
-    """The env layer of a ``ToolkitSettings()`` built directly.
+    """The only settings source of a ``ToolkitSettings()`` built directly.
 
     In 1.0.0 the constructor read ``FDT_`` variables itself, and honoured
     ``_env_file``, ``_secrets_dir`` and ``_env_prefix``. This keeps all of
-    that, but every input goes through the filter :func:`load_settings` uses
-    (:func:`_collect_overrides`), so no unprefixed name and no section this
-    model does not declare is read. Values passed to the constructor outrank
-    it; within it the process environment outranks the env file, which
-    outranks the secrets directory, as in pydantic-settings.
+    that: the values passed to the constructor and the inputs 1.0.0 read are
+    resolved the way 1.0.0 resolved them (:func:`_result_1_0_0`), and the
+    ``SIGANTRY_`` variables then fill what that leaves unset. Every input is
+    read through a filter, so no unprefixed name and no section this model
+    does not declare is read.
+
+    It returns the constructor values too, and pydantic-settings' own init
+    source is left out (see ``settings_customise_sources``): merged a second
+    time, a key the constructor spelled exactly would replace the value 1.0.0
+    took from an earlier spelling of it.
 
     The raw inputs are taken from the default sources pydantic-settings has
     already built, which have resolved the constructor arguments against
@@ -370,42 +388,38 @@ class _FilteredEnvSource(PydanticBaseSettingsSource):
         return None, field_name, False
 
     def __call__(self) -> dict[str, Any]:
+        given = dict(self._init_kwargs)
         if _ENV_ALREADY_MERGED.get():
-            return {}
+            return given
         report = _EnvReport()
         prefix = self._env_prefix
         if prefix == "":
             report.empty_prefix = True
-            prefix = _ENV_PREFIX
+            prefix = None
+        custom = prefix is not None and prefix.upper() != _ENV_PREFIX
+        old_prefix = prefix if custom and prefix else _LEGACY_ENV_PREFIX
         dotenv = {k: v for k, v in self._dotenv_vars.items() if v is not None}
-        secrets = _read_secrets_dir(self._secrets_dir)
-        if prefix is None or prefix.upper() == _ENV_PREFIX:
-            layers = [
-                _file_style_layer(secrets, report),
-                _file_style_layer(dotenv, report),
-                # Unknown FDT_ heads: 1.0.0's constructor never bound them,
-                # only load_settings did.
-                _layer_env(
-                    os.environ,
-                    report,
-                    file_data={},
-                    file_read_by_1_0_0=False,
-                    unknown_legacy_heads=False,
-                ),
+        # Highest rank first, as in pydantic-settings: the process environment,
+        # then the env file, then the secrets directory.
+        old = _result_1_0_0(
+            given,
+            [
+                _env_source_1_0_0(os.environ, old_prefix, report),
+                _env_source_1_0_0(dotenv, old_prefix, report),
+                _secrets_source_1_0_0(self._secrets_dir, old_prefix, report),
+            ],
+            report,
+        )
+        new: list[list[_Override]] = []
+        if not custom:
+            # SIGANTRY_ was never read under a prefix of the caller's choosing.
+            secrets = _read_secrets_dir(self._secrets_dir)
+            new = [
+                _collect_overrides(os.environ, _ENV_PREFIX, exact=True, report=report),
+                _collect_overrides(dotenv, _ENV_PREFIX, exact=False, report=report),
+                _collect_overrides(secrets, _ENV_PREFIX, exact=False, report=report),
             ]
-        else:
-            layers = [
-                _custom_prefix_layer(source, prefix, report)
-                for source in (secrets, dotenv, os.environ)
-            ]
-        data: dict[str, Any] = {}
-        for layer in layers:
-            _merge_layer(data, layer)
-        given = {
-            key: value.model_dump(exclude_unset=True) if isinstance(value, BaseModel) else value
-            for key, value in self._init_kwargs.items()
-        }
-        report.bare = _bare_names_1_0_0_would_read(os.environ, data, given)
+        data = _fill_new_surfaces(old, {}, new, report, given=given)
         report.emit()
         return data
 
@@ -443,7 +457,7 @@ class ToolkitSettings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        """Init values first, then the filtered env layer; never pydantic's.
+        """One source: the filtered env layer, which carries the init values.
 
         pydantic-settings' own ``EnvSettingsSource`` would be a *second*
         env-reading mechanism alongside ``_apply_env_overrides``, and under
@@ -456,10 +470,10 @@ class ToolkitSettings(BaseSettings):
 
         :class:`_FilteredEnvSource` reads the environment through the same
         filter as :func:`load_settings`, so a direct construction sees that
-        env layer and nothing more.
+        env layer and nothing more. It merges the constructor values itself,
+        so ``init_settings`` is only read from, never returned.
         """
         return (
-            init_settings,
             _FilteredEnvSource(
                 settings_cls,
                 init_settings=init_settings,
@@ -503,7 +517,7 @@ def load_settings(
 
     The TOML file is parsed with stdlib ``tomllib`` (Python 3.11+).
     :func:`_apply_env_overrides` layers the env vars onto the parsed mapping,
-    which is then passed as the initial field values to ``ToolkitSettings``.
+    and the result is passed as the initial field values to ``ToolkitSettings``.
 
     Behaviours:
 
@@ -523,7 +537,7 @@ def load_settings(
     if resolved.path.is_file():
         with resolved.path.open("rb") as fh:
             data = tomllib.load(fh)
-    _apply_env_overrides(data, file_read_by_1_0_0=resolved.read_by_1_0_0)
+    data = _apply_env_overrides(data, file_read_by_1_0_0=resolved.read_by_1_0_0)
     token = _ENV_ALREADY_MERGED.set(True)
     try:
         return ToolkitSettings(**data)
@@ -633,6 +647,7 @@ class _EnvReport:
     def __init__(self) -> None:
         self.legacy: list[str] = []
         self.clobbered: list[str] = []
+        self.case: list[str] = []
         self.shadowed: list[str] = []
         self.bare: list[tuple[str, list[str]]] = []
         self.empty_prefix = False
@@ -662,6 +677,8 @@ class _EnvReport:
                 "one more minor release and then removed (ADR-0011).",
                 DeprecationWarning,
             )
+        if self.case:
+            _warn(_case_message(self.case), DeprecationWarning)
         if self.shadowed:
             _warn(
                 f"Ignoring {_ENV_PREFIX} settings variable(s) {_names(self.shadowed)}: "
@@ -705,11 +722,6 @@ def _section_name_of(model: type[BaseModel]) -> str | None:
     return None
 
 
-def _declared_field(section: str, key: str) -> bool:
-    model = _section_model(section)
-    return model is not None and key in model.model_fields
-
-
 def _is_mapping_field(section: str, key: str) -> bool:
     """True if ``<section>.<key>`` is a declared dict-typed settings field.
 
@@ -738,23 +750,258 @@ def _json_object(raw: object) -> dict[str, Any] | None:
     return parsed if isinstance(parsed, dict) else None
 
 
+# -- The inputs sigantry 1.0.0 read, resolved as 1.0.0 resolved them ----------
+#
+# 1.0.0's load_settings() wrote its own FDT_ pass over the parsed file and
+# passed the result to ToolkitSettings, whose pydantic-settings sources (2.15,
+# case-insensitive) then did the rest. The functions below repeat those steps
+# on the same inputs, so every result 1.0.0 produced comes out the same. They
+# leave out only what made 1.0.0 fail or write junk keys, and unprefixed names
+# (see _bare_names_1_0_0_would_read).
+
+
+def _deep_update(lower: Mapping[str, Any], higher: Mapping[str, Any]) -> dict[str, Any]:
+    """pydantic-settings' merge of two sources: ``higher`` wins at each leaf,
+    mappings merge key by key, and ``lower``'s keys keep their place first."""
+    merged = dict(lower)
+    for key, value in higher.items():
+        current = merged.get(key)
+        if isinstance(current, dict) and isinstance(value, dict):
+            merged[key] = _deep_update(current, value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _fold_case(
+    model: type[BaseModel], data: Mapping[Any, Any], report: _EnvReport, section: str | None
+) -> dict[Any, Any]:
+    """Match keys onto ``model``'s fields whatever their letter case.
+
+    This is what a case-insensitive ``BaseSettings`` did with the values it was
+    given in 1.0.0: for each field, the first key in ``data`` that spells it
+    supplies the value and every other spelling is dropped. Keys that name no
+    field keep their spelling and their value. Each other spelling is named in
+    ``report``.
+    """
+    taken: set[Any] = set()
+    folded: dict[Any, Any] = {}
+    for field in model.model_fields:
+        spelled = [k for k in data if isinstance(k, str) and k.lower() == field]
+        if spelled:
+            folded[field] = data[spelled[0]]
+            taken.update(spelled)
+            report.case.extend(
+                (f"[{section}] {k}" if section else k) for k in spelled if k != field
+            )
+    folded.update((k, v) for k, v in data.items() if k not in taken)
+    return folded
+
+
+def _fold_sections(data: Mapping[str, Any], report: _EnvReport) -> dict[str, Any]:
+    """Each declared section's keys, matched onto its fields (see :func:`_fold_case`)."""
+    folded = dict(data)
+    for section in ToolkitSettings.model_fields:
+        model = _section_model(section)
+        value = folded.get(section)
+        if model is not None and isinstance(value, dict):
+            folded[section] = _fold_case(model, value, report, section)
+    return folded
+
+
+def _legacy_pass_1_0_0(
+    data: dict[str, Any], environ: Mapping[str, str], report: _EnvReport
+) -> None:
+    """1.0.0's own ``FDT_`` pass in :func:`load_settings`, in place over the file.
+
+    Every name that starts with ``FDT_`` in exactly that case is written, in
+    the order the environment lists them, so a later name replaces an earlier
+    one for the same setting, as in 1.0.0. The rest of the name is lower-cased
+    and split on ``__``; a head that names no section is kept as a top-level
+    extra, and a scalar met on the way to a deeper name is replaced by a table.
+
+    A scalar written where a table belongs -- ``FDT_<SECTION>``, or a dict-typed
+    field -- made 1.0.0 fail, unless a later, deeper name replaced it with a
+    table again (dropping what the file had there). One still in place at the
+    end is taken back out, and the value it replaced restored; the env source
+    reads such a name when it holds a JSON object, and any other scalar aimed
+    at a dict-typed field is reported. A degenerate name (``FDT_CORE__`` splits
+    to ``["core", ""]``) is skipped: 1.0.0 wrote it as a junk key.
+    """
+    known = frozenset(ToolkitSettings.model_fields)
+    size = len(_LEGACY_ENV_PREFIX)
+    replaced: dict[tuple[str, ...], tuple[str, Any]] = {}
+    for name, raw in environ.items():
+        if not name.startswith(_LEGACY_ENV_PREFIX):
+            continue
+        path = tuple(name[size:].lower().split(_ENV_DELIM))
+        if not all(path):
+            continue
+        report.legacy.append(name)
+        cursor: dict[str, Any] = data
+        for segment in path[:-1]:
+            nxt = cursor.get(segment)
+            if not isinstance(nxt, dict):
+                nxt = {}
+                cursor[segment] = nxt
+            cursor = nxt
+        if path[0] in known and (
+            len(path) == 1 or (len(path) == 2 and _is_mapping_field(path[0], path[1]))
+        ):
+            replaced[path] = (name, cursor.get(path[-1], _MISSING))
+        cursor[path[-1]] = raw
+    for path, (name, before) in replaced.items():
+        parent: Any = data
+        for segment in path[:-1]:
+            parent = parent.get(segment) if isinstance(parent, dict) else None
+        if not isinstance(parent, dict) or isinstance(parent.get(path[-1]), dict):
+            continue  # a deeper name made it a table again, as it did in 1.0.0
+        if before is _MISSING:
+            parent.pop(path[-1], None)
+        else:
+            parent[path[-1]] = before
+        if len(path) == 2 and _json_object(environ.get(name)) is None:
+            report.clobbered.append(name)
+
+
+def _env_source_1_0_0(
+    environ: Mapping[str, str | None], prefix: str, report: _EnvReport
+) -> dict[str, Any]:
+    """What pydantic-settings' env source gave ``ToolkitSettings`` in 1.0.0.
+
+    Names match the prefix and the section in any letter case; where two names
+    differ only in case, the later one's value counts. Per section,
+    ``<PREFIX><SECTION>`` holding a JSON object is the base, and the
+    ``<PREFIX><SECTION>__<KEY>`` names are laid over it, so a nested name beats
+    the JSON object whatever the order. Only declared sections are read, and a
+    dict-typed field takes a JSON object only. Used for the process
+    environment and for an env file.
+    """
+    low_prefix = prefix.lower()
+    values: dict[str, str] = {}
+    spelled: dict[str, list[str]] = {}
+    for name, raw in environ.items():
+        key = name.lower()
+        if raw is None or not key.startswith(low_prefix):
+            continue
+        values[key] = raw
+        spelled.setdefault(key, []).append(name)
+    legacy = prefix.upper() == _LEGACY_ENV_PREFIX
+    result: dict[str, Any] = {}
+    for section in ToolkitSettings.model_fields:
+        model = _section_model(section)
+        if model is None:
+            continue
+        head = low_prefix + section
+        used: list[str] = []
+        table = _json_object(values.get(head))
+        if table is not None:
+            used.append(head)
+        nested: dict[str, Any] = {}
+        start = head + _ENV_DELIM
+        for key, raw in values.items():
+            if not key.startswith(start):
+                continue
+            *parents, last = key[len(start) :].split(_ENV_DELIM)
+            if not all((*parents, last)):
+                continue
+            value: Any = raw
+            if not parents and _is_mapping_field(section, last):
+                value = _json_object(raw)
+                if value is None:
+                    report.clobbered.extend(spelled[key])
+                    continue
+            cursor: Any = nested
+            for parent in parents:
+                cursor = cursor.setdefault(parent, {}) if isinstance(cursor, dict) else cursor
+            if isinstance(cursor, dict):
+                cursor[last] = value
+            used.append(key)
+        if table is None and not nested:
+            continue
+        merged = _deep_update(table or {}, nested)
+        # The env source renamed keys onto the fields they spell in any case;
+        # where two spell one field, the later one wins.
+        declared = {field.lower(): field for field in model.model_fields}
+        result[section] = {
+            declared.get(k.lower(), k) if isinstance(k, str) else k: v for k, v in merged.items()
+        }
+        if legacy:
+            report.legacy.extend(n for key in used for n in spelled[key])
+    return result
+
+
+def _secrets_source_1_0_0(secrets_dir: Any, prefix: str, report: _EnvReport) -> dict[str, Any]:
+    """What pydantic-settings' secrets source gave ``ToolkitSettings`` in 1.0.0.
+
+    A file named ``<PREFIX><SECTION>`` in any letter case, holding a JSON
+    object, sets that section: the first such name in directory order, in the
+    last directory that has one. Nested names are not read from files, and
+    anything 1.0.0 failed on is skipped.
+    """
+    dirs = [secrets_dir] if isinstance(secrets_dir, str | os.PathLike) else list(secrets_dir or ())
+    result: dict[str, Any] = {}
+    for section in ToolkitSettings.model_fields:
+        model = _section_model(section)
+        wanted = (prefix + section).lower()
+        for directory in reversed(dirs):
+            try:
+                found = next(
+                    (e for e in Path(directory).expanduser().iterdir() if e.name.lower() == wanted),
+                    None,
+                )
+                raw = (
+                    found.read_text(encoding="utf-8").strip() if found and found.is_file() else None
+                )
+            except (OSError, UnicodeDecodeError):
+                continue
+            if raw is None:
+                continue
+            table = _json_object(raw)
+            if model is not None and table is not None and found is not None:
+                declared = {field.lower(): field for field in model.model_fields}
+                result[section] = {declared.get(k.lower(), k): v for k, v in table.items()}
+                if prefix.upper() == _LEGACY_ENV_PREFIX:
+                    report.legacy.append(found.name)
+            break
+    return result
+
+
+def _result_1_0_0(
+    given: Mapping[str, Any], sources: Iterable[Mapping[str, Any]], report: _EnvReport
+) -> dict[str, Any]:
+    """The values 1.0.0 gave ``ToolkitSettings``, from what it was given and its
+    env sources (highest rank first).
+
+    The given values' section names are matched first, as pydantic-settings
+    matched the constructor's arguments; the sources are merged below them;
+    then each section's keys are matched onto its fields. That order is why a
+    file key spelled ``TENANT_ID`` lost to an ``fdt_core__tenant_id`` variable
+    in 1.0.0 while a file key spelled ``tenant_id`` won, and it is kept.
+    """
+    state = _fold_case(ToolkitSettings, given, report, None)
+    for source in sources:
+        state = _deep_update(source, state)
+    return _fold_sections(state, report)
+
+
+# -- The surfaces 1.0.0 did not read ------------------------------------------
+
+
 def _collect_overrides(
     environ: Mapping[str, str | None],
     prefix: str,
     *,
-    match: Literal["exact", "variant", "any"],
+    exact: bool,
     report: _EnvReport,
-    unknown_heads: bool = False,
-    json_forms: bool = False,
 ) -> list[_Override]:
     """Read ``<PREFIX><SECTION>__<KEY>`` overrides out of ``environ``, sorted.
 
-    This is the one filter every env input goes through. ``match`` says which
-    spellings of ``prefix`` count: ``"exact"``; ``"variant"``, the same letters
-    in another case only; or ``"any"``. A name is read only when its
-    ``<SECTION>`` names a field of ``ToolkitSettings`` (``unknown_heads``
-    lifts that, see :func:`_apply_env_overrides`) and the rest of it splits on
-    ``__`` into non-empty segments. ``not all(path)`` rejects a degenerate key:
+    The filter every ``SIGANTRY_`` input goes through. With ``exact``, the
+    prefix must be spelled as given; otherwise in any case (an env file's
+    names arrive lower-cased). A name is read only when its ``<SECTION>``
+    names a field of ``ToolkitSettings`` and the rest of it splits on ``__``
+    into non-empty segments. ``not all(path)`` rejects a degenerate key:
     ``CORE__`` splits to ``["core", ""]`` and would write an empty-string key
     onto the section, where ``extra=allow`` keeps it and ``model_dump()``
     renders it as junk.
@@ -762,86 +1009,23 @@ def _collect_overrides(
     A bare ``<PREFIX><SECTION>`` would replace a whole section table with a
     scalar, and a scalar aimed at a dict-typed field is the same hazard one
     level down, which fails validation on every load for as long as the
-    variable is exported. Both are skipped (the second is reported), except
-    that with ``json_forms`` a JSON object is read as the table it spells, as
-    pydantic-settings' env source read it in 1.0.0.
+    variable is exported. Both are skipped, and the second is reported.
     """
     known_sections = frozenset(ToolkitSettings.model_fields)
     size = len(prefix)
     overrides: list[_Override] = []
     for name, raw in sorted(environ.items()):
         head = name[:size]
-        if raw is None or head.upper() != prefix.upper():
-            continue
-        if (match == "exact" and head != prefix) or (match == "variant" and head == prefix):
+        if raw is None or (head != prefix if exact else head.upper() != prefix.upper()):
             continue
         path = tuple(name[size:].lower().split(_ENV_DELIM))
-        if not all(path):
+        if len(path) < 2 or not all(path) or path[0] not in known_sections:
             continue
-        if path[0] not in known_sections:
-            if unknown_heads:
-                overrides.append(_Override(name, path, raw))
-            continue
-        if len(path) == 1 or (len(path) == 2 and _is_mapping_field(path[0], path[1])):
-            table = _json_object(raw) if json_forms else None
-            if table is not None:
-                overrides.append(_Override(name, path, table))
-            elif len(path) == 2:
-                report.clobbered.append(name)
+        if len(path) == 2 and _is_mapping_field(path[0], path[1]):
+            report.clobbered.append(name)
             continue
         overrides.append(_Override(name, path, raw))
     return overrides
-
-
-def _merge_layer(
-    target: dict[str, Any],
-    layer: Mapping[str, Any],
-    *,
-    fill: bool = False,
-    _section: str | None = None,
-    _depth: int = 0,
-) -> None:
-    """Merge ``layer`` onto ``target`` in place, deep.
-
-    Mappings merge key by key and anything else replaces, which is how
-    pydantic-settings merges its sources. With ``fill``, a value already in
-    ``target`` is kept and ``layer`` only adds what is missing.
-
-    One level down, in a known section, a key matches its declared field
-    whatever its case, as :class:`_SeamSubSettings` does. So a layer that sets
-    ``tenant_id`` removes a lower layer's ``TENANT_ID``: otherwise a mixed-case
-    key in the file would outrank an env override of the same field.
-    """
-    for key, value in layer.items():
-        slot = key
-        if _depth == 1 and _section is not None and isinstance(key, str):
-            folded = key.lower()
-            if _declared_field(_section, folded):
-                variants = [k for k in target if isinstance(k, str) and k.lower() == folded]
-                if fill and variants:
-                    slot = key if key in target else variants[0]
-                elif not fill:
-                    for variant in variants:
-                        if variant != key:
-                            del target[variant]
-        current = target.get(slot, _MISSING)
-        if isinstance(value, Mapping) and isinstance(current, dict):
-            _merge_layer(
-                current,
-                value,
-                fill=fill,
-                _section=key if _depth == 0 else _section,
-                _depth=_depth + 1,
-            )
-        elif not fill or current is _MISSING:
-            target[slot] = copy.deepcopy(value)
-
-
-def _nest(path: tuple[str, ...], value: Any) -> dict[str, Any]:
-    nested: Any = value
-    for segment in reversed(path):
-        nested = {segment: nested}
-    return dict(nested)
 
 
 def _override_layer(overrides: Iterable[_Override]) -> dict[str, Any]:
@@ -864,31 +1048,45 @@ def _override_layer(overrides: Iterable[_Override]) -> dict[str, Any]:
     return layer
 
 
-def _fill_layer(overrides: Iterable[_Override]) -> dict[str, Any]:
-    """One layer in which the first override for a setting wins."""
-    layer: dict[str, Any] = {}
-    for override in overrides:
-        _merge_layer(layer, _nest(override.path, override.value), fill=True)
-    return layer
+def _filled(target: Mapping[str, Any], layer: Mapping[str, Any]) -> dict[str, Any]:
+    """``target`` plus every leaf of ``layer`` it does not set.
+
+    Neither argument is changed: ``target`` can hold the caller's own
+    dicts, passed to the constructor.
+    """
+    merged = dict(target)
+    for key, value in layer.items():
+        current = merged.get(key)
+        if key not in merged:
+            merged[key] = copy.deepcopy(value)
+        elif isinstance(current, dict) and isinstance(value, Mapping):
+            merged[key] = _filled(current, value)
+    return merged
 
 
 def _get_leaf(data: Mapping[str, Any], path: tuple[str, ...]) -> tuple[bool, Any]:
-    """Return ``(present, value)`` at ``path``; field keys match in any case."""
+    """Return ``(present, value)`` at ``path``."""
     cursor: Any = data
-    for depth, segment in enumerate(path):
-        if not isinstance(cursor, dict):
+    for segment in path:
+        if isinstance(cursor, BaseModel):
+            cursor = cursor.model_dump(exclude_unset=True)
+        if not isinstance(cursor, dict) or segment not in cursor:
             return False, None
-        if segment in cursor:
-            cursor = cursor[segment]
-            continue
-        folded = segment.lower()
-        if depth == 1 and _declared_field(path[0], folded):
-            spelled = next((k for k in cursor if isinstance(k, str) and k.lower() == folded), None)
-            if spelled is not None:
-                cursor = cursor[spelled]
-                continue
-        return False, None
+        cursor = cursor[segment]
     return True, cursor
+
+
+def _passed_in(given: Mapping[str, Any], path: tuple[str, ...]) -> bool:
+    """True if the constructor's values set ``path``, or a whole model or
+    value on the way to it."""
+    cursor: Any = given
+    for segment in path:
+        if not isinstance(cursor, dict):
+            return True
+        if segment not in cursor:
+            return False
+        cursor = cursor[segment]
+    return True
 
 
 def _same_value(current: Any, raw: str) -> bool:
@@ -902,82 +1100,42 @@ def _same_value(current: Any, raw: str) -> bool:
     return False
 
 
-def _layer_env(
-    environ: Mapping[str, str],
+def _fill_new_surfaces(
+    old: Mapping[str, Any],
+    new_file: Mapping[str, Any],
+    new_vars: Iterable[Iterable[_Override]],
     report: _EnvReport,
     *,
-    file_data: dict[str, Any],
-    file_read_by_1_0_0: bool,
-    unknown_legacy_heads: bool,
+    given: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Merge the process environment and ``file_data``; see :func:`_apply_env_overrides`."""
-    new = _collect_overrides(environ, _ENV_PREFIX, match="exact", report=report)
-    legacy = _collect_overrides(
-        environ,
-        _LEGACY_ENV_PREFIX,
-        match="exact",
-        report=report,
-        unknown_heads=unknown_legacy_heads,
+    """``old``, the 1.0.0 result, filled from the surfaces 1.0.0 did not read.
+
+    ``new_file`` is a ``.sigantry.toml`` 1.0.0 would not have opened, and
+    ``new_vars`` the ``SIGANTRY_`` overrides from each input, highest rank
+    first; a variable outranks the file. Together they only add settings
+    ``old`` leaves unset, so no input 1.0.0 read changes its value. A
+    ``SIGANTRY_`` variable whose value a different legacy value keeps out is
+    named in ``report``; one outranked by a value passed to the constructor
+    (``given``) is not, since that is not a legacy setting.
+    """
+    ranked = [list(overrides) for overrides in new_vars]
+    new = _fold_sections(_fold_case(ToolkitSettings, new_file, report, None), report)
+    for overrides in reversed(ranked):
+        new = _deep_update(new, _override_layer(overrides))
+    merged = _filled(old, new)
+    given = _fold_sections(
+        _fold_case(ToolkitSettings, given or {}, _EnvReport(), None), _EnvReport()
     )
-    # Forms 1.0.0 read only through pydantic-settings' env source: FDT_ in
-    # another letter case, and FDT_<SECTION>={JSON object}. That source ranked
-    # below the values load_settings passed in, so these rank below the file.
-    legacy_low = [
-        *(
-            o
-            for o in _collect_overrides(
-                environ, _LEGACY_ENV_PREFIX, match="exact", report=_EnvReport(), json_forms=True
-            )
-            if len(o.path) == 1
-        ),
-        *_collect_overrides(
-            environ, _LEGACY_ENV_PREFIX, match="variant", report=report, json_forms=True
-        ),
-    ]
-    report.legacy.extend(o.name for o in (*legacy, *legacy_low))
-    new_layer = _override_layer(new)
-    low_layer = _fill_layer(legacy_low)
-    legacy_layer = _override_layer(legacy)
-    if file_read_by_1_0_0:
-        layers = [new_layer, low_layer, file_data, legacy_layer]
-    else:
-        layers = [file_data, new_layer, low_layer, legacy_layer]
-    merged: dict[str, Any] = {}
-    for layer in layers:
-        _merge_layer(merged, layer)
-    for override in new:
-        if _get_leaf(new_layer, override.path) != (True, override.value):
+    for override in (o for overrides in ranked for o in overrides):
+        if _get_leaf(new, override.path) != (True, override.value):
             continue  # replaced by another SIGANTRY_ variable, not by a legacy source
+        if _passed_in(given, override.path):
+            continue
         present, current = _get_leaf(merged, override.path)
         if not present or not _same_value(current, override.value):
             report.shadowed.append(override.name)
+    report.bare = _bare_names_1_0_0_would_read(os.environ, merged)
     return merged
-
-
-def _file_style_layer(source: Mapping[str, str | None], report: _EnvReport) -> dict[str, Any]:
-    """An env file or secrets directory under the default prefixes.
-
-    pydantic-settings hands the env file's names over lower-cased, so the
-    letter case of a prefix cannot be checked here. ``FDT_`` outranks
-    ``SIGANTRY_`` within the source, as in the process environment.
-    """
-    legacy = _collect_overrides(
-        source, _LEGACY_ENV_PREFIX, match="any", report=report, json_forms=True
-    )
-    report.legacy.extend(o.name for o in legacy)
-    layer = _override_layer(_collect_overrides(source, _ENV_PREFIX, match="any", report=report))
-    _merge_layer(layer, _fill_layer(legacy))
-    return layer
-
-
-def _custom_prefix_layer(
-    source: Mapping[str, str | None], prefix: str, report: _EnvReport
-) -> dict[str, Any]:
-    """One input read under the caller's ``_env_prefix``, as 1.0.0 did."""
-    overrides = _collect_overrides(source, prefix, match="any", report=report, json_forms=True)
-    if prefix.upper() == _LEGACY_ENV_PREFIX:
-        report.legacy.extend(o.name for o in overrides)
-    return _fill_layer(overrides)
 
 
 def _read_secrets_dir(secrets_dir: Any) -> dict[str, str]:
@@ -1003,7 +1161,7 @@ def _read_secrets_dir(secrets_dir: Any) -> dict[str, str]:
 
 
 def _bare_names_1_0_0_would_read(
-    environ: Mapping[str, str], *supplied: Mapping[str, Any]
+    environ: Mapping[str, str], supplied: Mapping[str, Any]
 ) -> list[tuple[str, list[str]]]:
     """Unprefixed variables 1.0.0 would have bound, with their prefixed forms.
 
@@ -1018,7 +1176,7 @@ def _bare_names_1_0_0_would_read(
         replacements = [
             f"{_ENV_PREFIX}{section.upper()}{_ENV_DELIM}{field.upper()}"
             for section, field in targets
-            if not any(_get_leaf(source, (section, field))[0] for source in supplied)
+            if not _get_leaf(supplied, (section, field))[0]
             and (not _is_mapping_field(section, field) or _json_object(raw) is not None)
         ]
         if replacements:
@@ -1026,29 +1184,31 @@ def _bare_names_1_0_0_would_read(
     return found
 
 
-def _apply_env_overrides(data: dict[str, Any], *, file_read_by_1_0_0: bool = False) -> None:
-    """Layer settings env overrides onto the parsed config ``data`` (in place).
+def _apply_env_overrides(
+    data: dict[str, Any], *, file_read_by_1_0_0: bool = False
+) -> dict[str, Any]:
+    """Return the parsed config ``data`` with the settings env vars layered on.
 
     pydantic-settings v2.1 does not have ``TomlConfigSettingsSource`` (added in
-    2.2). We emulate env-layer precedence by walking ``os.environ`` ourselves
-    with the ``SIGANTRY_`` prefix + ``__`` nested delimiter.
+    2.2). We emulate env-layer precedence by walking ``os.environ`` ourselves.
 
-    Precedence, highest first. Every source sigantry 1.0.0 read outranks
-    ``SIGANTRY_``, which it did not, so no upgrade changes a value 1.0.0 set:
-
-    1. ``FDT_<SECTION>__<KEY>``, the deprecated legacy prefix, exact case;
-    2. the file, when ``file_read_by_1_0_0`` (an explicit path, or the legacy
-       file);
-    3. ``FDT_`` names in another letter case, and ``FDT_<SECTION>`` holding a
-       JSON object. 1.0.0 read these through pydantic-settings' own env
-       source, below the file;
-    4. ``SIGANTRY_<SECTION>__<KEY>``;
-    5. the file otherwise (``.sigantry.toml`` found by default resolution).
+    Every input sigantry 1.0.0 read outranks the ones it did not, so no upgrade
+    changes a value 1.0.0 set. The inputs 1.0.0 read -- the file when
+    ``file_read_by_1_0_0`` (an explicit path, or the legacy file), and ``FDT_``
+    variables in any letter case -- are resolved exactly as 1.0.0 resolved
+    them (:func:`_legacy_pass_1_0_0`, :func:`_env_source_1_0_0`,
+    :func:`_result_1_0_0`). In outline: ``FDT_<SECTION>__<KEY>`` spelled with
+    an exact ``FDT_`` wins; then the file; then ``FDT_`` names in another letter
+    case and ``FDT_<SECTION>`` holding a JSON object, which pydantic-settings
+    read below the file -- but above a file key spelled in another case. The
+    surfaces 1.0.0 did not read then fill what that leaves unset:
+    ``SIGANTRY_<SECTION>__<KEY>``, over ``.sigantry.toml`` when that is the
+    file (found by default resolution).
 
     A ``SIGANTRY_`` value that a different legacy value outranks is named in a
-    ``UserWarning``; legacy names in a ``DeprecationWarning``; unprefixed
-    names 1.0.0 would have read in a ``FutureWarning``. Equal values are
-    silent.
+    ``UserWarning``; legacy names and keys matched in another case in a
+    ``DeprecationWarning``; unprefixed names 1.0.0 would have read in a
+    ``FutureWarning``. Equal values are silent.
 
     Only ``<PREFIX><SECTION>__<KEY>`` forms are merged, and ``<SECTION>`` must
     name a field of ``ToolkitSettings``. **That restriction is load-bearing.**
@@ -1067,17 +1227,15 @@ def _apply_env_overrides(data: dict[str, Any], *, file_read_by_1_0_0: bool = Fal
     newly added seam cannot fall out of sync with this function.
     """
     report = _EnvReport()
-    merged = _layer_env(
-        os.environ,
-        report,
-        file_data=data,
-        file_read_by_1_0_0=file_read_by_1_0_0,
-        unknown_legacy_heads=True,
+    old_file, new_file = (data, {}) if file_read_by_1_0_0 else ({}, data)
+    _legacy_pass_1_0_0(old_file, os.environ, report)
+    old = _result_1_0_0(
+        old_file, [_env_source_1_0_0(os.environ, _LEGACY_ENV_PREFIX, report)], report
     )
-    report.bare = _bare_names_1_0_0_would_read(os.environ, merged)
-    data.clear()
-    data.update(merged)
+    new_vars = [_collect_overrides(os.environ, _ENV_PREFIX, exact=True, report=report)]
+    merged = _fill_new_surfaces(old, new_file, new_vars, report)
     report.emit()
+    return merged
 
 
 __all__ = [

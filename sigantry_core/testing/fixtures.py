@@ -26,11 +26,12 @@ Three kinds of fixtures are exposed:
 * **Settings TOML fixture** (``fdt_settings_toml``) stages a tmp-path
   ``.fabric-dataops.toml`` with configurable plugin sections for tests
   that exercise ``FabricDataOps.from_config`` end-to-end, plus a
-  byte-identical ``.sigantry.toml`` beside it.
+  ``.sigantry.toml`` beside it that is the same file.
 """
 
 from __future__ import annotations
 
+import os
 import tomllib
 from collections.abc import Callable
 from pathlib import Path
@@ -136,12 +137,15 @@ def fdt_fake_work_item_provider() -> FakeWorkItemProvider:
 def fdt_settings_toml(tmp_path: Path) -> Callable[..., Path]:
     """Factory fixture: write the legacy config file at ``tmp_path``.
 
-    It also writes ``.sigantry.toml`` with the same bytes, and returns the
-    legacy file's path, as it did in 1.0.0. A test that changes into
-    ``tmp_path`` and loads settings with no path then finds two identical
-    files, which the loader reads without a warning. With the legacy file
-    alone it would raise a ``DeprecationWarning``, and fail a suite run with
-    ``-W error::DeprecationWarning`` that passed on 1.0.0.
+    It returns the legacy file's path, as it did in 1.0.0, and also makes
+    ``.sigantry.toml`` a hard link to that file (a copy where the filesystem
+    has no hard links). A test that changes into ``tmp_path`` and loads
+    settings with no path then finds two identical files, which the loader
+    reads without a warning, and an edit the test makes to the returned file
+    in place (``write_text``, say) reaches both names, so they stay identical.
+    With the legacy file alone the loader would raise a
+    ``DeprecationWarning``, and with two different files a ``UserWarning``;
+    either fails a suite run with warnings as errors that passed on 1.0.0.
 
     Usage::
 
@@ -177,12 +181,23 @@ def fdt_settings_toml(tmp_path: Path) -> Callable[..., Path]:
         content = ("\n".join(lines) + "\n").encode("utf-8")
         path = tmp_path / _LEGACY_CONFIG_FILENAME
         path.write_bytes(content)
-        (tmp_path / _CONFIG_FILENAME).write_bytes(content)
+        _same_file_as(path, tmp_path / _CONFIG_FILENAME)
         # Round-trip validates the produced TOML parses cleanly.
         tomllib.loads(path.read_text(encoding="utf-8"))
         return path
 
     return _write
+
+
+def _same_file_as(path: Path, twin: Path) -> None:
+    """Make ``twin`` a hard link to ``path``, or a copy of it if that fails."""
+    try:
+        if twin.exists() and os.path.samefile(path, twin):
+            return
+        twin.unlink(missing_ok=True)
+        os.link(path, twin)
+    except OSError:
+        twin.write_bytes(path.read_bytes())
 
 
 # ---------------------------------------------------------------------------

@@ -85,6 +85,19 @@ def _messages(caught: list[warnings.WarningMessage], category: type[Warning]) ->
     return [str(w.message) for w in caught if w.category is category]
 
 
+def _as_listed(name: str) -> str:
+    """``name`` as ``os.environ`` lists it once set: unchanged on POSIX, in
+    upper case on Windows, where environment names are not case-sensitive."""
+    return next(listed for listed in os.environ if listed.upper() == name.upper())
+
+
+def _posix_only(reason: str) -> pytest.MarkDecorator:
+    """Skip on Windows, which folds environment names to upper case: a name
+    in lower or mixed case cannot be set there, nor two names that differ
+    only in letter case."""
+    return pytest.mark.skipif(sys.platform == "win32", reason=reason)
+
+
 # ---------------------------------------------------------------------------
 # 1.1 Both config files present: the legacy file is read, as 1.0.0 did
 # ---------------------------------------------------------------------------
@@ -241,9 +254,13 @@ def test_lower_case_legacy_prefix_binds_when_file_is_silent(
     settings, caught = _load()
 
     assert settings.core.tenant_id == "lower"
-    assert any(name in m for m in _messages(caught, DeprecationWarning))
+    assert any(_as_listed(name) in m for m in _messages(caught, DeprecationWarning))
 
 
+@_posix_only(
+    "Windows sets fdt_core__tenant_id as FDT_CORE__TENANT_ID, the exact prefix, which "
+    "outranked the file in 1.0.0 too (test_fdt_value_beats_sigantry_value_and_warns)"
+)
 @pytest.mark.parametrize("name", ["fdt_core__tenant_id", "Fdt_Core__Tenant_Id"])
 def test_lower_case_legacy_prefix_ranks_below_file(
     name: str, monkeypatch: pytest.MonkeyPatch
@@ -257,6 +274,7 @@ def test_lower_case_legacy_prefix_ranks_below_file(
     assert settings.core.tenant_id == "T-legacy"
 
 
+@_posix_only("on Windows FDT_CORE__TENANT_ID and fdt_core__tenant_id are one variable")
 def test_exact_prefix_beats_lower_case_variant(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("FDT_CORE__TENANT_ID", "UP")
     monkeypatch.setenv("fdt_core__tenant_id", "low")
@@ -278,6 +296,8 @@ def test_legacy_section_json_object_fills(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_lower_case_legacy_dict_field_json_binds(monkeypatch: pytest.MonkeyPatch) -> None:
+    """On Windows the name is set as ``FDT_RUNBOOKS__STATIC_MAP``, which 1.0.0's
+    ``load_settings()`` failed on; it binds the same table now."""
     monkeypatch.setenv("fdt_runbooks__static_map", json.dumps({"Alert": "https://x.example"}))
 
     settings, _ = _load()
@@ -285,6 +305,10 @@ def test_lower_case_legacy_dict_field_json_binds(monkeypatch: pytest.MonkeyPatch
     assert settings.runbooks.static_map == {"Alert": "https://x.example"}
 
 
+@_posix_only(
+    "Windows sets sigantry_core__tenant_id as SIGANTRY_CORE__TENANT_ID, the exact "
+    "spelling, which is read"
+)
 def test_lower_case_new_prefix_is_not_read(monkeypatch: pytest.MonkeyPatch) -> None:
     """Guard: SIGANTRY_ is new; only its exact spelling is read."""
     monkeypatch.setenv("sigantry_core__tenant_id", "lower-new")
@@ -304,6 +328,50 @@ def test_legacy_section_scalar_still_ignored(monkeypatch: pytest.MonkeyPatch) ->
 
     assert settings.core.tenant_id == "T-legacy"
     assert settings.auth.provider is None
+
+
+@pytest.mark.parametrize("build", ["load", "construct"])
+@pytest.mark.parametrize(
+    "order", [("json", "nested"), ("nested", "json")], ids=["json-first", "nested-first"]
+)
+def test_nested_legacy_name_beats_the_section_json_object(
+    order: tuple[str, str], build: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """pydantic-settings laid ``fdt_<section>__<key>`` over the JSON object in
+    ``fdt_<section>`` in 1.0.0, whichever was exported first."""
+    names = {
+        "json": ("fdt_core", json.dumps({"tenant_id": "from-json"})),
+        "nested": ("fdt_core__tenant_id", "from-nested"),
+    }
+    for which in order:
+        monkeypatch.setenv(*names[which])
+
+    settings, _ = _load() if build == "load" else _construct()
+
+    assert settings.core.tenant_id == "from-nested"
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "expected"),
+    [
+        ("fdt_core__tenant_id", "from-env", "from-env"),
+        ("Fdt_Core__Tenant_Id", "from-env", "from-env"),
+        ("fdt_core", json.dumps({"tenant_id": "from-json"}), "from-json"),
+    ],
+)
+def test_legacy_name_beats_a_file_key_spelled_in_another_case(
+    name: str, value: str, expected: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """In 1.0.0 the env source's ``tenant_id`` came before the file's
+    ``TENANT_ID`` in the merged section, and the first spelling won. A file
+    key spelled ``tenant_id`` still wins over these names (see
+    ``test_lower_case_legacy_prefix_ranks_below_file``)."""
+    _write(_LEGACY_CONFIG_FILENAME, '[core]\nTENANT_ID = "from-file"\n')
+    monkeypatch.setenv(name, value)
+
+    settings, _ = _load()
+
+    assert settings.core.tenant_id == expected
 
 
 # ---------------------------------------------------------------------------
@@ -460,6 +528,50 @@ def test_direct_construction_refuses_an_empty_prefix(monkeypatch: pytest.MonkeyP
     assert any("_env_prefix" in m for m in _messages(caught, UserWarning))
 
 
+def test_direct_construction_reads_exact_case_dict_field_json(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """1.0.0's constructor read a JSON object for a dict-typed field from
+    ``FDT_<SECTION>__<FIELD>``, as well as from the lower-case spelling."""
+    monkeypatch.setenv("FDT_RUNBOOKS__STATIC_MAP", json.dumps({"Alert": "https://x.example"}))
+    monkeypatch.setenv("FDT_RELEASE__ADO", json.dumps({"organization": "o"}))
+    monkeypatch.setenv("FDT_RELEASE__GITHUB", json.dumps({"owner": "w"}))
+
+    settings, caught = _construct()
+
+    assert settings.runbooks.static_map == {"Alert": "https://x.example"}
+    assert (settings.release.ado, settings.release.github) == (
+        {"organization": "o"},
+        {"owner": "w"},
+    )
+    assert not any("replace a table" in m for m in _messages(caught, UserWarning))
+
+
+@pytest.mark.parametrize("source", ["env_file", "secrets_dir"])
+def test_direct_construction_legacy_value_from_a_file_input_outranks_new_prefix(
+    source: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """1.0.0 read the ``FDT_`` value from ``_env_file`` or ``_secrets_dir``
+    and never read ``SIGANTRY_``, even from the process environment."""
+    if source == "env_file":
+        target = tmp_path / "settings.env"
+        target.write_text("FDT_CORE__TENANT_ID=from-legacy-input\n", encoding="utf-8")
+        kwargs: dict[str, Any] = {"_env_file": target}
+    else:
+        target = tmp_path / "sd"
+        target.mkdir()
+        (target / "fdt_core").write_text(
+            json.dumps({"tenant_id": "from-legacy-input"}), encoding="utf-8"
+        )
+        kwargs = {"_secrets_dir": target}
+    monkeypatch.setenv("SIGANTRY_CORE__TENANT_ID", "from-process-new-prefix")
+
+    settings, caught = _construct(**kwargs)
+
+    assert settings.core.tenant_id == "from-legacy-input"
+    assert any("SIGANTRY_CORE__TENANT_ID" in m for m in _messages(caught, UserWarning))
+
+
 def test_load_settings_warns_once(monkeypatch: pytest.MonkeyPatch) -> None:
     """load_settings merges env itself; the model's env source must stay out."""
     monkeypatch.setenv("FDT_CORE__TENANT_ID", "fdt")
@@ -530,21 +642,36 @@ def test_section_keys_match_declared_fields_whatever_their_case() -> None:
 
 
 @pytest.mark.parametrize(
-    ("body", "expected"),
+    ("section", "body", "expected"),
     [
-        ('TENANT_ID = "variant"\ntenant_id = "exact"\n', "exact"),
-        ('tenant_id = "exact"\nTENANT_ID = "variant"\n', "exact"),
-        ('TENANT_ID = "first"\nTenant_Id = "second"\n', "first"),
+        ("core", 'TENANT_ID = "variant"\ntenant_id = "exact"\n', "variant"),
+        ("core", 'tenant_id = "exact"\nTENANT_ID = "variant"\n', "exact"),
+        ("core", 'TENANT_ID = "first"\nTenant_Id = "second"\n', "first"),
+        ("workflow", "PREVIEW_APIS_ACKNOWLEDGED = true\npreview_apis_acknowledged = false\n", True),
     ],
-    ids=["mixed-first", "exact-first", "two-variants"],
+    ids=["mixed-first", "exact-first", "two-variants", "bool-mixed-first"],
 )
-def test_two_spellings_resolve_the_same_way_every_time(body: str, expected: str) -> None:
-    _write(_LEGACY_CONFIG_FILENAME, "[core]\n" + body)
+def test_two_spellings_keep_the_first_as_1_0_0_did(
+    section: str, body: str, expected: object
+) -> None:
+    """1.0.0 took the first spelling of a field in the section, whichever it was."""
+    _write(_LEGACY_CONFIG_FILENAME, f"[{section}]\n" + body)
 
     settings, _ = _load()
 
-    assert settings.core.tenant_id == expected
-    assert settings.core.model_extra == {}
+    model = getattr(settings, section)
+    field = "tenant_id" if section == "core" else "preview_apis_acknowledged"
+    assert getattr(model, field) == expected
+    assert model.model_extra == {}
+
+
+def test_constructor_values_keep_the_first_spelling_too() -> None:
+    """``ToolkitSettings(core={...})`` resolved two spellings the same way in 1.0.0."""
+    settings, caught = _construct(core={"TENANT_ID": "variant", "tenant_id": "exact"})
+
+    assert settings.core.tenant_id == "variant"
+    case = [m for m in _messages(caught, DeprecationWarning) if "case is ignored" in m]
+    assert len(case) == 1 and "[core] TENANT_ID" in case[0], case
 
 
 def test_legacy_env_override_beats_mixed_case_toml_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -576,6 +703,44 @@ def test_mixed_case_key_in_legacy_file_beats_sigantry_value(
     settings, _ = _load()
 
     assert settings.core.tenant_id == "upper"
+
+
+@pytest.mark.parametrize(
+    "env",
+    [
+        {},
+        {"SIGANTRY_CORE__REGION": "uk"},
+        {"SIGANTRY_AUTH__PROVIDER": "p"},
+        {"FDT_CORE__REGION": "uk"},
+    ],
+    ids=["no-env", "new-prefix-other-key", "new-prefix-other-section", "legacy-other-key"],
+)
+def test_two_spellings_resolve_the_same_way_whatever_else_is_set(
+    env: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A variable for another setting cannot change which spelling wins."""
+    _write(_LEGACY_CONFIG_FILENAME, '[core]\ntenant_id = "exact"\nTENANT_ID = "variant"\n')
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+
+    settings, _ = _load()
+
+    assert settings.core.tenant_id == "exact"
+
+
+@pytest.mark.parametrize("filename", [_LEGACY_CONFIG_FILENAME, _CONFIG_FILENAME])
+def test_table_in_another_case_is_filled_by_new_prefix_not_replaced(
+    filename: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``[release.ADO]`` is ``release.ado``. A ``SIGANTRY_`` key it leaves
+    unset fills it; nothing the table sets is lost, and nothing is warned."""
+    _write(filename, '[release.ADO]\norganization = "f-org"\n')
+    monkeypatch.setenv("SIGANTRY_RELEASE__ADO__PROJECT", "p")
+
+    settings, caught = _load()
+
+    assert settings.release.ado == {"organization": "f-org", "project": "p"}
+    assert _messages(caught, UserWarning) == []
 
 
 def test_unknown_keys_keep_their_case() -> None:
@@ -627,6 +792,41 @@ def test_deprecation_is_attributed_to_the_caller_through_from_config(
 
 
 # ---------------------------------------------------------------------------
+# 1.8 diagnose-auth records and drops the settings warnings, as sync does
+# ---------------------------------------------------------------------------
+
+
+def test_diagnose_auth_settings_load_prints_no_warning(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """1.0.0 printed nothing here; a stderr line fails a step set to fail on it."""
+    from sigantry_core.auth.cli import _resolve_expected_group
+
+    monkeypatch.setenv("TENANT_ID", "exported-for-another-tool")
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        assert _resolve_expected_group(None) == (None, None)
+
+    assert [str(w.message) for w in caught] == []
+    assert capsys.readouterr().err == ""
+
+
+def test_diagnose_auth_settings_load_survives_warnings_as_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``PYTHONWARNINGS=error``: a settings warning may not stop the command."""
+    from sigantry_core.auth.cli import _resolve_expected_group
+
+    monkeypatch.setenv("TENANT_ID", "exported-for-another-tool")
+    _write(_LEGACY_CONFIG_FILENAME, '[auth]\nexpected_group = "g"\n')
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert _resolve_expected_group(None) == ("g", None)
+
+
+# ---------------------------------------------------------------------------
 # 1.9 The shipped pytest fixture under -W error::DeprecationWarning
 # ---------------------------------------------------------------------------
 
@@ -637,6 +837,24 @@ def test_fixture_still_returns_the_legacy_path(fdt_settings_toml: Any) -> None:
     assert path.name == _LEGACY_CONFIG_FILENAME
     twin = path.parent / _CONFIG_FILENAME
     assert twin.is_file() and twin.read_bytes() == path.read_bytes()
+
+
+def test_fixture_stays_silent_after_the_test_edits_the_returned_file(
+    fdt_settings_toml: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A plugin test edits the file the fixture returned, then loads with
+    warnings as errors. On 1.0.0 there was one file, and no warning."""
+    from sigantry_core.api import FabricDataOps
+
+    path = fdt_settings_toml(core={"tenant_id": "t1"})
+    path.write_text(path.read_text(encoding="utf-8") + '[telemetry]\nnote = "x"\n', "utf-8")
+    monkeypatch.chdir(path.parent)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        ops = FabricDataOps.from_config()
+
+    assert ops.settings.telemetry.model_extra == {"note": "x"}
 
 
 def test_fixture_default_path_load_is_silent_under_error_filter(tmp_path: Path) -> None:
@@ -751,11 +969,13 @@ def test_bare_dict_field_scalar_not_reported(monkeypatch: pytest.MonkeyPatch) ->
 
 
 def test_warning_never_contains_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A name is reported as the environment lists it: ``store`` on POSIX,
+    ``STORE`` on Windows, which folds names to upper case."""
     monkeypatch.setenv("TENANT_ID", "VALUE-tenant")
     monkeypatch.setenv("store", "VALUE-store")
 
     _, caught = _load()
 
     text = "\n".join(_messages(caught, FutureWarning))
-    assert "TENANT_ID" in text and "store -> SIGANTRY_SECRETS__STORE" in text
+    assert "TENANT_ID" in text and f"{_as_listed('store')} -> SIGANTRY_SECRETS__STORE" in text
     assert "VALUE-" not in text
