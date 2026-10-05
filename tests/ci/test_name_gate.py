@@ -68,15 +68,18 @@ def _tree(tmp_path: Path, files: dict[str, bytes | str], ignore: str = "") -> Pa
 
 
 def _run(
-    root: Path,
+    root: Path | None,
     tmp_path: Path,
     list_text: str | None = LIST,
     *extra: str,
     env_value: str | None = None,
     cwd: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    """Run the gate as CI does; ``root=None`` passes no ``--root`` at all."""
     env = {k: v for k, v in os.environ.items() if k != "NAME_GATE_TOKENS"}
-    args = [sys.executable, str(GATE), "--root", str(root), *extra]
+    # git looks for no repository above the test's directory, wherever pytest put it.
+    env["GIT_CEILING_DIRECTORIES"] = str(tmp_path)
+    args = [sys.executable, str(GATE), *([] if root is None else ["--root", str(root)]), *extra]
     if env_value is not None:
         env["NAME_GATE_TOKENS"] = env_value
     elif list_text is not None:
@@ -1181,6 +1184,69 @@ def test_dist_and_archive_cannot_be_combined(tmp_path: Path) -> None:
     wheel = dist / "demo-1.2.3-py3-none-any.whl"
     proc = _run(root, tmp_path, LIST, "--dist", str(dist), "--archive", str(wheel))
     assert proc.returncode == 2
+
+
+def test_archive_without_root_reads_the_artifacts_alone_outside_a_work_tree(
+    tmp_path: Path,
+) -> None:
+    """``--archive`` with no ``--root`` scans the artifacts it names and lists no tree.
+
+    Run from a directory that is not a git work tree, a run that listed the
+    working directory as the tree would stop with exit 2 before reading the
+    artifact.
+    """
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    probe = subprocess.run(
+        ["git", "-C", str(elsewhere), "rev-parse"],
+        capture_output=True,
+        env={**os.environ, "GIT_CEILING_DIRECTORIES": str(tmp_path)},
+        check=False,
+    )
+    assert probe.returncode != 0, "the test needs a directory outside any work tree"
+    clean = _wheel(tmp_path, "x = 1\n")
+    proc = _run(None, tmp_path, LIST, "--archive", str(clean), cwd=elsewhere)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "name-gate: 1 file(s) scanned," in proc.stdout
+    assert "identical to the tree" not in proc.stdout  # no tree was read
+    planted = tmp_path / "planted"
+    planted.mkdir()
+    proc = _run(
+        None, tmp_path, LIST, "--archive", str(_wheel(planted, "# zqplant\n")), cwd=elsewhere
+    )
+    assert proc.returncode == 1
+    assert _hits(proc) == ["wheel!demo/__init__.py:1 S01"]
+    # An artifact entry that matches nothing is still stale: the run judges what it read.
+    gone = LIST + "exception wheel!demo/gone.py:1 S01\n"
+    proc = _run(None, tmp_path, gone, "--archive", str(clean), cwd=elsewhere)
+    assert proc.returncode == 1
+    assert _hits(proc) == ["stale exception wheel!demo/gone.py:1 S01"]
+
+
+def test_archive_without_root_does_not_judge_the_working_directory(tmp_path: Path) -> None:
+    """Run from inside another repository, ``--archive`` alone neither scans nor judges its tree.
+
+    That tree is not the one the artifact was built from: its hits are not
+    the artifact's, and its register entries are not stale for lack of them.
+    Given ``--root``, the same run judges the tree, which is the control.
+    """
+    other = _tree(tmp_path, {**BASE, "a.py": "zqplant\n"})
+    listed = LIST + "exception gone.py:1 S01\n"
+    wheel = _wheel(tmp_path, "x = 1\n")
+    proc = _run(None, tmp_path, listed, "--archive", str(wheel), cwd=other)
+    assert proc.returncode == 0, proc.stdout
+    assert "name-gate: 1 file(s) scanned," in proc.stdout
+    proc = _run(other, tmp_path, listed, "--archive", str(wheel), cwd=other)
+    assert proc.returncode == 1
+    assert _hits(proc) == ["a.py:1 S01", "stale exception gone.py:1 S01"]
+
+
+def test_dist_without_root_scans_the_working_directory_tree(tmp_path: Path) -> None:
+    """``--dist`` always reads the tree: ``.`` when ``--root`` is not given."""
+    root = _tree(tmp_path, {**BASE, "a.py": "zqplant\n"})
+    proc = _run(None, tmp_path, LIST, "--dist", str(_dist(tmp_path)), cwd=root)
+    assert proc.returncode == 1
+    assert _hits(proc) == ["a.py:1 S01"]
 
 
 def test_an_empty_dist_argument_is_an_error_not_the_working_directory(tmp_path: Path) -> None:

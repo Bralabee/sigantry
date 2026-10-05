@@ -45,9 +45,10 @@ What is read (no path, basename or suffix is exempt):
   run. An uncompressed tar is a binary file with no reader;
 - a git LFS pointer is UNREADABLE: the checkout holds the pointer, not
   the file;
-- with ``--dist`` or ``--archive``, built wheels and sdists AS WELL AS the
-  tree at ``--root``, which is always scanned first: an artifact is judged
-  together with the tree it was built from, in one run with one verdict.
+- with ``--dist``, or with ``--archive`` and ``--root``, built wheels and
+  sdists AS WELL AS the tree at ``--root`` (``.`` when ``--dist`` is given
+  without it), which is scanned first: an artifact is judged together
+  with the tree it was built from, in one run with one verdict.
   ``--dist DIR`` is what a release runs: DIR must hold exactly one wheel
   (``.whl``) and one sdist (``.tar.gz``) and nothing else, dot files
   included, because that directory is what the upload sends. Each
@@ -98,6 +99,12 @@ What is read (no path, basename or suffix is exempt):
     short token by chance. A line that does not check out is read as
     written.
 
+  ``--archive`` without ``--root`` reads the artifacts alone, for a look
+  at a build away from the work tree it came from: no tree is listed, so
+  no member is judged by a tree file's entries and the core metadata body
+  is never the readme's copy, and the run checks only the ``wheel!`` and
+  ``sdist!`` entries of the kinds it read.
+
 A file is binary when its first 8000 bytes hold a control byte other
 than tab, line and page breaks, SUB and ESC (a NUL included), unless it
 starts with a UTF-16 or UTF-32 byte-order mark.
@@ -126,10 +133,10 @@ path even where the output redacts it (a container member is
 ``<file>!<member>``; a derived unit carries a ``#`` suffix, e.g.
 ``#pdf-text``). ``exception <file>:0 BINARY`` accepts one binary file.
 An exception that matches no hit is stale and fails the run, so the
-register cannot drift away from the lines it excuses. A tree run checks
-the tree entries; a run with artifacts checks the tree entries and the
-``wheel!``/``sdist!`` entries of the kinds it read, so a tree run never
-reads an artifact entry as stale.
+register cannot drift away from the lines it excuses. A run checks the
+tree entries when it scans the tree, and the ``wheel!``/``sdist!`` entries
+of the kinds of artifact it read, so no run reads an entry for something
+it did not scan as stale.
 
 The list is read from the ``NAME_GATE_TOKENS`` environment variable, or
 from ``--list-file``. The value may be plain text or gzip + base64 (for
@@ -143,6 +150,7 @@ Usage:
     python scripts/ci/check-name-gate.py --root <path>
     python scripts/ci/check-name-gate.py --root . --dist dist   # the tree, then dist/
     python scripts/ci/check-name-gate.py --root . --archive dist/x.whl --archive dist/x.tar.gz
+    python scripts/ci/check-name-gate.py --archive x.whl    # the artifact alone, no tree
     python scripts/ci/check-name-gate.py --list-file <private list>
 
 Exit codes:
@@ -858,10 +866,10 @@ def scan_archive(path: Path, tokens: Tokens, report: Report) -> str:
 # ---------------------------------------------------------------------------
 
 
-def in_scope(entry: Hit, kinds: tuple[str, ...]) -> bool:
-    """Is this register entry checked by a run over the tree plus ``kinds``?"""
+def in_scope(entry: Hit, kinds: tuple[str, ...], tree: bool) -> bool:
+    """Is this register entry checked by a run over ``kinds``, and the tree when ``tree``?"""
     prefix = re.split(r"[!#]", entry.unit, maxsplit=1)[0]
-    return prefix not in ARCHIVE_KINDS or prefix in kinds
+    return prefix in kinds if prefix in ARCHIVE_KINDS else tree
 
 
 def _order(hit: Hit) -> tuple[str, int, str]:
@@ -897,7 +905,10 @@ def display(unit: str, tokens: Tokens) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
-    parser.add_argument("--root", default=".", help="git work tree to scan (default: .)")
+    parser.add_argument(
+        "--root",
+        help="git work tree to scan (default: .; with --archive, no tree unless this is given)",
+    )
     artifacts_from = parser.add_mutually_exclusive_group()
     artifacts_from.add_argument(
         "--dist",
@@ -907,7 +918,7 @@ def main(argv: list[str] | None = None) -> int:
         "--archive",
         action="append",
         default=[],
-        help="also scan a built wheel or sdist, read against the tree (repeatable)",
+        help="scan a built wheel or sdist (repeatable), read against the tree if --root is given",
     )
     parser.add_argument("--list-file", help="read the list from this file instead of the env var")
     args = parser.parse_args(argv)
@@ -923,8 +934,11 @@ def main(argv: list[str] | None = None) -> int:
             # Path("") is the working directory, which would be listed instead.
             raise GateError("--dist needs a directory")
         artifacts = dist_files(Path(dist)) if dist is not None else [Path(a) for a in args.archive]
-        # The tree first, always: an artifact's members are read against it.
-        scan_tree(Path(args.root), token_list.tokens, report)
+        # --archive without --root reads the artifacts alone: no tree is listed or judged.
+        root = args.root if args.root is not None or args.archive else "."
+        if root is not None:
+            # The tree first: an artifact's members are read against it.
+            scan_tree(Path(root), token_list.tokens, report)
         scanned_kinds: set[str] = set()
         for artifact in artifacts:
             scanned_kinds.add(scan_archive(artifact, token_list.tokens, report))
@@ -936,7 +950,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"name-gate: ERROR: cannot read a file to scan ({exc.strerror})", file=sys.stderr)
         return 2
 
-    exceptions = {e for e in token_list.exceptions if in_scope(e, kinds)}
+    exceptions = {e for e in token_list.exceptions if in_scope(e, kinds, root is not None)}
     unexcused, stale, excused = evaluate(report, exceptions)
     tokens = token_list.tokens
     for hit in unexcused:
@@ -945,7 +959,9 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"name-gate: stale exception {display(entry.unit, tokens)}:{entry.line} {entry.pattern_id}"
         )
-    inherited = f", {report.inherited} artifact member(s) identical to the tree" if kinds else ""
+    inherited = ""
+    if kinds and root is not None:
+        inherited = f", {report.inherited} artifact member(s) identical to the tree"
     print(
         f"name-gate: {report.files} file(s) scanned, {len(unexcused)} unexcused hit(s), "
         f"{excused} excused, {len(stale)} stale exception(s){inherited}"

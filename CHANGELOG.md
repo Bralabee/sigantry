@@ -56,7 +56,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   whose path, SHA-256 and size all check out is read as empty, because a
   random digest can contain a short token by chance. The artifact file
   names and each sdist member's owner and group names are read as well.
-  `--archive` keeps working for local use and now scans the tree too.
+  `--archive` without `--root` still scans only the artifacts it names, so
+  it runs outside a work tree; given `--root`, it scans that tree first and
+  reads the artifacts against it, as `--dist` does.
 - `tests/ci/test_distribution_name.py` keeps the shipped surface — templates,
   workflows, scripts and the package — free of the dead distribution name, so
   it cannot creep back. It reads `pyproject.toml` as a *precondition* — the
