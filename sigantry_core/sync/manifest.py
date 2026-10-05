@@ -57,6 +57,7 @@ from pydantic import (
     model_validator,
 )
 
+from sigantry_core.sync._paths import has_path_separator
 from sigantry_core.sync.errors import ManifestValidationError
 
 logger = logging.getLogger("sigantry_core.sync.manifest")
@@ -307,10 +308,11 @@ class SyncItem(BaseModel):
         (``<display_name>.<Type>/``), so it must be one name, not a path:
         ``/`` and ``\\`` are rejected, which rejects every absolute path
         (POSIX, drive-rooted and UNC) as well. The packagers check the
-        joined path again, for callers that do not come through here.
+        joined path again, for callers that do not come through here, and
+        ``sync pull`` applies the same rule to a workspace item's name.
         """
         reasons = [v["reason"] for v in _segment_violations(value, field="display_name")]
-        if "/" in value or "\\" in value:
+        if has_path_separator(value):
             reasons.append("path separator ('/' or '\\'); a display name is one name, not a path")
         if reasons:
             raise ValueError(f"display_name {value!r}: {'; '.join(reasons)} (D-05/Council-D-4)")

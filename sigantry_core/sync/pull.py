@@ -55,10 +55,12 @@ from typing import Any, Final
 import yaml
 
 from sigantry_core.client import FabricRestClient
+from sigantry_core.sync._paths import contained_path, has_path_separator
 from sigantry_core.sync.errors import (
     PullDefinitionDecodeError,
     PullDefinitionFetchError,
     PullDefinitionPathTraversalError,
+    PullItemNameRefusedError,
     PullTargetNotEmptyError,
 )
 from sigantry_core.sync.manifest import SyncItem, SyncManifest
@@ -212,15 +214,38 @@ def _resolve_folder_path_from_id(snapshot: WorkspaceSnapshot, folder_id: str | N
     return "/"
 
 
-def _local_source_dir(into: Path, target_folder: str, display_name: str) -> Path:
-    """Compute the per-item local source directory.
+def _local_source_dir(into: Path, target_folder: str, item: Item) -> Path:
+    """Compute the per-item local source directory, or refuse the item.
 
     ``<into>/<target_folder.lstrip('/')>/<display_name>/`` -- the
     ``target_folder`` is mirrored verbatim so a follow-up ``sync apply``
     re-discovers the same topology.
+
+    Both names come from the workspace. The display name must be one name
+    (no ``/`` or ``\\``, the rule ``sync.yml`` is held to), and the joined
+    directory must resolve strictly inside ``into``
+    (:func:`sigantry_core.sync._paths.contained_path`, the rule the
+    packagers use for staging). The resolved directory is returned.
+
+    Raises:
+        PullItemNameRefusedError: either rule fails.
     """
     rel = target_folder.lstrip("/") if target_folder != "/" else ""
-    return into / rel / display_name
+    if has_path_separator(item.display_name):
+        reason = "the display name contains a path separator ('/' or '\\'); it must be one name"
+    else:
+        try:
+            return contained_path(into, rel, item.display_name, base_name="the --into directory")
+        except ValueError as exc:
+            reason = str(exc)
+    raise PullItemNameRefusedError(
+        f"sync pull refused workspace item item_id={item.id} "
+        f"display_name={item.display_name!r} in folder {target_folder!r}: {reason}. "
+        "No item definition was fetched or written; rename the item or its folder "
+        "in the workspace and pull again.",
+        item_id=item.id,
+        display_name=item.display_name,
+    )
 
 
 def _fetch_item_definition(
@@ -345,43 +370,27 @@ def _write_definition_parts(
         # operator's expense. We resolve both ends and assert the
         # destination stays inside ``source_dir`` BEFORE creating any
         # parent dirs or writing bytes; failure raises a typed error so
-        # the operator can investigate.
-        source_dir_resolved = source_dir.resolve()
+        # the operator can investigate. The rule is the shared one
+        # (``contained_path``) that also checks the item directory itself.
         try:
-            dest_resolved = (source_dir / rel_path).resolve()
-        except (OSError, RuntimeError) as exc:
-            # ``resolve()`` may raise on symlink loops or pathological
-            # inputs; treat that as a refusal too.
-            logger.warning(
-                "pull_definition_path_resolve_failed item_id=%s path=%r err=%s",
-                item.id,
-                rel_path_raw,
-                exc,
+            dest_resolved = contained_path(
+                source_dir, rel_path, base_name="the item's source directory"
             )
-            raise PullDefinitionPathTraversalError(
-                f"Get{item.type}Definition response part path could not be "
-                f"safely resolved for workspace_id={item.workspace_id} "
-                f"item_id={item.id} display_name={item.display_name!r} "
-                f"part_path={rel_path_raw!r}: {exc}"
-            ) from exc
-        try:
-            dest_resolved.relative_to(source_dir_resolved)
-        except ValueError:
+        except ValueError as exc:
             logger.warning(
                 "pull_rejecting_path_traversal item_id=%s display_name=%s "
-                "path=%r resolved=%s source_dir=%s",
+                "path=%r source_dir=%s err=%s",
                 item.id,
                 item.display_name,
                 rel_path_raw,
-                dest_resolved,
-                source_dir_resolved,
+                source_dir,
+                exc,
             )
             raise PullDefinitionPathTraversalError(
                 f"Get{item.type}Definition response carried out-of-tree "
                 f"part path for workspace_id={item.workspace_id} "
                 f"item_id={item.id} display_name={item.display_name!r} "
-                f"part_path={rel_path_raw!r}; resolved to "
-                f"{dest_resolved} which is outside {source_dir_resolved}"
+                f"part_path={rel_path_raw!r}: {exc}"
             ) from None
         # Containment confirmed -- safe to create parent dirs and write.
         dest_resolved.parent.mkdir(parents=True, exist_ok=True)
@@ -557,7 +566,10 @@ def _pull_with_client(
     type_scope: tuple[str, ...] = tuple(item_types) if item_types else _DEFAULT_PULL_TYPES
     type_scope_set = frozenset(type_scope)
 
-    items_in_scope: list[Item] = []
+    # Every in-scope item's directory is worked out (and refused, if its
+    # name cannot name a directory inside ``into``) before the first
+    # definition is fetched, so a refusal leaves nothing behind for any item.
+    planned: list[tuple[Item, str, str | None, Path]] = []
     for item in snapshot.items_by_id.values():
         if item.type not in type_scope_set:
             continue
@@ -573,7 +585,11 @@ def _pull_with_client(
             continue
         url_segment, query_format = _DEFINITION_ENDPOINTS[item.type]
         target_folder = _resolve_folder_path_from_id(snapshot, item.folder_id)
-        source_dir = _local_source_dir(into_path, target_folder, item.display_name)
+        source_dir = _local_source_dir(into_path, target_folder, item)
+        planned.append((item, url_segment, query_format, source_dir))
+
+    items_in_scope: list[Item] = []
+    for item, url_segment, query_format, source_dir in planned:
         body = _fetch_item_definition(
             client,
             workspace_id=workspace_id,

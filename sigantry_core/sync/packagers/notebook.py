@@ -123,10 +123,9 @@ class NotebookPackager:
             )
         staging_dir = Path(staging_dir).resolve()
 
-        # Sidecar resolution (D-11 / D-13).
-        resolved_id = logical_id if logical_id else self._sidecar_resolve(source_path)
-
         # Build target dir under staging; refuse one that resolves outside it.
+        # This runs before the sidecar is read or minted, so a refused pack
+        # writes nothing anywhere, the source tree's sidecar included.
         target_dir = staged_item_dir(
             staging_dir,
             target_folder,
@@ -139,6 +138,10 @@ class NotebookPackager:
                 f"{target_dir} -- caller must place each item in a "
                 "fresh staging tree."
             )
+
+        # Sidecar resolution (D-11 / D-13).
+        resolved_id = logical_id if logical_id else self._sidecar_resolve(source_path)
+
         target_dir.mkdir(parents=True, exist_ok=False)
 
         # notebook-content.ipynb -- copy with LF normalisation.

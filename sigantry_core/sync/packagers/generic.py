@@ -112,8 +112,8 @@ class GenericPackager:
             raise FileNotFoundError(f"GenericPackager.pack: source missing: {source_path}")
         staging_dir = Path(staging_dir).resolve()
 
-        resolved_id = logical_id if logical_id else self._sidecar_resolve(source_path)
-
+        # The staged folder is checked before the sidecar is read or minted,
+        # so a refused pack writes nothing anywhere, the source tree included.
         target_dir = staged_item_dir(
             staging_dir,
             target_folder,
@@ -122,6 +122,9 @@ class GenericPackager:
         )
         if target_dir.exists():
             raise FileExistsError(f"GenericPackager.pack: refuse to overwrite {target_dir}")
+
+        resolved_id = logical_id if logical_id else self._sidecar_resolve(source_path)
+
         target_dir.mkdir(parents=True, exist_ok=False)
 
         # Copy source contents into target_dir (file OR directory).

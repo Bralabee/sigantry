@@ -6,7 +6,7 @@ remaining typed exceptions land in their respective plans:
 - Plan 13-04 (apply): ``WorkspacePendingGitUpdateError``,
   ``ReconcilerWrapError``.
 - Plan 13-05 (pull): ``PullTargetNotEmptyError``,
-  ``PullDefinitionFetchError``.
+  ``PullDefinitionFetchError``; later ``PullItemNameRefusedError``.
 - Plan 13-06 (diff / notifications): drift- and sink-specific errors.
 
 All exceptions inherit from :class:`SyncEngineError` so callers can catch
@@ -102,6 +102,25 @@ class PullTargetNotEmptyError(SyncEngineError):
         self.target = target
 
 
+class PullItemNameRefusedError(SyncEngineError):
+    """``sync pull`` refused a workspace item whose name cannot name its directory.
+
+    Raised by :func:`sigantry_core.sync.pull.pull_workspace` when an item's
+    display name contains ``/`` or ``\\`` (a display name is one name, the
+    rule a ``sync.yml`` is held to), or when ``<into>/<folder path>/<display
+    name>`` does not resolve to a directory strictly inside ``--into``. Every
+    item is checked before the first definition is fetched, so when this is
+    raised no item definition has been fetched or written. Carries
+    ``item_id`` and ``display_name``; rename the item in the workspace (or
+    the folder it sits in) and pull again.
+    """
+
+    def __init__(self, message: str, *, item_id: str, display_name: str) -> None:
+        super().__init__(message)
+        self.item_id = item_id
+        self.display_name = display_name
+
+
 class PullDefinitionFetchError(SyncEngineError):
     """REST ``Get<Item>Definition`` failed for one item (D-32).
 
@@ -152,6 +171,7 @@ __all__ = (
     "PullDefinitionDecodeError",
     "PullDefinitionFetchError",
     "PullDefinitionPathTraversalError",
+    "PullItemNameRefusedError",
     "PullTargetNotEmptyError",
     "ReconcilerWrapError",
     "SyncEngineError",
