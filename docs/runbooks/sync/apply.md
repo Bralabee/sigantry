@@ -40,7 +40,7 @@ This is the boundary that surprises operators most often -- the one ADR-0012 for
 - **It does not delete folders unless they become empty after orphan unpublish.** Folders in the workspace but absent from the manifest are preserved, again per Council D #5.
 - **It does not write to OneLake.** Lakehouse / Warehouse data lives in OneLake / SQL, not in the `.platform` definition, so even when an item IS published the data side is out of scope for the sync engine. Use the Notebook / Spark layer for OneLake data manipulation.
 
-**For first-time item creation, use `sigantry deploy run`** (Sigantry-native, fabric-cicd-driven, parameterised per environment, writes `DeployRecord`) **or a direct `POST /v1/workspaces/{id}/items` REST call** (lower-friction one-off scripts). See [`../pipeline-orchestration/deploy-with-tests.md`](../pipeline-orchestration/deploy-with-tests.md) and [`../../reference/parameters-yml.md`](../../reference/parameters-yml.md) for the `deploy run` setup; see the `msfabricpysdkcore` or raw REST docs for the one-off REST path.
+**For first-time item creation, use `sigantry deploy run`** (Sigantry-native, fabric-cicd-driven, parameterised per environment; it writes no `DeployRecord`, so record the release with `sigantry release record`) **or a direct `POST /v1/workspaces/{id}/items` REST call** (lower-friction one-off scripts). See [`../pipeline-orchestration/deploy-with-tests.md`](../pipeline-orchestration/deploy-with-tests.md) and [`../../reference/parameters-yml.md`](../../reference/parameters-yml.md) for the `deploy run` setup; see the `msfabricpysdkcore` or raw REST docs for the one-off REST path.
 
 ### 1.2. CLI output trailer (D-26-bis)
 
@@ -54,7 +54,7 @@ Phase 17 ([ADR-0013](../../decisions/ADR-0013-sync-publish-parameters-resolution
 
 - First-time setup of a new project folder against a brownfield workspace (the case the 2026-05-01 brownfield test surfaced).
 - Mixed-state runs where M existing items need reparenting AND N new items need publishing in one operator step.
-- CI workflows that previously ran `sync apply` then `deploy run` back-to-back and now want a single audit-record per change set.
+- CI workflows that previously ran `sync apply` then `deploy run` back-to-back and now want the publish covered by the audit record (a forward `deploy run` writes none).
 
 #### When NOT to use it
 

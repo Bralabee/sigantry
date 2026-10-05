@@ -81,8 +81,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   content read from `--source`; the record holds no content and no commit.
   Tutorial 07 therefore records each release with
   `sigantry release record --fabric-items` and rolls back from a copy of
-  the first release's source. `sigantry diff` compares item names, types
-  and folders when it is run; it does not run continuously.
+  the first release's source. The tutorials index says how each tutorial
+  was run: tutorial 12's `env sync-all` commands ran only in `--dry-run`
+  mode, and tutorial 07's ledger and rollback steps have not been run
+  against a tenant. `sigantry diff` compares item names, types and
+  folders when it is run; it does not run continuously.
   `sigantry release verify` checks the deploy ledger only. The ledger is
   described as integrity-checked and unkeyed rather than immutable, signed
   or cryptographic, and the pipeline templates' tests and approval as

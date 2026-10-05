@@ -113,9 +113,11 @@ You probably want Sigantry if any of the following is true:
 
 - You operate **multiple Fabric workspaces** and want to keep their
   topology in version control, not in someone's portal session.
-- You run **CI/CD against Fabric** and need a deploy verb that produces
-  a verifiable audit trail per release, plus a rollback verb that
-  consumes it.
+- You run **CI/CD against Fabric** and want a hash-chained ledger
+  record for each release you record (`sigantry release record`; `sync
+  apply` writes one too, a forward `deploy run` none), plus a
+  rollback verb that publishes the items a recorded release names again
+  from a source checkout you supply.
 - You manage **pre-deployment governance gates** (RBAC audits, tenant
   setting checks, capacity policies) and want them in pipeline form
   rather than as periodic manual sweeps.
@@ -656,7 +658,7 @@ sequenceDiagram
     FCC->>Fab: POST folders for missing only
     FCC->>Fab: PATCH items only when folder wrong
     FCC-->>CLI: ReconcileReport with plan and applied
-    CLI->>Ledger: emit DeployRecord with provider sync-engine
+    CLI->>Ledger: emit DeployRecord with approver sync-engine
     CLI-->>Op: succeeded with folders and moves count
 ```
 
@@ -937,10 +939,11 @@ stay within one workspace per release.
 ## 15. The audit ledger
 
 Several verbs append an audit record to a JSONL ledger under
-`~/.sigantry/audit/`; a forward `deploy run` is not one of them (see
-Section 14). The record types share one hashing scheme: an unkeyed
-SHA-256, with no key or signature. The full list of record types and the
-verbs that write them is in
+`~/.sigantry/audit/`. A forward `deploy run` writes no `DeployRecord`;
+with `--unpublish-orphans` it adds only the `DestructiveOpRecord` of
+the orphan unpublish (see Section 14). The record types share one
+hashing scheme: an unkeyed SHA-256, with no key or signature. The full
+list of record types and the verbs that write them is in
 [CAPABILITIES section 7](CAPABILITIES.md#7-audit--observability).
 
 ```mermaid

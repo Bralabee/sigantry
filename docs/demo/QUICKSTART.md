@@ -153,8 +153,7 @@ end-to-end against a real Fabric tenant:
 - **Phase 4 deploy** -- `sigantry deploy` (and its `sync apply` peer)
   pushes 4 Fabric item types (Lakehouse + Notebook + DataPipeline +
   SemanticModel) via `fabric-cicd`.
-- **Phase 13 drift** -- `sigantry diff` (and the demo CI's
-  `--fail-on-drift` flag) catches divergence between the Git
+- **Phase 13 drift** -- `sigantry diff` catches divergence between the Git
   source-of-truth and tenant state.
 - **Dual-CI parity** -- the same three-command demo loop ships in
   GitHub Actions and Azure DevOps.

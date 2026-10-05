@@ -14,12 +14,13 @@ republishing the content of items sync already governs. It also uses
 `sigantry release record`, because a forward `deploy run` writes no ledger record.
 
 > [!NOTE]
-> The `sigantry release record` steps were added after the tenant run described in
-> the [tutorials index](index.md) and have not been run against a tenant. Without
-> them, Steps 4 to 6 find nothing in the ledger. `release record` links each release
-> to a work item: it needs a work-item provider and posts a comment on the issue you
-> name. Use a scratch GitHub repository and issue, and export a token for it as
-> `GITHUB_TOKEN`.
+> Steps 2 to 6 were changed after the tenant run described in the
+> [tutorials index](index.md): the `sigantry release record` calls, the copy of
+> release A's source and the rollback from that copy have not been run against a
+> tenant. Without the `release record` calls, Steps 4 to 6 find nothing in the
+> ledger. `release record` links each release to a work item: it needs a work-item
+> provider and posts a comment on the issue you name. Use a scratch GitHub
+> repository and issue, and export a token for it as `GITHUB_TOKEN`.
 
 ## The shape of the drill
 
