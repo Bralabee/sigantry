@@ -379,13 +379,14 @@ class _FilteredEnvSource(PydanticBaseSettingsSource):
     In 1.0.0 the constructor read ``FDT_`` variables itself, and honoured
     ``_env_file``, ``_secrets_dir``, ``_env_prefix`` and the ``env_prefix`` a
     subclass declares. This reads those inputs again: the values passed to
-    the constructor and the names under the ``FDT_`` prefix, or under the
-    caller's own, are resolved by :func:`_result_1_0_0`, and the
-    ``SIGANTRY_`` variables then fill what that leaves unset. CHANGELOG.md,
-    under "Upgrading from 1.0.0", describes ways the result differs from
-    1.0.0's. The environment, the env file and the secrets directory are read
-    through a filter, so no unprefixed name and no section this model does
-    not declare is read from them.
+    the constructor and the names under the ``FDT_`` prefix, or under a
+    non-empty prefix the caller passed or a subclass declared, are resolved
+    by :func:`_result_1_0_0`. Without such a prefix, the ``SIGANTRY_``
+    variables then fill what that leaves unset; with one, nothing does.
+    CHANGELOG.md, under "Upgrading from 1.0.0", describes ways the result
+    differs from 1.0.0's. The environment, the env file and the secrets
+    directory are read through a filter, so no unprefixed name and no section
+    this model does not declare is read from them.
 
     It returns the constructor values too, and pydantic-settings' own init
     source is left out (see ``settings_customise_sources``): merged a second

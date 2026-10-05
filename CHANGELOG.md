@@ -87,19 +87,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`auth.expected_group`** is a new field, typed `str | None`, which
   `diagnose-auth` now reads (see Changed). 1.0.0 had no such field: it kept
   an `expected_group` key under `[auth]` as an extra, whatever its value,
-  and its `diagnose-auth` loaded no settings. A value that is neither a
-  string nor null, such as `expected_group = 5` or `expected_group = true`,
-  now fails validation where it takes effect, and `load_settings()` or
-  `ToolkitSettings()` raises `ValidationError` where 1.0.0 kept the value as
-  an extra and set the other settings. Measured against 1.0.0 for a key in
-  the legacy config file or in a file passed by path, a value passed to
-  `ToolkitSettings()`, and `FDT_AUTH` holding a JSON object in the
-  environment, an `_env_file` or a `_secrets_dir` given to
-  `ToolkitSettings()` built directly; `load_settings()` on 1.0.0 failed on
+  and its `diagnose-auth` loaded no settings. A value other than null that
+  pydantic does not accept as a string now fails validation where it takes
+  effect: in a config file, a number, a boolean, a date or time, an array or
+  a table, such as `expected_group = 5` or `expected_group = true`; in JSON,
+  a number, a boolean, an array or an object; passed to the constructor,
+  `5` or `True`, for example. `load_settings()` or `ToolkitSettings()` then
+  raises `ValidationError` where 1.0.0 kept the value as an extra and set
+  the other settings. A value pydantic converts to a string, such as
+  `b"grp"` passed to the constructor, sets the field to that string
+  (`"grp"`), where 1.0.0 kept the value unchanged as an extra. Measured
+  against 1.0.0 for a key in the legacy config file or in a file passed by
+  path, a value passed to `ToolkitSettings()`, and `FDT_AUTH` holding a
+  JSON object in the environment, an `_env_file` or a `_secrets_dir` given
+  to `ToolkitSettings()` built directly; `load_settings()` on 1.0.0 failed on
   `FDT_AUTH={"expected_group": 5}` as well. A key in a config file spelled in
   another letter case, such as `Expected_Group`, now sets the field, with
   the `DeprecationWarning` described under Settings keys, where 1.0.0 kept
-  it as an extra under that spelling, so a value there that is not a string
+  it as an extra under that spelling, so a value of the kinds above there
   fails the same way.
 - **Unprefixed variables stay unread** (see Security). A `FutureWarning` names
   each one that 1.0.0 would have read, where nothing else sets the field, with
