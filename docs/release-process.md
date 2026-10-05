@@ -62,9 +62,15 @@ Run before opening the release PR:
    path is judged by that file's entry, and a hit in the core metadata is
    keyed by its field (`#Author:1`), or in a field that can repeat, such
    as `Classifier`, by its entry, not by its line. Before tagging, the
-   maintainer runs the release scan on the release commit locally:
-   `python -m build`, then
-   `python scripts/ci/check-name-gate.py --root . --dist dist --list-file <list>`.
+   maintainer runs the release scan on the release commit locally, in one
+   shell from the repository root: `out=$(mktemp -d)`, then
+   `python -m build --outdir "$out"`, then
+   `python scripts/ci/check-name-gate.py --root . --dist "$out" --list-file <list>`.
+   The build goes to a new, empty directory because `python -m build` adds
+   to its output directory rather than emptying it, and `--dist` refuses a
+   directory that holds anything but one wheel and one sdist: a `dist/`
+   that still holds an earlier version's files fails the scan with exit 2
+   before it reads anything.
 5. `pwsh -c "Invoke-Pester -Configuration ./tests/Pester.config.ps1"`.
 6. Update `CHANGELOG.md`: move `[Unreleased]` to a dated heading.
 7. Bump `sigantry_core/_version.py`.
