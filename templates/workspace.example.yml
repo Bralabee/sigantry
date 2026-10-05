@@ -45,6 +45,9 @@ folders:
                                              #   00_control / 10_intake / 20_storage /
                                              #   30_transform / 40_semantic / 50_reporting /
                                              #   90_shared / 99_retired
+  # Upgrading a workspace that sigantry 1.0.0 bootstrapped? 1.0.1 changed the
+  # blueprint folder names, and bootstrap never renames or deletes a folder.
+  # To keep the existing layout, list its folder names under `list:` below.
   # --- OR an explicit layout instead of a blueprint: ---
   # list:
   #   - "00_control"
