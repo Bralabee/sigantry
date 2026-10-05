@@ -10,7 +10,7 @@ The five verbs the sync engine ships are easy to confuse. [ADR-0012](../../decis
 |---|---|---|---|
 | Mirror an existing workspace into a local IaC tree (`sync.yml` + sources) so future runs are no-op idempotent | **`sigantry sync pull`** | no -- read-only | n/a -- pull never publishes |
 | Plan + reconcile folder topology against an existing workspace; move existing items into the manifest's `target_folder` paths | **`sigantry sync apply`** | yes -- creates / moves folders + relocates existing items | **NO** -- new items are staged locally but NOT published; see [`apply.md` section 1.1](apply.md#11-what-sync-apply-does-not-do) |
-| Deploy first-time items + parameterise per environment (DEV/PREPROD/PROD) + write a `DeployRecord` for audit | **`sigantry deploy run`** | yes -- runs `fabric-cicd publish_all_items` | **YES** |
+| Deploy first-time items + parameterise per environment (DEV/PREPROD/PROD); writes no `DeployRecord` (record the release with `sigantry release record`) | **`sigantry deploy run`** | yes -- runs `fabric-cicd publish_all_items` | **YES** |
 | Compare a manifest against a live workspace and report drift | **`sigantry diff`** | no -- read-only | n/a |
 | Capture a workspace's current state for diffing later | **`sigantry sync snapshot`** | no -- read-only | n/a |
 

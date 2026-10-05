@@ -65,13 +65,13 @@ After acknowledgement, no warning fires for the rest of the process.
 If Microsoft promotes the Folders endpoints to GA (or marks them GA-equivalent under a new API version), Sigantry will:
 
 1. Remove the warning.
-2. Default the flag to `True` and deprecate it in `v3.<minor+1>`.
+2. Default the flag to `True` and deprecate it in the next minor release.
 3. Document the cutover in the CHANGELOG.
 
 If Microsoft ships a breaking change to the Folders endpoints under the same API version (the canonical Preview risk), Sigantry will:
 
 1. Update the endpoint binding in `sigantry_core.workspace.folders` and `sigantry_core.sync.snapshot`.
-2. Pin the consumer to the latest patch release of `sigantry-core`.
+2. Pin the consumer to the latest patch release of `sigantry`.
 3. Document the migration in the CHANGELOG.
 
 ## 4. Notification module httpx-direct carve-out

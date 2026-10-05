@@ -11,7 +11,7 @@ The drift-check templates wrap `sigantry diff`, which is one verb in a five-verb
 | Compare a manifest against a live workspace and report drift (this runbook's verb) | **`sigantry diff`** | no -- read-only | n/a -- diff never publishes |
 | Plan + reconcile folder topology against an existing workspace; move existing items into the manifest's `target_folder` paths | **`sigantry sync apply`** | yes -- creates / moves folders + relocates existing items | **NO** -- new items are staged locally but NOT published; see [`../sync/apply.md` section 1.1](../sync/apply.md#11-what-sync-apply-does-not-do) |
 | Mirror an existing workspace into a local IaC tree (`sync.yml` + sources) so future runs are no-op idempotent | **`sigantry sync pull`** | no -- read-only | n/a |
-| Deploy first-time items + parameterise per environment (DEV/PREPROD/PROD) + write a `DeployRecord` for audit | **`sigantry deploy run`** | yes -- runs `fabric-cicd publish_all_items` | **YES** |
+| Deploy first-time items + parameterise per environment (DEV/PREPROD/PROD); writes no `DeployRecord` (record the release with `sigantry release record`) | **`sigantry deploy run`** | yes -- runs `fabric-cicd publish_all_items` | **YES** |
 | Capture a workspace's current state for diffing later | **`sigantry sync snapshot`** | no -- read-only | n/a |
 
 `sigantry diff` is the **detection** verb. The scheduled-drift templates run it on a cron and pipe the report to a notification sink, but they never auto-remediate -- remediation is an operator decision (see section 1.1).

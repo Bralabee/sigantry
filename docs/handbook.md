@@ -73,13 +73,12 @@ sigantry --help
 sigantry doctor
 ```
 
-!!! tip
-
-    If your terminal displays `sigantry: command not found` after installing via `pip`:
-
-    - Run `hash -r` in Bash (or `rehash` in Zsh) to refresh the shell command table.
-    - Ensure the virtualenv/conda bin folder is in your `$PATH`.
-    - Alternatively, run `python -m sigantry_core.cli <command>`.
+> [!TIP]
+> If your terminal displays `sigantry: command not found` after installing via `pip`:
+>
+> - Run `hash -r` in Bash (or `rehash` in Zsh) to refresh the shell command table.
+> - Ensure the virtualenv/conda bin folder is in your `$PATH`.
+> - Alternatively, run `python -m sigantry_core.cli <command>`.
 
 ---
 
@@ -110,7 +109,7 @@ python -m sigantry_core --help
 | `env` | Fabric Environment wheel upload, sync, and reconcile |
 | `dq` | Run a registered DQ gate plugin against a dataset |
 | `doctor` | List discovered plugins and diagnose entry-point import failures |
-| `release` | Sigantry release records — `record`, `list`, `show`, `diff`, and `--html` reports with cryptographic audit hash |
+| `release` | Sigantry release records — `record`, `list`, `show`, `diff`, `verify`; `show` and `diff` also write `--html` reports, and the `show` report displays the start of the record's SHA-256 audit hash (unkeyed: see the [audit ledger threat model](reference/audit-ledger-threat-model.md)) |
 | `sync` | Local ↔ Fabric folder-aware sync engine — `apply` (supports `--bulk`), `pull`, `snapshot` |
 | `diff` | Drift detection between local `sync.yml` and live Fabric workspace (human, json, or `--output html`) |
 | `config` | Validate Sigantry configuration files (e.g. `config validate parameters.yml`) |

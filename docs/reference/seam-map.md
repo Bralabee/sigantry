@@ -9,7 +9,7 @@ A **seam** in Sigantry is a `typing.Protocol` class in `sigantry_core.protocols`
 
 Plugins register their implementations via Python entry points (discovered through `importlib.metadata`). `FabricDataOps.from_config()` reads the configured implementation names from `.sigantry.toml` and resolves each through `sigantry_core.registry`. See [`protocols.md`](protocols.md) for the SemVer commitment model and the `api_version` policy (per [ADR-0004](../decisions/ADR-0004-api-version-policy.md)).
 
-The **observation plane** — `governance.audit` and the `DeployRecord` write-through — is deliberately **not a seam**. It writes through standard-library logging to an immutable log so a misconfigured `TelemetrySink` cannot suppress audit evidence.
+The **observation plane** — `governance.audit` and the `DeployRecord` write-through — is deliberately **not a seam**. It logs a structured event through standard-library logging and appends a hash-chained line to a JSONL ledger file itself, without going through any `TelemetrySink`, so a misconfigured sink cannot suppress audit evidence. The ledger is append-only by convention, not immutable: see the [audit ledger threat model](audit-ledger-threat-model.md).
 
 ## Seam inventory
 

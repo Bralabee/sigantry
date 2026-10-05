@@ -21,7 +21,7 @@ in Step 4.
 flowchart LR
     subgraph VERBS["Verbs that write evidence"]
         A["sync apply --with-publish"]
-        B["deploy run / --rollback"]
+        B["deploy run --rollback"]
         C["workspace bootstrap"]
         D["release record"]
     end
@@ -74,8 +74,8 @@ sigantry release diff <earlier-release-id> <later-release-id> --json
 #   {logical_name, item_type, fabric_item_id}
 ```
 
-This answers the release-manager question — "what changed between Tuesday's and
-Thursday's deploy?" — from the ledger alone, without touching Fabric.
+This compares the item names the two records list, from the ledger alone, without
+touching Fabric; an item whose content changed between them shows as unchanged.
 
 ## Step 4 — Verify integrity, then break it on purpose
 

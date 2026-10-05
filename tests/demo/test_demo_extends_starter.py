@@ -4,8 +4,9 @@ Plan 15-01 ships templates/demo/ content; this file flips the Wave 0
 xfails to real assertions over the byte-extension invariant: every
 file in templates/starter/ appears byte-equal in templates/demo/
 EXCEPT for the DEMO_DIVERGENCE_ALLOWED set (README.md, parameters.yml,
-docs/QUICKSTART.md). The demo tree may add files (under fabric_items/
-and the new sync.yml) but may not omit any starter file.
+docs/QUICKSTART.md, docs/BRANCHING.md). The demo tree may add files
+(under fabric_items/ and the new sync.yml) but may not omit any starter
+file. docs/BRANCHING.md may differ only by the demo notice at its top.
 
 Local-import idiom matches tests/starter/test_starter_content.py:20
 (no top-level tests/__init__.py -- see tests/demo/conftest.py docstring).
@@ -26,6 +27,8 @@ _DEMO_DIVERGENCE_ALLOWED = frozenset(
         "README.md",
         "parameters.yml",
         "docs/QUICKSTART.md",
+        # The starter's page plus a demo notice at the top.
+        "docs/BRANCHING.md",
     }
 )
 
@@ -83,7 +86,7 @@ def test_demo_has_no_files_outside_starter_skeleton_apart_from_fabric_items() ->
 
 
 def test_divergent_files_actually_differ() -> None:
-    """README.md / parameters.yml / docs/QUICKSTART.md must NOT be byte-equal -- otherwise demo is just a copy."""
+    """The DEMO_DIVERGENCE_ALLOWED files must NOT be byte-equal -- otherwise demo is just a copy."""
     for rel_str in _DEMO_DIVERGENCE_ALLOWED:
         rel = Path(rel_str)
         src = _STARTER_DIR / rel
@@ -94,3 +97,20 @@ def test_divergent_files_actually_differ() -> None:
             f"{rel}: starter and demo content is byte-equal -- "
             f"divergence required for demo to be substantive"
         )
+
+
+def test_demo_branching_is_starter_page_plus_notice() -> None:
+    """docs/BRANCHING.md in demo is the starter's page with one notice block after the title."""
+    starter = (_STARTER_DIR / "docs" / "BRANCHING.md").read_text(encoding="utf-8").splitlines()
+    demo = (_DEMO_DIR / "docs" / "BRANCHING.md").read_text(encoding="utf-8").splitlines()
+    # Title and blank line, then the "> " notice block and one blank line.
+    end = 2
+    while end < len(demo) and demo[end].startswith(">"):
+        end += 1
+    notice = demo[2:end]
+    assert notice, "demo BRANCHING.md has no notice block after its title"
+    assert "does not run end to end" in " ".join(notice), "demo notice missing"
+    assert demo[end] == "", "demo notice must be followed by a blank line"
+    assert demo[:2] + demo[end + 1 :] == starter, (
+        "demo BRANCHING.md differs from the starter's page outside the notice block"
+    )

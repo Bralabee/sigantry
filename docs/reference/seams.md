@@ -238,9 +238,7 @@ class NotificationEvent:
 ```
 
 **Entry-point group:** `sigantry.notification_sinks`
-**Audit record:** none (notifications are operator-facing, not audit-plane;
-when emitted as part of a deploy the deploy itself is audited via
-`DeployRecord`)
+**Audit record:** none (notifications are operator-facing, not audit-plane)
 
 **Reference impls in `sigantry`:**
 

@@ -1,6 +1,6 @@
 # Sigantry
 
-> **Renamed to Sigantry in v3.0.** This project (formerly `fabric-dataops-toolkits`) was renamed per [ADR-0011](decisions/ADR-0011-rename-to-sigantry.md) and is published on PyPI as `sigantry` ([ADR-0017](decisions/ADR-0017-distribution-name-sigantry.md)). Legacy distribution names shipped as deprecation shims through v3.0 and dropped in v3.1. See [migration/2.x-to-3.0.md](migration/2.x-to-3.0.md) for the old names, what replaces each one, and which of them the code still reads.
+> **Renamed.** The project was renamed to Sigantry per [ADR-0011](decisions/ADR-0011-rename-to-sigantry.md) and is published on PyPI as `sigantry` ([ADR-0017](decisions/ADR-0017-distribution-name-sigantry.md)), starting at 1.0.0. See [migration/2.x-to-3.0.md](migration/2.x-to-3.0.md) for the old names, what replaces each one, and which of them the code still reads, and [Current release](#current-release) for how the version numbers in older pages relate to the public releases.
 
 Sigantry (formerly fabric-dataops-toolkits) is an Apache-2.0 **governance, audit, and rollback layer on top of Microsoft's official Fabric tooling** (`fabric-cicd`, the `fab` CLI, Fabric REST) for organisations on Azure DevOps or GitHub CI — it wraps that tooling rather than replacing it. See the [PRODUCT-BRIEF](PRODUCT-BRIEF.md) for the product story, the [landscape survey](LANDSCAPE-2026-06.md) for how it sits beside Microsoft's GA tooling, and the [legacy-names note](migration/2.x-to-3.0.md) for the pre-rename names the code still reads.
 
@@ -16,10 +16,10 @@ that register themselves via Python entry points under the 11 canonical
   plus one or more plugin packages, wire them via
   `.sigantry.toml`, and see a first deploy with the in-memory
   doubles.
-- **[Tutorials](tutorials/index.md)** - Ten hand-holding worked examples
+- **[Tutorials](tutorials/index.md)** - Twelve hand-holding worked examples
   with expected output and visual walkthroughs: from first contact through
-  sync, drift, audit, bootstrap, rollback, alerts, PR bot and governance.
-  Every step verified against a live tenant.
+  sync, drift, audit, bootstrap, rollback, alerts, PR bot, governance and
+  Fabric Environments.
 - **[Protocol seams](reference/protocols.md)** - Contract reference for the
   `typing.Protocol` classes plugins implement: the six v2 seams
   (`DeployProfile`, `DataQualityGate`, `TelemetrySink`, `AuthProvider`,
@@ -51,26 +51,20 @@ sibling plugin packages that ship alongside the base.
 ## Current release
 
 v1.0.0 (2026-09-19). Initial open-source standalone release of Sigantry on PyPI.
-Includes complete dual-mode workspace bootstrapping (`workspace bootstrap`),
-brownfield adoption (`sync pull`), drift detection (`diff`), automated deployment
+Includes dual-mode workspace bootstrapping (`workspace bootstrap`),
+brownfield adoption (`sync pull`), drift detection (`diff`), deployment
 and rollback (`deploy`), integrity-checked release ledger (`release`,
 [threat model](reference/audit-ledger-threat-model.md)),
-and headless PR bot (`pr-bot`).
-`sigantry env reconcile` — the upgrade-safe wheel
-reconcile that removes superseded versions and publishes once (the add-only
-<!-- docs-freshness: allow — release history names the version a feature landed in -->
-`env sync` fix). v3.3.0 added `sigantry env sync-all` — config-driven fan-out
-of a wheel set across many Fabric Environments from an `environments.yml`
-manifest, with gating (PROD-safe), pin/float, idempotency and fail-isolation
-expressed as data. Plus tutorials 11-12 (runtime-library plane + safe
-auto-update).
-Follows v3.2.0 (2026-06-11; `rbac-audit` workspace scoping and dated
-file output via `--out` / `--out-dir`). Third same-day release:
-follows v3.0.0 (first stable v3 release, shipped by operator directive
-with the remaining live-tenant UAT gates
-rescoped to post-ship) and v3.1.0 (shim-window close per ADR-0011 --
-the legacy dists, import paths, and first-party legacy entry-point
-tables are gone; the registry's legacy-group dual-read remains as a
-grace window, scheduled for removal).
+headless PR bot (`pr-bot`), and Fabric Environment wheel management
+(`env sync`, `env sync-all`, and `env reconcile`, which removes superseded
+wheel versions and publishes once).
+
+**Version numbers.** 1.0.0 is the first public release of `sigantry`. Its
+code continues an internal 3.x line: public 1.0.0 corresponds to internal
+3.4.x, and the version numbers restarted at 1.0.0 for the public package.
+Version numbers such as v2.0, v3.0 or v3.1 in older pages, ADRs and
+runbooks refer to that internal line; none of them is a release of
+`sigantry` on PyPI.
+
 See `docs/migration/2.x-to-3.0.md` for the legacy names the code
 still reads and `CHANGELOG.md` for full release notes.

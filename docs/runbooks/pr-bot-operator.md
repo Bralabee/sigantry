@@ -180,7 +180,7 @@ the workflow log for the full traceback. Most often this is:
   aware; tabs vs. spaces mixed within a single block trips it).
 - A symlink loop inside `**/*.Lakehouse/**`.
 
-Open an issue at <https://github.com/sigantry/sigantry-core/issues>
+Open an issue at <https://github.com/Bralabee/sigantry/issues>
 with the offending file path + the workflow log.
 
 ## Known limitations
@@ -226,8 +226,6 @@ deterministic, and auth-light.
 
 ## See also
 
-- `docs/migration/3.x-pr-bot.md` -- migration notes (no breaking change
-  in v3.0; the bot is a new feature).
 - `docs/reference/parameters-yml.md` -- the starter's `parameters.yml`
   reference doc (DEPLOY-03 + STARTER-02).
 - `templates/starter/docs/QUICKSTART.md` -- 15-minute adopter
