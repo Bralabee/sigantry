@@ -38,6 +38,7 @@ from typing import Any
 import pytest
 
 from sigantry_core.config import (
+    _FIXTURE_FILES_ENV,
     _LEGACY_CONFIG_FILENAME,
     _exempt_fixture_file,
     _release_fixture_file,
@@ -136,7 +137,9 @@ def fdt_fake_work_item_provider() -> FakeWorkItemProvider:
 
 
 @pytest.fixture
-def fdt_settings_toml(tmp_path: Path) -> Iterator[Callable[..., Path]]:
+def fdt_settings_toml(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[Callable[..., Path]]:
     """Factory fixture: write the legacy config file at ``tmp_path``.
 
     It writes that one file and returns its path, as it did in 1.0.0, and
@@ -146,8 +149,10 @@ def fdt_settings_toml(tmp_path: Path) -> Iterator[Callable[..., Path]]:
     ``DeprecationWarning`` for the legacy name, and no ``UserWarning`` if the
     test also writes a ``.sigantry.toml`` there, which 1.0.0 did not read
     either. Either warning would fail a suite run with warnings as errors
-    that passed on 1.0.0. The exemption covers this file's path only, and
-    ends with the test.
+    that passed on 1.0.0. A process the test starts, such as a script run
+    with ``subprocess``, inherits the exemption through a private
+    environment variable the fixture sets for the test. The exemption covers
+    this file's path only, and ends with the test.
 
     Usage::
 
@@ -183,7 +188,7 @@ def fdt_settings_toml(tmp_path: Path) -> Iterator[Callable[..., Path]]:
 
         path = tmp_path / _LEGACY_CONFIG_FILENAME
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-        _exempt_fixture_file(path)
+        monkeypatch.setenv(_FIXTURE_FILES_ENV, _exempt_fixture_file(path))
         written.append(path)
         # Round-trip validates the produced TOML parses cleanly.
         tomllib.loads(path.read_text(encoding="utf-8"))

@@ -23,6 +23,7 @@ from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, Settings
 import sigantry_core
 from sigantry_core.config import (
     _CONFIG_FILENAME,
+    _FIXTURE_FILES_ENV,
     _LEGACY_CONFIG_FILENAME,
     ToolkitSettings,
     load_settings,
@@ -1100,14 +1101,61 @@ def test_fixture_exemption_covers_its_own_file_only(
     )
 
 
+def test_fixture_stays_silent_when_the_test_clears_its_environment(
+    fdt_settings_toml: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The variable is for the processes a test starts; in the test's own
+    process the exemption holds without it."""
+    fdt_settings_toml(core={"tenant_id": "t1"})
+    monkeypatch.delenv(_FIXTURE_FILES_ENV)
+
+    assert _load_with_warnings_as_errors().core.tenant_id == "t1"
+
+
+@pytest.mark.parametrize(
+    ("listed", "exempt"),
+    [
+        (lambda here: json.dumps([os.path.normcase(os.path.realpath(here))]), True),
+        (lambda here: json.dumps([os.path.normcase(os.path.realpath(here)) + "x"]), False),
+        (lambda here: os.path.realpath(here), False),
+        (lambda here: json.dumps({"path": os.path.realpath(here)}), False),
+        (lambda here: json.dumps([1, ["x"]]), False),
+        (lambda here: "", False),
+    ],
+    ids=["this-path", "another-path", "not-json", "not-a-list", "not-strings", "empty"],
+)
+def test_fixture_exemption_through_the_environment(
+    listed: Any, exempt: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """What a process the test started sees: no fixture of its own, only the
+    variable. Only a JSON list naming this file's path exempts it."""
+    here = _write(_LEGACY_CONFIG_FILENAME, '[core]\ntenant_id = "t1"\n')
+    monkeypatch.setenv(_FIXTURE_FILES_ENV, listed(here))
+
+    settings, caught = _load()
+
+    assert settings.core.tenant_id == "t1"
+    warned = any(
+        f"{_LEGACY_CONFIG_FILENAME} is deprecated" in m
+        for m in _messages(caught, DeprecationWarning)
+    )
+    assert warned is not exempt
+
+
 #: A plugin's tests, run by :func:`test_fixture_file_operations_in_a_plugin_suite`
 #: in a pytest of their own. Each asserts what 1.0.0 did, and loads through
 #: ``from_config()`` under the run's warnings-as-errors filter.
 _PLUGIN_SUITE_OPERATIONS = """
 import os
+import subprocess
+import sys
 
 NEW = ".sigantry.toml"
 BODY = '[core]\\ntenant_id = "from-new-file"\\n'
+CHILD = (
+    "from sigantry_core.api import FabricDataOps; "
+    "print(FabricDataOps.from_config().settings.core.tenant_id)"
+)
 
 
 def _from_config(cfg, monkeypatch):
@@ -1115,6 +1163,18 @@ def _from_config(cfg, monkeypatch):
 
     monkeypatch.chdir(cfg.parent)
     return FabricDataOps.from_config().settings
+
+
+def _child(cfg, *flags):
+    proc = subprocess.run(
+        [sys.executable, *flags, "-c", CHILD],
+        cwd=cfg.parent,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    return proc.returncode, proc.stdout.strip(), proc.stderr
 
 
 def test_writes_one_file(fdt_settings_toml, monkeypatch):
@@ -1164,6 +1224,22 @@ def test_in_place_edit(fdt_settings_toml, monkeypatch):
     cfg = fdt_settings_toml(core={"tenant_id": "t1"})
     cfg.write_text('[core]\\ntenant_id = "edited"\\n', encoding="utf-8")
     assert _from_config(cfg, monkeypatch).core.tenant_id == "edited"
+
+
+def test_child_process_with_warnings_as_errors(fdt_settings_toml):
+    cfg = fdt_settings_toml(core={"tenant_id": "t1"})
+    assert _child(cfg, "-W", "error::DeprecationWarning") == (0, "t1", "")
+
+
+def test_child_process_with_default_filters(fdt_settings_toml):
+    cfg = fdt_settings_toml(core={"tenant_id": "t1"})
+    assert _child(cfg) == (0, "t1", "")
+
+
+def test_child_process_with_a_new_file_beside(fdt_settings_toml):
+    cfg = fdt_settings_toml(core={"tenant_id": "t1"})
+    (cfg.parent / NEW).write_text(BODY, encoding="utf-8")
+    assert _child(cfg, "-W", "error") == (0, "t1", "")
 """
 
 #: The exemption ends with the test that asked for the file: the same path
@@ -1186,19 +1262,40 @@ def test_b_same_path_warns_once_that_test_ended(monkeypatch):
     monkeypatch.chdir(path.parent)
     with pytest.warns(DeprecationWarning, match="is deprecated"):
         load_settings()
+
+
+def test_c_a_child_started_once_that_test_ended_warns():
+    import subprocess
+    import sys
+
+    path = _SEEN[0]
+    proc = subprocess.run(
+        [sys.executable, "-c", "from sigantry_core.config import load_settings; load_settings()"],
+        cwd=path.parent,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert "is deprecated" in proc.stderr, proc.stderr
 """
 
 
 @pytest.mark.parametrize(
-    "warnings_as_errors",
-    [["-W", "error::DeprecationWarning"], ["-o", "filterwarnings=error"]],
-    ids=["W-error-DeprecationWarning", "filterwarnings-error"],
+    ("warnings_as_errors", "pythonwarnings"),
+    [
+        (["-W", "error::DeprecationWarning"], None),
+        (["-o", "filterwarnings=error"], None),
+        ([], "error::DeprecationWarning"),
+    ],
+    ids=["W-error-DeprecationWarning", "filterwarnings-error", "PYTHONWARNINGS-error"],
 )
 def test_fixture_file_operations_in_a_plugin_suite(
-    warnings_as_errors: list[str], tmp_path: Path
+    warnings_as_errors: list[str], pythonwarnings: str | None, tmp_path: Path
 ) -> None:
     """A plugin's own suite: the fixture, each file operation, ``from_config()``,
-    with warnings as errors. Every test here passed on 1.0.0."""
+    with warnings as errors, in the test's process and in one it starts. Every
+    test in the operations file passed on 1.0.0."""
     root = Path(sigantry_core.__file__).resolve().parent.parent
     case = tmp_path / "plugin-suite"
     case.mkdir()
@@ -1226,6 +1323,8 @@ def test_fixture_file_operations_in_a_plugin_suite(
         if not k.upper().startswith(("FDT_", "SIGANTRY_", "PYTEST_", "PYTHONWARNINGS"))
     }
     env["PYTHONPATH"] = str(root)
+    if pythonwarnings is not None:
+        env["PYTHONWARNINGS"] = pythonwarnings
 
     proc = subprocess.run(
         [
@@ -1250,7 +1349,7 @@ def test_fixture_file_operations_in_a_plugin_suite(
     )
 
     assert proc.returncode == 0, proc.stdout[-3000:] + proc.stderr[-3000:]
-    assert "10 passed" in proc.stdout, proc.stdout[-3000:]
+    assert "14 passed" in proc.stdout, proc.stdout[-3000:]
 
 
 # ---------------------------------------------------------------------------

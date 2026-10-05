@@ -33,12 +33,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`fdt_core__tenant_id`), and `fdt_<section>` holding a JSON object, are read
   again and ranked as in 1.0.0: below a file key spelled `tenant_id`, above
   one spelled in another case such as `TENANT_ID`, and with
-  `<SECTION>__<KEY>` names laid over the JSON object. Where `fdt_<section>`,
-  or `fdt_<section>__<table>` for a table such as `release.ado`, holds a value
-  that is not a JSON object (`null`, `5`, an empty value), the result is
-  again the one 1.0.0 gave: that section's `<SECTION>__<KEY>` names are not
-  read, and a table spelled two ways in the file resolves as it did there.
-  Where 1.0.0 failed on such a value, it is ignored with a `UserWarning`.
+  `<SECTION>__<KEY>` names laid over the JSON object. Where `fdt_<section>`
+  holds JSON that is not an object (`null`, `5`), that section's
+  `<SECTION>__<KEY>` names are not read, as in 1.0.0; where
+  `fdt_<section>__<table>`, for a table such as `release.ado`, holds a value
+  that is not a JSON object (`null`, `5`, an empty value), a table spelled
+  two ways in the file resolves as it did there. Where 1.0.0 failed on such
+  a value, the value is ignored with a `UserWarning`; an `fdt_<section>`
+  value that is not JSON at all, an empty one included, is ignored that way
+  and the section's `<SECTION>__<KEY>` names are read.
   Where several `FDT_` names set one setting, the one 1.0.0 used still wins,
   which for names that differ only in letter case depends, as in 1.0.0, on
   the order the environment lists them. `load_settings()` again keeps an `FDT_` name whose
@@ -86,13 +89,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `FabricDataOps.from_config()` included.
 - **pytest plugin.** The `fdt_settings_toml` fixture still writes only the
   legacy file and returns its path, as in 1.0.0. While the test that asked
-  for it runs, the loader reads that file without a warning: no
-  `DeprecationWarning` for the legacy name, and no `UserWarning` if the test
-  also writes a `.sigantry.toml` beside it, which 1.0.0 did not read either.
-  A test that changes into that directory and calls
-  `FabricDataOps.from_config()` therefore passes under warnings as errors, as
-  it did on 1.0.0, whether it edits, replaces or deletes the file first. Any
-  other legacy file warns as before.
+  for it runs, the loader reads that file without a warning, in the test's
+  own process and in any process the test starts that inherits its
+  environment: no `DeprecationWarning` for the legacy name, and no
+  `UserWarning` if the test also writes a `.sigantry.toml` beside it, which
+  1.0.0 did not read either. A test that changes into that directory and
+  calls `FabricDataOps.from_config()`, or runs a script there that does,
+  therefore passes under warnings as errors, as it did on 1.0.0, whether it
+  edits, replaces or deletes the file first. A key the test spells in
+  another letter case, such as `core={"TENANT_ID": ...}`, still gets the
+  `DeprecationWarning` described under Settings keys. Any other legacy file
+  warns as before.
 
 ### Added
 - **A name gate** (`scripts/ci/check-name-gate.py`, run by

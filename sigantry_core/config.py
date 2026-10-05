@@ -95,6 +95,12 @@ _EXPLICIT_ENV_PREFIX: contextvars.ContextVar[str | None] = contextvars.ContextVa
 #: :func:`_exempt_fixture_file`.
 _FIXTURE_FILES: set[str] = set()
 
+#: The same paths, as a JSON list, for the processes that test starts: the
+#: fixture sets this variable while the test runs and they inherit it. It
+#: starts with an underscore so no settings prefix, and no suite that clears
+#: ``SIGANTRY_`` names, reaches it.
+_FIXTURE_FILES_ENV = "_SIGANTRY_PYTEST_FIXTURE_FILES"
+
 
 def _warn(message: str, category: type[Warning]) -> None:
     """Warn, attributed to the first caller outside sigantry and pydantic.
@@ -597,7 +603,8 @@ def _resolve_config(path: str | Path | None) -> _ResolvedConfig:
       reported against the name operators should create.
 
     A legacy file the ``fdt_settings_toml`` fixture wrote is read the same
-    way, without either warning (see :func:`_exempt_fixture_file`).
+    way, without either warning, in the test's process and in any process it
+    starts (see :func:`_exempt_fixture_file`).
     """
     if path is not None:
         return _ResolvedConfig(Path(path), True)
@@ -633,30 +640,55 @@ def _fixture_key(path: str | os.PathLike[str]) -> str:
     return os.path.normcase(os.path.realpath(path))
 
 
-def _exempt_fixture_file(path: Path) -> None:
+def _exempt_fixture_file(path: Path) -> str:
     """Read the legacy file at ``path`` without a warning while it is exempt.
 
     Only the ``fdt_settings_toml`` pytest fixture calls this, for the file it
     writes, and it lifts the exemption when the test that asked for the file
     ends (:func:`_release_fixture_file`). sigantry 1.0.0's fixture wrote that
     file under the legacy name and its loader read it silently, so a plugin's
-    suite run with warnings as errors passed; the file is the fixture's
-    choice, not the plugin author's, so a deprecation warning about it is not
-    one they can act on. The exemption is for that one path: any other legacy
-    file, and this one once the test ends, warns as before.
+    suite run with warnings as errors passed, and so did a script the test
+    ran in a process of its own; the file is the fixture's choice, not the
+    plugin author's, so a deprecation warning about it is not one they can
+    act on. The exemption is for that one path: any other legacy file, and
+    this one once the test ends, warns as before.
+
+    Returns the value the fixture sets :data:`_FIXTURE_FILES_ENV` to for the
+    test, so the processes it starts read the file silently too: the paths
+    that variable already lists, and this one. The variable is kept (not the
+    in-process set alone) because a child process has no other way to learn
+    the path; the set is kept as well because a test may clear the
+    environment in its own process.
     """
-    _FIXTURE_FILES.add(_fixture_key(path))
+    key = _fixture_key(path)
+    _FIXTURE_FILES.add(key)
+    return json.dumps(sorted(_inherited_fixture_files() | {key}))
 
 
 def _release_fixture_file(path: Path) -> None:
     _FIXTURE_FILES.discard(_fixture_key(path))
 
 
+def _inherited_fixture_files() -> set[str]:
+    """The paths :data:`_FIXTURE_FILES_ENV` lists; none when it is unset or malformed."""
+    raw = os.environ.get(_FIXTURE_FILES_ENV)
+    if not raw:
+        return set()
+    try:
+        listed = json.loads(raw)
+    except ValueError:
+        return set()
+    if not isinstance(listed, list):
+        return set()
+    return {item for item in listed if isinstance(item, str)}
+
+
 def _is_fixture_file(path: Path) -> bool:
-    if not _FIXTURE_FILES:
+    keys = _FIXTURE_FILES | _inherited_fixture_files()
+    if not keys:
         return False
     try:
-        return _fixture_key(path) in _FIXTURE_FILES
+        return _fixture_key(path) in keys
     except (OSError, ValueError):
         return False
 
