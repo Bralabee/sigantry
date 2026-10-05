@@ -301,11 +301,19 @@ class SyncItem(BaseModel):
     @field_validator("display_name")
     @classmethod
     def _validate_display_name(cls, value: str) -> str:
-        """Enforce Council D #4 hygiene rules on the display name."""
-        violations = _segment_violations(value, field="display_name")
-        if violations:
-            detail = "; ".join(v["reason"] for v in violations)
-            raise ValueError(f"display_name {value!r}: {detail} (D-05/Council-D-4)")
+        """Enforce Council D #4 hygiene rules on the display name.
+
+        The display name also names the directory an item is staged in
+        (``<display_name>.<Type>/``), so it must be one name, not a path:
+        ``/`` and ``\\`` are rejected, which rejects every absolute path
+        (POSIX, drive-rooted and UNC) as well. The packagers check the
+        joined path again, for callers that do not come through here.
+        """
+        reasons = [v["reason"] for v in _segment_violations(value, field="display_name")]
+        if "/" in value or "\\" in value:
+            reasons.append("path separator ('/' or '\\'); a display name is one name, not a path")
+        if reasons:
+            raise ValueError(f"display_name {value!r}: {'; '.join(reasons)} (D-05/Council-D-4)")
         return value
 
 

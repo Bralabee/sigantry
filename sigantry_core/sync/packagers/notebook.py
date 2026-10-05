@@ -65,6 +65,8 @@ import logging
 import uuid
 from pathlib import Path
 
+from sigantry_core.sync.packagers._staging import staged_item_dir
+
 logger = logging.getLogger("sigantry_core.sync.packagers.notebook")
 
 _PLATFORM_SCHEMA_URL = (
@@ -111,6 +113,8 @@ class NotebookPackager:
         - :class:`ValueError` if ``source`` is not an ``.ipynb`` file.
         - :class:`FileExistsError` if the target staged folder already
           exists (callers must pass a fresh staging tempdir).
+        - :class:`ValueError` if ``display_name`` / ``target_folder`` would
+          put the staged folder outside ``staging_dir``.
         """
         source_path = Path(source).resolve()
         if not source_path.is_file() or source_path.suffix != ".ipynb":
@@ -122,12 +126,12 @@ class NotebookPackager:
         # Sidecar resolution (D-11 / D-13).
         resolved_id = logical_id if logical_id else self._sidecar_resolve(source_path)
 
-        # Build target dir under staging.
-        sub_path = target_folder.lstrip("/").lstrip("\\")
-        target_dir = (
-            staging_dir / sub_path / f"{display_name}.Notebook"
-            if sub_path
-            else staging_dir / f"{display_name}.Notebook"
+        # Build target dir under staging; refuse one that resolves outside it.
+        target_dir = staged_item_dir(
+            staging_dir,
+            target_folder,
+            f"{display_name}.Notebook",
+            packager="NotebookPackager",
         )
         if target_dir.exists():
             raise FileExistsError(

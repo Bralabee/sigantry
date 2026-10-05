@@ -61,6 +61,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   part of this repository; on a clean runner they always skipped.
 
 ### Changed
+- **A `sync.yml` `display_name` must be one name, not a path.** A display
+  name that contains `/` or `\` is rejected when the manifest is loaded, and
+  with it every absolute path; before, only the other banned characters were
+  checked. Both packagers (`NotebookPackager`, `GenericPackager`) also check
+  the joined staging path after resolving it and raise `ValueError` when it
+  is not inside the staging directory, so a direct `pack()` call that never
+  went through the manifest validator is held to the same rule.
 - **The client's JSON logs mask URL query values and unmarked `credential`
   fields.** A logged `url` keeps its scheme, host, path and query parameter
   names; query values, userinfo and the fragment print as `<redacted>`
