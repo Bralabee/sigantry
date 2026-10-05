@@ -4,9 +4,9 @@ Canonical release checklist for `sigantry` (the base platform; see
 [ADR-0017](decisions/ADR-0017-distribution-name-sigantry.md) for the
 distribution name). Releases are **GitHub-Release-triggered**:
 `.github/workflows/publish-pypi.yml` fires on `release: types:
-[published]` and on `workflow_dispatch`. There is **no** `push: tags:`
-trigger, so pushing a tag on its own publishes nothing. The default
-branch is `main`; there is no `master`.
+[published]` and on nothing else. There is **no** manual trigger and **no**
+`push: tags:` trigger, so pushing a tag on its own publishes nothing. The
+default branch is `main`; there is no `master`.
 **Tagging and releasing are manual and performed by the maintainer
 only**; contributors and agents MUST NOT push tags.
 
@@ -54,10 +54,16 @@ Run before opening the release PR:
    nothing looks identical to a passing one.
 4. `python -m pytest tests/prereqs/` - green. Names are not checked here:
    the `Name gate` check covers each pull request, and the release
-   workflow runs the same gate on the released tree before it builds. It
-   uses the same exception register as the pull-request check, so a
-   release of a ref whose registered lines have moved fails until the
-   register fits that ref.
+   workflow runs the same gate over the released tree and the wheel and
+   sdist it uploads (`--dist`). It uses the same exception register as the
+   pull-request check, so a release of a ref whose registered lines have
+   moved fails until the register fits that ref. A version bump needs no
+   register edit: a distribution member identical to the tree file at its
+   path is judged by that file's entry, and a hit in the core metadata is
+   keyed by its field (`#Author:1`), not its line. Before tagging, the
+   maintainer runs the release scan on the release commit locally:
+   `python -m build`, then
+   `python scripts/ci/check-name-gate.py --root . --dist dist --list-file <list>`.
 5. `pwsh -c "Invoke-Pester -Configuration ./tests/Pester.config.ps1"`.
 6. Update `CHANGELOG.md`: move `[Unreleased]` to a dated heading.
 7. Bump `sigantry_core/_version.py`.
@@ -67,7 +73,9 @@ Run before opening the release PR:
 
 - Title: `Release vX.Y.Z`.
 - Body: CHANGELOG excerpt + migration notes for breaking changes.
-- Merge once two approvals land and CI is green.
+- Merge once every required check is green: CI, the `Name gate` and the
+  `review-record` status. Branch protection does not require an approving
+  review count; the review record is the review gate.
 
 ## Tag + publish
 
@@ -80,11 +88,24 @@ git push origin vX.Y.Z
 gh release create vX.Y.Z --title "vX.Y.Z" --notes-file <changelog-excerpt>
 ```
 
-Publishing the Release runs `publish-pypi.yml`, which builds the wheel +
-sdist and uploads to PyPI via OIDC trusted publishing (no API token).
-A `workflow_dispatch` run against the tag is the manual fallback.
-Verify the artefact appears on PyPI and that `pip install sigantry==X.Y.Z`
-resolves in a clean environment.
+Publishing the Release runs `publish-pypi.yml`, in two halves:
+
+1. `quality` runs `ci.yml`: lint, type check and the test matrix, then its
+   `build` job builds the sdist and wheel, runs `twine check --strict`,
+   prints and records their SHA-256, and uploads them as the `dist`
+   artifact. It holds no secret and no OIDC token.
+2. `publish` waits for the `pypi` environment's reviewer (the environment
+   admits only `v*` tags). It downloads that `dist` artifact, verifies it
+   against the recorded SHA-256, scans the tree and both distributions with
+   the name gate, and uploads exactly those files to PyPI through OIDC
+   trusted publishing (no API token). It builds nothing and installs
+   nothing from PyPI.
+
+If the run fails, re-run it; there is no manual trigger to fall back on.
+`skip-existing` stays on so that a re-run can finish an upload that stopped
+after one file. Verify that the files appear on PyPI with the SHA-256 the
+`build` job printed, and that `pip install sigantry==X.Y.Z` resolves in a
+clean environment.
 
 ## Known gaps in the published record
 
@@ -103,8 +124,8 @@ resolves in a clean environment.
   which differed, so the publisher record appears to have been corrected
   server-side in between. That is an inference, not an observation: PyPI's
   publisher configuration cannot be read back. **Treat the next
-  Release-triggered run as the confirmation, and keep `workflow_dispatch` as
-  the documented fallback if it fails again.**
+  Release-triggered run as the confirmation.** The manual trigger has since
+  been removed, so if it fails, the run is re-run after the cause is fixed.
 
 ## Plugin releases
 

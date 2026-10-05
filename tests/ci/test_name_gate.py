@@ -1347,32 +1347,56 @@ _EXPECTED_GATE_JOB = {
     ],
 }
 
-# The job in publish-pypi.yml that uploads to PyPI, refs dropped the same way.
+# The release workflow, refs dropped the same way. `quality` is the build
+# half: it runs ci.yml, whose `build` job uploads the `dist` artifact and
+# records its SHA-256, with no secret and no id-token. `publish` builds
+# nothing: it verifies that artifact, scans it with the tree, and uploads it.
+_EXPECTED_QUALITY_JOB = {
+    "name": "CI",
+    "permissions": {"contents": "read"},
+    "uses": "./.github/workflows/ci.yml",
+}
+_VERIFY_RECORDED = (
+    'printf \'%s\\n\' "$RECORDED" > "$RUNNER_TEMP/dist.sha256"\n'
+    'sha256sum --check --strict "$RUNNER_TEMP/dist.sha256"\n'
+    "test \"$(find . -mindepth 1 -maxdepth 1 -printf '%f\\n' | sort)\" = "
+    '"$(sed -n \'s/^[0-9a-f]\\{64\\} [ *]//p\' "$RUNNER_TEMP/dist.sha256" | sort)"\n'
+)
+_DIST_SCAN = "python scripts/ci/check-name-gate.py --root . --dist dist"
 _EXPECTED_PUBLISH_JOB = {
-    "name": "Build & Publish to PyPI",
+    "name": "Publish to PyPI",
     "needs": ["quality"],
     "runs-on": "ubuntu-latest",
     "environment": {"name": "pypi", "url": "https://pypi.org/p/sigantry"},
     "permissions": {"id-token": "write", "contents": "read"},
     "steps": [
-        {"name": "Checkout repository", "uses": "actions/checkout"},
+        {
+            "name": "Checkout repository",
+            "uses": "actions/checkout",
+            "with": {"persist-credentials": False},
+        },
         {
             "name": "Set up Python 3.11",
             "uses": "actions/setup-python",
-            "with": {"python-version": "3.11", "cache": "pip"},
+            "with": {"python-version": "3.11"},
         },
         {"name": "Install the PDF text extractor", "run": _PDF_EXTRACTOR},
         {
-            "name": "Scan the tree for names",
-            "env": _TOKENS_ENV,
-            "run": "python scripts/ci/check-name-gate.py --root .",
+            "name": "Download the distributions CI built and checked",
+            "uses": "actions/download-artifact",
+            "with": {"name": "dist", "path": "dist/"},
         },
         {
-            "name": "Install packaging tools",
-            "run": "python -m pip install --upgrade pip build twine",
+            "name": "Verify them against the SHA-256 recorded at build",
+            "env": {"RECORDED": "${{ needs.quality.outputs.dist-sha256 }}"},
+            "working-directory": "dist",
+            "run": _VERIFY_RECORDED,
         },
-        {"name": "Build sdist and wheel", "run": "python -m build"},
-        {"name": "Check package metadata with twine", "run": "twine check --strict dist/*"},
+        {
+            "name": "Scan the tree and the distributions for names",
+            "env": _TOKENS_ENV,
+            "run": _DIST_SCAN,
+        },
         {
             "name": "Publish package distributions to PyPI",
             "uses": "pypa/gh-action-pypi-publish",
@@ -1431,29 +1455,45 @@ def test_no_other_job_reports_under_the_gate_check_name() -> None:
 
 
 def test_the_release_path_runs_the_gate() -> None:
-    """The one job that uploads to PyPI scans the released tree before it builds.
+    """The one job that uploads to PyPI scans the tree and the distributions it uploads.
 
     ``quality`` runs ci.yml, which does not receive the token list, so
     without this a release from a ref that never passed the pull-request
-    check, or a manual run on any branch, would upload unchecked. The job is
-    compared whole, for the reasons ``test_the_gate_job_is_pinned_whole``
-    gives: a step that changed the tree after the scan, or one that skipped
-    or neutered it, would otherwise pass. Every publish job the quality-gate
-    tests detect (``_publish_jobs``, with its pinned gaps) must be this one,
-    so a second upload job cannot go round the scan.
+    check would upload unchecked. The scan reads the downloaded ``dist``
+    directory, which is what the publish step uploads, and it is the last
+    step before that upload. The job is compared whole, for the reasons
+    ``test_the_gate_job_is_pinned_whole`` gives: a step that changed the
+    files after the scan, or one that skipped or neutered it, would otherwise
+    pass. Every publish job the quality-gate tests detect (``_publish_jobs``,
+    with its pinned gaps) must be this one, so a second upload job cannot go
+    round the scan, and the workflow holds no job besides it and its gate.
     """
     publish_jobs = sorted(
         f"{path.name}::{job_id}"
         for path in sorted((REPO_ROOT / ".github" / "workflows").glob("*.y*ml"))
         for job_id in _publish_jobs(yaml.safe_load(path.read_text(encoding="utf-8")) or {})
     )
-    assert publish_jobs == ["publish-pypi.yml::build-and-publish"], (
+    assert publish_jobs == ["publish-pypi.yml::publish"], (
         "every job that publishes must run the name gate first; give a new "
         f"publish job the scan and pin it here: {publish_jobs}"
     )
     wf = yaml.safe_load(PUBLISH_WORKFLOW.read_text(encoding="utf-8"))
-    assert "env" not in wf and "defaults" not in wf, (
-        "workflow-level env or defaults reach the scan step"
+    assert set(wf) == {"name", True, "concurrency", "jobs"}, (
+        "publish-pypi.yml's top-level keys changed; workflow-level env, defaults "
+        f"or permissions reach every step: {sorted(map(str, wf))}"
     )
-    job = wf["jobs"]["build-and-publish"]
+    assert set(wf["jobs"]) == {"quality", "publish"}, (
+        f"publish-pypi.yml runs its gate and its publish job only: {sorted(wf['jobs'])}"
+    )
+    assert wf["jobs"]["quality"] == _EXPECTED_QUALITY_JOB
+    job = wf["jobs"]["publish"]
+    steps = [(str(s.get("uses", "")).split("@")[0], str(s.get("run", ""))) for s in job["steps"]]
+    for step in (("actions/download-artifact", ""), ("", _DIST_SCAN)):
+        assert step in steps, f"the publish job has no {step[0] or step[1]!r} step"
+    download = steps.index(("actions/download-artifact", ""))
+    scan = steps.index(("", _DIST_SCAN))
+    upload = steps.index(("pypa/gh-action-pypi-publish", ""))
+    assert download < scan == upload - 1, (
+        "the scan must read the downloaded distributions and be the last step before the upload"
+    )
     assert _without_action_refs(job) == _EXPECTED_PUBLISH_JOB

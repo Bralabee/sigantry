@@ -103,10 +103,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   suite once it passes, because this one outlived its reason in silence.
 - **The wheel published to PyPI is now gated by the same lint, type and test
   jobs that gate a pull request.** `publish-pypi.yml` ran checkout → build →
-  `twine check` → publish with no quality job in front of it; CI's own
-  `build` job gates only the throwaway `dist` artifact that nobody installs.
-  `ci.yml` is now callable (`workflow_call`) and the publish job depends on
-  it.
+  `twine check` → publish with no quality job in front of it, while CI's own
+  `build` job gated only a `dist` artifact that nobody installed. `ci.yml` is
+  now callable (`workflow_call`) and the publish job depends on it.
+- **A release publishes the files CI built and checked, and builds nothing
+  of its own.** Even behind the quality gate, `publish-pypi.yml` rebuilt the
+  sdist and wheel inside its publish job, so the bytes uploaded to PyPI were
+  never the bytes `ci.yml` had checked. `ci.yml`'s `build` job now records
+  the SHA-256 of each file it uploads as `dist` and hands the record to the
+  release through a `workflow_call` output. The publish job (renamed from
+  `build-and-publish` to `publish`; the workflow file and the `pypi`
+  environment that PyPI's trusted publisher matches are unchanged) downloads
+  that artifact, verifies it against the record, scans the tree and both
+  distributions with the name gate's `--dist`, and uploads them. It checks
+  out without persisting credentials, installs nothing from PyPI and no
+  longer restores a pip cache, so nothing from an index or an earlier run
+  executes beside the OIDC token or the token list before the scan.
+  `skip-existing` stays on: re-running the release run is now the only
+  recovery from an upload that stopped after one file.
 - `mypy` in `.pre-commit-config.yaml` moved from `v1.13.0` to `v1.20.2`, the
   version `mypy>=1.19,<2.0` actually resolves to, so the hook and the CI gate
   cannot disagree about what counts as an error.
@@ -196,8 +210,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The name gate (see Added) takes over the name checks of the older
   banned-string test (see Removed). It runs on every pull request to `main`
   and on every push to `main`, and must pass before merge. The release
-  workflow also runs it on the released tree, before building the
-  distributions it uploads to PyPI.
+  workflow also runs it on the released tree and on the wheel and sdist it
+  uploads to PyPI, as the last step before the upload.
 
 ### Deprecated
 - `.fabric-dataops.toml` and the `FDT_` settings env prefix. Both are still
@@ -347,9 +361,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in one group and one cancelled the other. If that was the release's gate, the
   publish job is *skipped* and nothing ships — a cancellation, not a red X.
   The group now includes `github.workflow`.
-- `twine check` in CI is now `--strict`, matching the publish path. A metadata
-  defect that is a warning under one and an error under the other would
-  otherwise pass every quality job and surface mid-release.
+- `twine check` in CI is now `--strict`. A release publishes the files that
+  job checks, so a metadata defect that is only a warning would otherwise
+  pass every quality job and surface at upload.
 - A malformed `metrics.json` (a JSON list or scalar) no longer reads as "no
   metrics". `docs_freshness` raises and names the real cause instead of passing
   clean on a broken input or later reporting a claimed metric as "absent".
@@ -445,6 +459,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   behaviour and says who is responsible for checking.
 
 ### Security
+- **`publish-pypi.yml` no longer has a manual trigger.** `workflow_dispatch`
+  let a run be started against any ref, leaving the `pypi` environment's
+  `v*` tag policy and its reviewer as the only stops before an upload. A
+  published GitHub Release is now the only trigger, and a failed release is
+  recovered by re-running its run. `docs/release-process.md` no longer
+  presents the manual run as a fallback.
 - Settings env overrides are now restricted to `<PREFIX><SECTION>__<KEY>` forms
   whose section names a real settings field, and **no** model in the tree
   enables pydantic-settings' own env source. `SIGANTRY_` is shared with ~70

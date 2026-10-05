@@ -1,31 +1,39 @@
 # sigantry-dual-ci-exception: ci-mechanics
 name: Publish to PyPI
 
+# A published GitHub Release is the only trigger. The `pypi` environment
+# admits only `v*` tags and waits for its reviewer. A failed run is
+# recovered by re-running this run, which builds and checks the same commit
+# again; there is no manual trigger that could publish another ref.
 on:
   release:
     types: [published]
-  workflow_dispatch:
 
 concurrency:
   group: pypi-publish-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  # The wheel that reaches PyPI is gated by the SAME lint, type and test
-  # jobs that gate a pull request. Before this, the release path ran
-  # checkout -> build -> publish with no quality job in front of it: CI's
-  # `build` job gated only the throwaway CI `dist` artifact, never this.
+  # The build half. `quality` runs ci.yml: lint, types and the test matrix,
+  # then its `build` job builds the sdist and wheel, runs
+  # `twine check --strict`, records their SHA-256 as an output and uploads
+  # them as the `dist` artifact of this run. That build holds no secret and
+  # no id-token: this job passes none and grants only `contents: read`.
   quality:
     name: CI
-    # Its sibling pins its own scopes; this job runs the whole suite on three
-    # OSes and needs nothing but the source, so it should not inherit whatever
-    # the repo/org default grants.
     permissions:
       contents: read
     uses: ./.github/workflows/ci.yml
 
-  build-and-publish:
-    name: Build & Publish to PyPI
+  # The publish half: it builds nothing and installs nothing from PyPI. It
+  # takes the `dist` artifact `quality` built and checked, verifies it
+  # against the recorded SHA-256, scans the tree and both distributions for
+  # names, and uploads exactly those bytes. Nothing from PyPI runs before the
+  # scan, which holds the token list. tests/ci/test_name_gate.py pins this
+  # job whole and tests/ci/test_quality_gates_run.py pins that it builds
+  # nothing.
+  publish:
+    name: Publish to PyPI
     needs: [quality]
     runs-on: ubuntu-latest
     environment:
@@ -36,37 +44,51 @@ jobs:
       contents: read
 
     steps:
+      # The tree the scan reads: the same commit `quality` built.
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
+      # No pip cache: nothing is pip-installed here, and a restored cache is
+      # content this job would otherwise hold beside the OIDC token.
       - name: Set up Python 3.11
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.11'
-          cache: pip
 
-      # The name gate on the tree being released. `quality` runs ci.yml,
-      # which does not receive the token list, so without these two steps a
-      # release from a ref that never passed the pull-request check, or a
-      # manual run on any branch, would be uploaded unchecked. The steps are
-      # the ones name-gate.yml runs; tests/ci/test_name_gate.py pins this job.
       - name: Install the PDF text extractor
         run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends poppler-utils
 
-      - name: Scan the tree for names
+      - name: Download the distributions CI built and checked
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist/
+
+      # Each recorded file is present with its recorded SHA-256 (an empty
+      # record fails), and no file is present that was not recorded.
+      - name: Verify them against the SHA-256 recorded at build
+        env:
+          RECORDED: ${{ needs.quality.outputs.dist-sha256 }}
+        working-directory: dist
+        run: |
+          printf '%s\n' "$RECORDED" > "$RUNNER_TEMP/dist.sha256"
+          sha256sum --check --strict "$RUNNER_TEMP/dist.sha256"
+          test "$(find . -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)" = "$(sed -n 's/^[0-9a-f]\{64\} [ *]//p' "$RUNNER_TEMP/dist.sha256" | sort)"
+
+      # The last step before the upload, over the directory the upload
+      # sends. `--dist` requires exactly one wheel and one sdist there.
+      - name: Scan the tree and the distributions for names
         env:
           NAME_GATE_TOKENS: ${{ secrets.NAME_GATE_TOKENS }}
-        run: python scripts/ci/check-name-gate.py --root .
+        run: python scripts/ci/check-name-gate.py --root . --dist dist
 
-      - name: Install packaging tools
-        run: python -m pip install --upgrade pip build twine
-
-      - name: Build sdist and wheel
-        run: python -m build
-
-      - name: Check package metadata with twine
-        run: twine check --strict dist/*
-
+      # skip-existing stays: with no manual trigger, re-running this run is
+      # the only recovery from an upload that stopped after one file, and a
+      # re-run must be able to finish the other. What reached PyPI is checked
+      # against the recorded SHA-256 after the release, not taken from this
+      # run's status.
       - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:

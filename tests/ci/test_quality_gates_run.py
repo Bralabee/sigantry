@@ -650,10 +650,11 @@ def test_build_job_invariants_are_pinned_not_just_commented(ci_workflow: dict) -
     """Two things this PR established in `build` were prose only.
 
     Measured, both passed the whole suite: reverting `twine check --strict` to
-    `twine check` (the parity with publish-pypi that stops a metadata defect
-    surfacing mid-release), and replacing `python -m build` with `echo skip`,
-    after which `twine check dist/*` matches nothing and the required
-    `Build & Verify Artifacts` context goes green having built nothing.
+    `twine check`, and replacing `python -m build` with `echo skip`, after
+    which `twine check dist/*` matches nothing and the required
+    `Build & Verify Artifacts` context goes green having built nothing. A
+    release publishes this job's `dist` artifact and runs no twine of its
+    own, so this is the strict metadata check on the published files.
     """
     builds = [c for c in _invocations(ci_workflow, "build") if c.job == "build"]
     assert builds, "the build job does not run `python -m build`"
@@ -662,9 +663,9 @@ def test_build_job_invariants_are_pinned_not_just_commented(ci_workflow: dict) -
     for call in twine:
         _assert_enforcing(call)
         assert "--strict" in call.argv, (
-            f"{call.describe()} is not --strict, while publish-pypi.yml is. A "
-            "metadata defect that is a warning here and an error there passes "
-            "every quality job and surfaces mid-release."
+            f"{call.describe()} is not --strict. A release publishes this job's "
+            "artifact, so a metadata defect that is only a warning here passes "
+            "every quality job and surfaces at upload."
         )
 
 
@@ -841,11 +842,12 @@ def _assert_publish_jobs_gated(
 def test_every_publish_path_is_gated_by_the_quality_jobs(
     all_workflows: dict[str, dict], ci_workflow: dict
 ) -> None:
-    """The distribution users install is gated, not just the CI artifact.
+    """The distribution users install is gated by the quality jobs.
 
     ``publish-pypi.yml`` ran checkout -> build -> twine -> publish with no
-    dependency on lint, test or types. CI's own ``build`` job gates only the
-    ``dist`` artifact uploaded for that run, which nobody installs.
+    dependency on lint, test or types. It now depends on ci.yml, and
+    publishes the ``dist`` artifact ci.yml's ``build`` job made (see
+    ``test_the_release_builds_nothing``).
 
     Every workflow is scanned, not just ``publish-pypi.yml``: a removed alpha
     workflow once published via ``twine upload`` in an ungated job, and a
@@ -862,6 +864,157 @@ def test_every_publish_path_is_gated_by_the_quality_jobs(
         "ci.yml is referenced as a reusable workflow but has no "
         "`workflow_call` trigger, so the publish gate cannot run."
     )
+
+
+# Tools that build a distribution or install one from an index. A workflow
+# that publishes runs none of them outside its ci.yml call (issue #20).
+_BUILD_OR_INSTALL = ("build", "pyproject-build", "hatch", "pip", "pip3", "uv", "poetry", "flit")
+
+
+def _action(step: dict) -> str:
+    """A step's action without its ``@<ref>``; empty for a ``run:`` step."""
+    return str(step.get("uses", "")).split("@", 1)[0]
+
+
+def test_the_release_builds_nothing(all_workflows: dict[str, dict]) -> None:
+    """Issue #20: nothing in a workflow that publishes builds or installs a distribution.
+
+    ``publish-pypi.yml`` rebuilt the sdist and wheel inside its publish job,
+    after the quality gate had passed, so the bytes uploaded to PyPI were
+    never the bytes ci.yml had checked. The build half is ci.yml's ``build``
+    job, run as the workflow's quality gate; the publish job only takes its
+    artifact (``test_the_release_publishes_the_artifact_ci_built``).
+    """
+    found_any = False
+    for filename, workflow in all_workflows.items():
+        if not _publish_jobs(workflow):
+            continue
+        found_any = True
+        for tool in _BUILD_OR_INSTALL:
+            calls = _invocations(workflow, tool)
+            assert not calls, (
+                f"{filename}: {calls[0].describe()} builds or installs a distribution in a "
+                "workflow that publishes. Publish the `dist` artifact ci.yml's `build` job "
+                "built and checked, instead of building again after the gate."
+            )
+    assert found_any, "no publishing workflow found; this check would be vacuous"
+
+
+def test_the_release_publishes_the_artifact_ci_built(
+    all_workflows: dict[str, dict], ci_workflow: dict
+) -> None:
+    """The publish job uploads ci.yml's ``dist`` artifact, verified against its recorded SHA-256.
+
+    ci.yml's ``build`` job uploads ``dist`` and exposes the SHA-256 of each
+    file as the reusable workflow's ``dist-sha256`` output. Each publish job
+    downloads that artifact into ``dist/``, checks it against the output of
+    the ci.yml job it depends on, and lets the publish action upload that
+    directory (its default) rather than another one.
+    """
+    build = ci_workflow["jobs"]["build"]
+    uploads = [s for s in build["steps"] if _action(s) == "actions/upload-artifact"]
+    assert [(s.get("with") or {}).get("name") for s in uploads] == ["dist"], (
+        "ci.yml's build job must upload exactly one artifact, named `dist`"
+    )
+    outputs = (_triggers(ci_workflow).get("workflow_call") or {}).get("outputs") or {}
+    assert (outputs.get("dist-sha256") or {}).get("value") == (
+        "${{ jobs.build.outputs.dist-sha256 }}"
+    ), "ci.yml must expose the build job's SHA-256 record to the workflow that calls it"
+    found_any = False
+    for filename, workflow in all_workflows.items():
+        jobs = workflow.get("jobs") or {}
+        for job_id in _publish_jobs(workflow):
+            found_any = True
+            job = jobs[job_id]
+            steps = job.get("steps") or []
+            downloads = [
+                s.get("with") or {} for s in steps if _action(s) == "actions/download-artifact"
+            ]
+            assert downloads == [{"name": "dist", "path": "dist/"}], (
+                f"{filename}:{job_id} must download the `dist` artifact into dist/: {downloads}"
+            )
+            gates = [
+                n
+                for n in _as_list(job.get("needs"))
+                if str(jobs.get(n, {}).get("uses", "")) == _CI_WORKFLOW_USES
+            ]
+            records = {f"${{{{ needs.{gate}.outputs.dist-sha256 }}}}" for gate in gates}
+            verified = [
+                s
+                for s in steps
+                if set((s.get("env") or {}).values()) & records
+                and "sha256sum --check --strict" in str(s.get("run", ""))
+            ]
+            assert verified, (
+                f"{filename}:{job_id} does not check the downloaded files against the "
+                "SHA-256 its ci.yml gate recorded"
+            )
+            for step in steps:
+                if _action(step) == "pypa/gh-action-pypi-publish":
+                    assert "packages-dir" not in (step.get("with") or {}), (
+                        f"{filename}:{job_id} uploads another directory than the verified dist/"
+                    )
+    assert found_any, "no publish job found; this check would be vacuous"
+
+
+def test_the_release_workflow_runs_only_on_a_published_release(
+    all_workflows: dict[str, dict],
+) -> None:
+    """SEC-14: no manual trigger can start a publish.
+
+    ``workflow_dispatch`` let a run publish whatever ref it was given (the
+    ``pypi`` environment's tag policy and reviewer were the only stop). A
+    failed release is recovered by re-running its run.
+    """
+    assert _triggers(all_workflows["publish-pypi.yml"]) == {"release": {"types": ["published"]}}
+
+
+def _grants_id_token(permissions: object) -> bool:
+    if permissions == "write-all":
+        return True
+    return isinstance(permissions, dict) and str(permissions.get("id-token")) == "write"
+
+
+def test_only_the_publish_job_holds_the_oidc_token_or_the_token_list(
+    all_workflows: dict[str, dict], workflow_dir: pathlib.Path
+) -> None:
+    """The publishing credential and the token list each reach only their pinned jobs.
+
+    ``id-token: write`` is what PyPI trusted publishing accepts, so only the
+    publish job may ask for it, and that job restores no cache: a restored
+    cache is content written by an earlier run, held in the same job as the
+    token. The build half (ci.yml, called with ``contents: read`` and no
+    ``secrets:``) holds no secret at all. The token list goes to the two jobs
+    ``tests/ci/test_name_gate.py`` pins whole, and nowhere else.
+    """
+    holders = []
+    for filename, workflow in all_workflows.items():
+        if _grants_id_token(workflow.get("permissions")):
+            holders.append(f"{filename}::<workflow>")
+        for job_id, job in (workflow.get("jobs") or {}).items():
+            if _grants_id_token(job.get("permissions")):
+                holders.append(f"{filename}::{job_id}")
+    assert holders == ["publish-pypi.yml::publish"], (
+        f"only the publish job may request an OIDC token: {holders}"
+    )
+    for step in all_workflows["publish-pypi.yml"]["jobs"]["publish"]["steps"]:
+        assert _action(step) != "actions/cache", "the job holding the OIDC token restores a cache"
+        assert "cache" not in (step.get("with") or {}), (
+            f"step {step.get('name')!r} restores a cache in the job holding the OIDC token"
+        )
+    quality = all_workflows["publish-pypi.yml"]["jobs"]["quality"]
+    assert "secrets" not in quality, "the build half must not be handed secrets"
+    assert "secrets." not in (workflow_dir / "ci.yml").read_text(encoding="utf-8"), (
+        "ci.yml is the build half of a release and must reference no secret"
+    )
+    readers = {
+        path.name: path.read_text(encoding="utf-8").count("secrets.NAME_GATE_TOKENS")
+        for path in sorted(workflow_dir.glob("*.y*ml"))
+    }
+    assert {name: n for name, n in readers.items() if n} == {
+        "name-gate.yml": 1,
+        "publish-pypi.yml": 1,
+    }, f"the token list reaches a job that is not pinned: {readers}"
 
 
 # GitHub's rule for a job id: a letter or `_`, then letters, digits, `-` or `_`.
@@ -1041,8 +1194,7 @@ def test_ci_concurrency_group_does_not_cancel_the_release_gate(ci_workflow: dict
     if not _is_truthy(cancel):
         return
     # Cancellation must be scoped to pull requests. Two runs of the release
-    # path on the SAME ref (a `release: published` plus a re-run or a
-    # workflow_dispatch) share both concurrency keys, so unconditional
+    # path on the SAME ref share both concurrency keys, so unconditional
     # cancellation lets the newer kill the older's quality gate; the publish
     # job is then skipped for unsatisfied `needs` and nothing ships, reported
     # as a cancellation rather than a red X.
