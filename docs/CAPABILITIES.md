@@ -187,7 +187,9 @@ sequenceDiagram
 - `minimal_starter` -- 8 folders in numbered pipeline-flow order: `00_control`, `10_intake`, `20_storage`, `30_transform`, `40_semantic`, `50_reporting`, `90_shared`, `99_retired`.
 - `medallion` -- alias for the identical `minimal_starter` layout (for operators who prefer the medallion framing; there are no bronze/silver/gold folders). [VERIFIED]
 
-**Test pinning:** 40 unit tests across `tests/sigantry_core/workspace/test_bootstrap.py` (23 -- step probe logic), `tests/sigantry_core/workspace/test_records.py` (12 -- `BootstrapRecord` shape + audit-hash invariant), `tests/sigantry_core/workspace/test_blueprints.py` (5 -- blueprint catalogue). [VERIFIED]
+**Upgrading from 1.0.0:** sigantry 1.0.1 changed these folder names, and bootstrap never renames or deletes a folder, so re-running either blueprint on a workspace that 1.0.0 bootstrapped creates the new folders beside the old ones. To keep the existing layout, list its folder names under `folders.list` in `workspace.yml` instead of naming a blueprint. When a blueprint will create any of its folders at the top level of a workspace that already has top-level folders with other names, bootstrap warns before it creates them: a `sigantry: warning:` line on stderr and a `warnings` list in the JSON report, in a dry run too. It still creates the folders, because 1.0.0 also allowed a first bootstrap into a workspace that already had folders. The check compares the workspace only with the blueprint's own names. [VERIFIED]
+
+**Test pinning:** 55 unit tests across `tests/sigantry_core/workspace/test_bootstrap.py` (38 -- step probe logic and the existing-layout warning), `tests/sigantry_core/workspace/test_records.py` (12 -- `BootstrapRecord` shape + audit-hash invariant), `tests/sigantry_core/workspace/test_blueprints.py` (5 -- blueprint catalogue). [VERIFIED]
 
 ### 2.2 Capacity lifecycle
 
