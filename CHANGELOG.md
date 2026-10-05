@@ -245,13 +245,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   release record, not the deployment. Two entries under [1.0.0] below
   made the same diff and rollback claims (continuous topology comparison,
   and a rollback restoring historical item states) and are corrected in
-  place. The demo walkthrough, its operator runbook, the demo template's
-  README, quickstart, `parameters.yml` and CI files, and a demo entry in
-  each of the product brief, `CONSUMING.md`, `CAPABILITIES.md` and
-  `templates/README.md` say the demo does not run end to end on the shipped
-  demo tree yet. The runbook's service principal check now gets a Fabric
-  access token with the Azure CLI before it calls the API; it has not been
-  run against a tenant.
+  place. The starter and demo templates' branching guides give the rollback
+  as `sigantry deploy run --rollback`, and no longer say that the deploy
+  template deploys every merge, runs `release record` in the deploy job,
+  checks the ledger before a `PROD` publish or publishes on approval; their
+  PR checklists ask for the release id to be linked instead of saying the
+  deploy pipeline posts it. The demo walkthrough, its operator runbook, the
+  demo template's README, quickstart, branching guide, `parameters.yml` and
+  demo CI files, and a demo entry in each of the product brief,
+  `CONSUMING.md`, `CAPABILITIES.md` and `templates/README.md` say the demo
+  does not run end to end on the shipped demo tree yet. The runbook's
+  service principal check now gets a Fabric access token with the Azure CLI
+  before it calls the API; it has not been run against a tenant.
 - The documentation says how version numbers relate: public 1.0.0
   continues an internal 3.x line (1.0.0 corresponds to internal 3.4.x),
   and the v2.x and v3.x numbers in older pages refer to that line. The

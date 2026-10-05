@@ -1,5 +1,10 @@
 # Branching strategy
 
+> The demo does not run end to end on the shipped demo tree yet. This
+> page is the starter's branching guide; the demo's own CI
+> (`.github/workflows/sigantry-demo-ci.yml` and
+> `.azuredevops/sigantry-demo-ci.yml`) targets only `DEV`.
+
 Sigantry-starter uses **trunk-based development** with short-lived
 feature branches and three deploy environments: `DEV`, `PREPROD`,
 `PROD`. This doc is the source of truth for any contributor or deploy
@@ -22,9 +27,9 @@ short-lived (≤2 days; aim for hours): create one per work item, push
 early, request review, merge.
 
 Branch-name convention: `feature/<wi-id>-<short-slug>` (e.g.
-`feature/1234-add-bronze-layer`). The work-item id makes the deploy
-record's `sigantry release record --work-items <ids>` output naturally
-populated when the PR merges.
+`feature/1234-add-bronze-layer`). Keep the work-item id in the name so
+it is at hand for `sigantry release record --work-items <ids>` when you
+record the release.
 
 Long-lived branches are explicitly out of scope -- if a piece of work
 cannot land in `main` within a sprint, split it into smaller PRs behind
@@ -32,48 +37,53 @@ a feature flag.
 
 ## Environment-to-branch mapping
 
+Set up your CI to follow this mapping:
+
 | Environment | Trigger                              | Approval     |
 |-------------|--------------------------------------|--------------|
 | `DEV`       | every merge into `main`              | none (auto)  |
 | `PREPROD`   | git tag matching `v*` pushed         | manual       |
 | `PROD`      | git tag matching `v*` re-promoted    | manual       |
 
-`DEV` is the loosest -- every merged PR is deployed automatically by
-the Sigantry deploy template. The Fabric workspace IDs for each env
-live in `parameters.yml` under the `replace_value` blocks
-(`DEV` / `PREPROD` / `PROD`).
+`DEV` is the loosest: deploy every merged PR to it. The Fabric
+workspace IDs for each env live in `parameters.yml` under the
+`replace_value` blocks (`DEV` / `PREPROD` / `PROD`).
 
-`PREPROD` is gated by an environment approver (configured in either
-GitHub Environments or ADO Environments depending on your CI). The
-`sigantry deploy --rollback --to-release <id>` command is your
-fallback if smoke tests fail post-promotion.
+Put an environment approver on `PREPROD` (GitHub Environments or ADO
+Environments, depending on your CI). To go back to an earlier recorded
+release, check out that release's source and run:
 
-`PROD` is the tightest gate -- a deploy here promotes the same
-artefact that PREPROD validated, never a fresh build. The deploy
-template will refuse to publish to `PROD` if the corresponding
-PREPROD release is not in the deploy ledger.
+```bash
+sigantry deploy run --rollback --to-release <release-id> --rollback-force \
+  --source <that checkout> --environment PREPROD \
+  --workspace-id <preprod-workspace-id>
+```
+
+`PROD` is the tightest gate: promote the same tagged commit that
+PREPROD validated, never a fresh build.
 
 ## Promotion gates
 
-1. PR merges into `main` -> auto-deploy to `DEV`.
-   `sigantry release record --release-id auto-<sha>` runs as part of
-   the deploy job.
-2. Tag `v<x.y.z>` pushed -> queued for `PREPROD`. Approver reviews
-   the deploy ledger entry + PR-bot comments before clicking approve.
-3. Same tag re-queued for `PROD` -> approver re-reviews PREPROD smoke
-   evidence (linked from the deploy ledger). On approve, deploy
-   publishes to `PROD` with the same release id as PREPROD.
+1. PR merges into `main` -> deploy to `DEV`.
+2. Tag `v<x.y.z>` pushed -> queued for `PREPROD`. The approver reviews
+   the PR-bot comments and the test results before approving.
+3. Same tag re-queued for `PROD` -> the approver re-reviews the
+   PREPROD smoke evidence before approving.
 
-Each gate is auditable via `sigantry release list` and
-`sigantry release show <release-id>`.
+In the Sigantry pipeline templates the smoke tests, integration tests
+and approval run after the deploy, so they gate the release record,
+not the deployment. Releases recorded with `sigantry release record`
+are listed by `sigantry release list` and shown by
+`sigantry release show <release-id>`; a forward `sigantry deploy run`
+writes no record.
 
 ## Pull-request checklist
 
 Every PR uses the in-repo template
 (`.github/pull_request_template.md` on GitHub;
 `.azuredevops/pull_request_template.md` on ADO). The Sigantry PR-bot
-will append diff comments when relevant Fabric files change -- see
-`docs/runbooks/pr-bot-operator.md`.
+workflow is there to post diff comments when relevant Fabric files
+change -- see `docs/runbooks/pr-bot-operator.md`.
 
 ## Draft PR caveat
 
