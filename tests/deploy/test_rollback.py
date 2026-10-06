@@ -157,20 +157,16 @@ def test_dry_run_returns_zero_counts(tmp_path: Path) -> None:
     assert result.items_failed == 0
 
 
-def test_empty_items_logs_warning_returns_zero(
+def test_rollback_rejects_empty_fabric_items_changed(
     tmp_path: Path,
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Empty fabric_items_changed -> logged no-op, NOT an error."""
+    """Issue #71: Empty fabric_items_changed raises ValueError -- cannot roll back."""
     emit_deploy_record(
         _record("R-empty", "ws-A", []),
         audit_dir=tmp_path,
     )
-    with (
-        patch("sigantry_core.deploy.rollback.deploy_workspace") as mock_deploy,
-        caplog.at_level("WARNING", logger="sigantry_core.deploy.rollback"),
-    ):
-        result = rollback_to_release(
+    with pytest.raises(ValueError, match="recorded 0 items"):
+        rollback_to_release(
             "R-empty",
             workspace="ws-A",
             repository_directory=str(tmp_path),
@@ -180,9 +176,6 @@ def test_empty_items_logs_warning_returns_zero(
             force=True,
             runbook_id="ROLL-INC-TEST",
         )
-    mock_deploy.assert_not_called()
-    assert result.items_published == 0
-    assert any("rollback no-op" in m for m in caplog.messages)
 
 
 def test_happy_path_calls_deploy_workspace_with_items_to_include(
@@ -340,3 +333,163 @@ def test_cli_rollback_conflicts_with_unpublish_orphans() -> None:
     combined = result.stdout + (result.stderr or "")
     assert "--rollback" in combined
     assert "--unpublish-orphans" in combined
+
+
+def test_rollback_rejects_zero_items_in_scope(tmp_path: Path) -> None:
+    """Issue #71: If recorded items exist but 0 match --item-types, raise ValueError."""
+    emit_deploy_record(_record("R-oos", "ws-A", ["rpt_1.Report"]), audit_dir=tmp_path)
+    with pytest.raises(ValueError, match="0 items matching"):
+        rollback_to_release(
+            "R-oos",
+            workspace="ws-A",
+            repository_directory=str(tmp_path),
+            environment="dev",
+            item_type_in_scope=["Notebook"],
+            audit_dir=tmp_path,
+            force=True,
+            runbook_id="ROLL-INC-TEST",
+        )
+
+
+def test_cli_rollback_empty_items_exits_1(tmp_path: Path) -> None:
+    """Issue #71: CLI rollback against release with 0 items exits 1 with error."""
+    emit_deploy_record(_record("R-empty-cli", "ws-A", []), audit_dir=tmp_path)
+    res = runner.invoke(
+        app,
+        [
+            "deploy",
+            "run",
+            "--rollback",
+            "--to-release",
+            "R-empty-cli",
+            "--rollback-force",
+            "--source",
+            str(tmp_path),
+            "--workspace-id",
+            "ws-A",
+            "--environment",
+            "dev",
+            "--audit-dir",
+            str(tmp_path),
+        ],
+    )
+    assert res.exit_code == 1
+    assert "rollback failed" in res.stdout
+    assert "0 items" in res.stdout
+
+
+def test_cli_rollback_catches_all_exceptions_cleanly(tmp_path: Path) -> None:
+    """Issue #77: Non-ValueError exceptions print 'rollback failed: <msg>' without traceback and exit 1."""
+    emit_deploy_record(_record("R-err", "ws-A", ["nb_1.Notebook"]), audit_dir=tmp_path)
+    with patch(
+        "sigantry_core.deploy.rollback.deploy_workspace",
+        side_effect=RuntimeError("publish explosion"),
+    ):
+        res = runner.invoke(
+            app,
+            [
+                "deploy",
+                "run",
+                "--rollback",
+                "--to-release",
+                "R-err",
+                "--rollback-force",
+                "--source",
+                str(tmp_path),
+                "--workspace-id",
+                "ws-A",
+                "--environment",
+                "dev",
+                "--audit-dir",
+                str(tmp_path),
+            ],
+        )
+    assert res.exit_code == 1
+    assert "rollback failed: publish explosion" in res.stdout
+    assert "Traceback" not in (res.stdout + (res.stderr or ""))
+
+
+def test_cli_rollback_forwards_tenant_id(tmp_path: Path) -> None:
+    """Issue #78: CLI rollback passes --tenant-id to TokenProvider.from_defaults."""
+    from sigantry_core.auth import TokenProvider
+
+    emit_deploy_record(_record("R-tenant", "ws-A", ["nb_1.Notebook"]), audit_dir=tmp_path)
+    seen_tenants: list[str | None] = []
+    orig_from_defaults = TokenProvider.from_defaults
+
+    def fake_from_defaults(**kwargs: object) -> object:
+        seen_tenants.append(kwargs.get("tenant_id"))  # type: ignore[arg-type]
+        return orig_from_defaults(**kwargs)  # type: ignore[arg-type]
+
+    with (
+        patch.object(TokenProvider, "from_defaults", side_effect=fake_from_defaults),
+        patch("sigantry_core.deploy.rollback.deploy_workspace") as mock_dw,
+    ):
+        mock_dw.return_value = DeployResult("ws-A", "dev", 1, 0, 0, None)
+        res = runner.invoke(
+            app,
+            [
+                "deploy",
+                "run",
+                "--rollback",
+                "--to-release",
+                "R-tenant",
+                "--rollback-force",
+                "--source",
+                str(tmp_path),
+                "--workspace-id",
+                "ws-A",
+                "--environment",
+                "dev",
+                "--audit-dir",
+                str(tmp_path),
+                "--tenant-id",
+                "custom-tenant-xyz",
+            ],
+        )
+    assert res.exit_code == 0
+    assert "custom-tenant-xyz" in seen_tenants
+    assert mock_dw.call_args.kwargs.get("token_provider") is not None
+
+
+def test_rollback_filters_items_to_scope_and_emits_in_scope_record(
+    tmp_path: Path,
+) -> None:
+    """Issue #79: Rollback only deploys in-scope items, reports skipped, and emits filtered DeployRecord."""
+    from sigantry_core.release.ledger import iter_records
+
+    emit_deploy_record(
+        _record("R-mixed", "ws-A", ["nb_1.Notebook", "lh_1.Lakehouse", "rpt_1.Report"]),
+        audit_dir=tmp_path,
+    )
+    with patch("sigantry_core.deploy.rollback.deploy_workspace") as mock_dw:
+        mock_dw.return_value = DeployResult("ws-A", "dev", 1, 0, 0, None)
+        res = runner.invoke(
+            app,
+            [
+                "deploy",
+                "run",
+                "--rollback",
+                "--to-release",
+                "R-mixed",
+                "--rollback-force",
+                "--source",
+                str(tmp_path),
+                "--workspace-id",
+                "ws-A",
+                "--environment",
+                "dev",
+                "--audit-dir",
+                str(tmp_path),
+                "--item-types",
+                "Notebook",
+            ],
+        )
+    assert res.exit_code == 0
+    assert mock_dw.call_args.kwargs["items_to_include"] == ["nb_1.Notebook"]
+    records = list(iter_records(audit_dir=tmp_path))
+    rb_record = next(r for r in records if r.release_id.startswith("rollback-of-R-mixed"))
+    assert rb_record.fabric_items_changed == ["nb_1.Notebook"]
+    out = res.stdout + (res.stderr or "")
+    assert "Skipp" in out
+    assert "lh_1.Lakehouse" in out

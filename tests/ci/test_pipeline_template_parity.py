@@ -128,3 +128,35 @@ def test_dual_ci_parity_lint_passes_on_real_repo() -> None:
     assert result.returncode == 0, (
         f"Dual-CI parity lint failed.\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )
+
+
+def test_pipeline_templates_record_fabric_items() -> None:
+    """Issue #71: Both CD templates must pass --fabric-items to sigantry release record."""
+    ado_text = ADO_TEMPLATE.read_text("utf-8")
+    gha_text = GHA_WORKFLOW.read_text("utf-8")
+    assert "--fabric-items" in ado_text, (
+        "ADO sigantry-cd.yml must pass --fabric-items to release record (Issue #71)"
+    )
+    assert "--fabric-items" in gha_text, (
+        "GHA sigantry-cd.yml must pass --fabric-items to release record (Issue #71)"
+    )
+
+
+def test_pipeline_templates_audit_durability_and_verification() -> None:
+    """Issue #18: Both CD templates must pass --audit-dir, run release verify, and upload ledger."""
+    ado_text = ADO_TEMPLATE.read_text("utf-8")
+    gha_text = GHA_WORKFLOW.read_text("utf-8")
+    assert "--audit-dir" in ado_text, (
+        "ADO sigantry-cd.yml must pass --audit-dir to release record (Issue #18)"
+    )
+    assert "--audit-dir" in gha_text, (
+        "GHA sigantry-cd.yml must pass --audit-dir to release record (Issue #18)"
+    )
+    assert "release verify" in ado_text, "ADO sigantry-cd.yml must run release verify (Issue #18)"
+    assert "release verify" in gha_text, "GHA sigantry-cd.yml must run release verify (Issue #18)"
+    assert "sigantry-audit-ledger" in ado_text, (
+        "ADO sigantry-cd.yml must publish the audit ledger artifact (Issue #18)"
+    )
+    assert "sigantry-audit-ledger" in gha_text, (
+        "GHA sigantry-cd.yml must upload the audit ledger artifact (Issue #18)"
+    )

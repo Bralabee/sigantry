@@ -29,6 +29,7 @@ append_feature_flag("enable_items_to_include")
 
 import json  # noqa: E402
 
+from sigantry_core.auth import TokenProvider  # noqa: E402
 from sigantry_core.deploy.core import DeployResult, deploy_workspace  # noqa: E402
 from sigantry_core.governance.audit import destructive_op  # noqa: E402
 from sigantry_core.governance.audit_io import _DEFAULT_AUDIT_DIR, resolve_audit_dir  # noqa: E402
@@ -98,6 +99,7 @@ def rollback_to_release(
     force: bool,
     runbook_id: str | None = None,
     principal: str | None = None,
+    token_provider: TokenProvider | None = None,
 ) -> DeployResult:
     """Publish again the items a recorded release names.
 
@@ -126,10 +128,11 @@ def rollback_to_release(
             replay; the decorator refuses without it.
         runbook_id: Optional incident reference (``ROLL-INC-...``).
         principal: Optional best-effort identity of the operator.
+        token_provider: Explicit TokenProvider with resolved tenant id.
 
     Raises:
         ValueError: release not found / hash verification failed /
-            workspace mismatch.
+            workspace mismatch / 0 items recorded or in scope.
 
     Returns:
         DeployResult with item counts and the dependency-graph DOT path.
@@ -159,23 +162,35 @@ def rollback_to_release(
             f"Cross-workspace rollback is not supported."
         )
     if not record.fabric_items_changed:
+        raise ValueError(f"Release {release_id!r} recorded 0 items changed -- cannot roll back.")
+
+    # Filter items whose item type matches item_type_in_scope (Issue #79)
+    in_scope_items = [
+        item
+        for item in record.fabric_items_changed
+        if "." in item and item.rsplit(".", 1)[-1] in item_type_in_scope
+    ]
+    if not in_scope_items:
+        types_str = ", ".join(item_type_in_scope)
+        raise ValueError(
+            f"Release {release_id!r} has 0 items matching item types in scope [{types_str}] "
+            f"-- cannot roll back."
+        )
+
+    skipped_items = [item for item in record.fabric_items_changed if item not in in_scope_items]
+    if skipped_items:
         logger.warning(
-            "rollback no-op release=%s -- recorded fabric_items_changed is empty",
+            "rollback release=%s skipped %d item(s) outside item types in scope: %s",
             release_id,
+            len(skipped_items),
+            ", ".join(skipped_items),
         )
-        return DeployResult(
-            workspace_id=workspace,
-            environment=environment,
-            items_published=0,
-            items_failed=0,
-            orphans_unpublished=0,
-            dot_graph_path=None,
-        )
+
     if dry_run:
         logger.info(
             "rollback_dry_run release=%s items=%s",
             release_id,
-            record.fabric_items_changed,
+            in_scope_items,
         )
         return DeployResult(
             workspace_id=workspace,
@@ -188,7 +203,7 @@ def rollback_to_release(
     logger.info(
         "rollback_apply release=%s items=%d",
         release_id,
-        len(record.fabric_items_changed),
+        len(in_scope_items),
     )
     return deploy_workspace(
         workspace_id=workspace,
@@ -196,7 +211,8 @@ def rollback_to_release(
         environment=environment,
         item_type_in_scope=item_type_in_scope,
         parameters_path=parameters_path,
-        items_to_include=record.fabric_items_changed,
+        token_provider=token_provider,
+        items_to_include=in_scope_items,
     )
 
 

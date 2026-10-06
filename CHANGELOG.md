@@ -36,6 +36,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `audit_dir` parameter passed to the wrapped function and routes both
   success and failure entries (`destructive_ops.jsonl`) to the configured or
   specified directory instead of hardcoding `~/.sigantry/audit/`.
+- **Rollback hardening: zero-item rejection, scope filtering, tenant forwarding, and clean error exit.**
+  Rollback now rejects releases with 0 recorded items or 0 items matching
+  in-scope item types with a non-zero exit (`ValueError`, exit 1) instead of
+  silently exiting 0 with `itemsPublished: 0` (#71). Rollback DeployRecords now
+  name only the items actually deployed within `--item-types` scope, and
+  skipped items outside scope are reported (#79). `--tenant-id` is now forwarded
+  to `TokenProvider` and used by `rollback_to_release` and `deploy_workspace` (#78).
+  All runtime exceptions during rollback are caught cleanly at the CLI boundary,
+  printing `rollback failed: <message>` and exiting 1 without a traceback (#77).
+- **CD pipeline templates: audit ledger durability, verification, and fabric item recording.**
+  Both GitHub Actions (`.github/workflows/sigantry-cd.yml`) and Azure DevOps
+  (`templates/stages/sigantry-cd.yml`) CD templates now accept and pass
+  `--fabric-items` to `sigantry release record` (falling back to discovery from
+  `--source`), pass `--audit-dir`, run `sigantry release verify` to gate the
+  pipeline on unbroken audit chain integrity, and persist the ledger via
+  artifact upload (`sigantry-audit-ledger`) (#71, #18).
 
 ## [1.0.1] - 2026-10-06
 
