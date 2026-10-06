@@ -51,6 +51,8 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 
+from sigantry_core.sync.packagers._staging import staged_item_dir
+
 logger = logging.getLogger("sigantry_core.sync.packagers.generic")
 
 _SIDECAR_DIR_NAME = ".sigantry"
@@ -100,6 +102,8 @@ class GenericPackager:
         - :class:`FileNotFoundError` if ``source`` does not exist.
         - :class:`FileExistsError` if the target staged folder already
           exists.
+        - :class:`ValueError` if ``display_name`` / ``target_folder`` would
+          put the staged folder outside ``staging_dir``.
         - :class:`jinja2.TemplateNotFound` (propagated) if no
           ``<item_type>.platform.j2`` ships for the configured type.
         """
@@ -108,16 +112,19 @@ class GenericPackager:
             raise FileNotFoundError(f"GenericPackager.pack: source missing: {source_path}")
         staging_dir = Path(staging_dir).resolve()
 
-        resolved_id = logical_id if logical_id else self._sidecar_resolve(source_path)
-
-        sub_path = target_folder.lstrip("/").lstrip("\\")
-        target_dir = (
-            staging_dir / sub_path / f"{display_name}.{self.item_type}"
-            if sub_path
-            else staging_dir / f"{display_name}.{self.item_type}"
+        # The staged folder is checked before the sidecar is read or minted,
+        # so a refused pack writes nothing anywhere, the source tree included.
+        target_dir = staged_item_dir(
+            staging_dir,
+            target_folder,
+            f"{display_name}.{self.item_type}",
+            packager="GenericPackager",
         )
         if target_dir.exists():
             raise FileExistsError(f"GenericPackager.pack: refuse to overwrite {target_dir}")
+
+        resolved_id = logical_id if logical_id else self._sidecar_resolve(source_path)
+
         target_dir.mkdir(parents=True, exist_ok=False)
 
         # Copy source contents into target_dir (file OR directory).

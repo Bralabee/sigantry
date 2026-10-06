@@ -6,6 +6,8 @@ RESEARCH.md §14.1. Two top-level branches:
   responses (4xx, and 5xx/429 after tenacity's max_attempts).
 - `LROTimeoutError`, `OperationFailedError`, and `PaginationError` are
   protocol-level errors that are not tied to a single HTTP response.
+- `ResponseUrlRefusedError` is raised before a request is sent, when a
+  response names a non-https URL to follow.
 
 All errors share `ClientError` as base so callers can catch the whole surface
 with `except ClientError`.
@@ -71,3 +73,24 @@ class OperationFailedError(ClientError):
 
 class PaginationError(ClientError):
     """Generator invariant violated (e.g. missing `value` key, runaway cursor)."""
+
+
+@dataclass
+class ResponseUrlRefusedError(ClientError):
+    """A response named a URL to follow that is not https; nothing was sent.
+
+    Raised by :func:`sigantry_core.client.response_urls.check_response_url`
+    for an LRO ``Location`` / ``Azure-AsyncOperation`` header, a
+    ``continuationUri`` or an ``@odata.nextLink``. The message names the
+    scheme and host only; the full URL is not repeated.
+    """
+
+    source: str
+    scheme: str
+    host: str | None
+
+    def __str__(self) -> str:
+        return (
+            f"refused to follow the URL in the response's {self.source}: scheme "
+            f"{self.scheme!r} (host {self.host!r}) is not https; no request was sent"
+        )

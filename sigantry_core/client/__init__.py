@@ -22,6 +22,7 @@ from sigantry_core.client.errors import (
     OperationFailedError,
     PaginationError,
     RateLimitError,
+    ResponseUrlRefusedError,
     ServerError,
 )
 from sigantry_core.client.fabric import FabricRestClient
@@ -56,6 +57,7 @@ __all__ = [
     "PowerBIRestClient",
     "PurviewRestClient",
     "RateLimitError",
+    "ResponseUrlRefusedError",
     "ServerError",
     "configure_client_logging",
     "extract_operation_id",

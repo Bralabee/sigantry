@@ -65,7 +65,7 @@ items:
 | `local_path` | `Path` (string) | yes | Forward-slash path relative to the manifest file. | D-06 |
 | `type` | `str` | yes | One of the canonical PascalCase types from `fabric_cicd.constants.ItemType` (e.g. `Notebook`, `DataPipeline`, `SemanticModel`, `Report`, `SparkJobDefinition`). Folder-less types (see section 6) trigger a routing override. | D-06 / D-07 |
 | `target_folder` | `str` | no (default `/`) | Forward-slash path; leading `/` optional; `/` = workspace root. Validated against folder-name banned-char rules + 10-level depth cap (Constraint 4 below). | D-06 |
-| `display_name` | `str` | yes | Validated against folder-name banned-char rules + 256-char cap. | D-06 |
+| `display_name` | `str` | yes | Validated against folder-name banned-char rules + 255-char cap. One name, not a path: `/`, `\` and absolute paths are rejected, and the packagers refuse to stage an item outside the staging directory. | D-06 |
 | `logical_id` | `str \| None` | no (default `None`) | UUID4 string; minted by the packager + persisted to the sidecar manifest (`<source-dir>/.sigantry/<type>-ids.json`) when absent so re-runs are stable. | D-11..13 |
 
 ## 5. Validation rules

@@ -38,6 +38,7 @@ from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
 from sigantry_core.client.errors import PaginationError
+from sigantry_core.client.response_urls import check_response_url
 
 if TYPE_CHECKING:
     from sigantry_core.client.base import BaseRestClient
@@ -54,13 +55,17 @@ def _extract_next(body: dict[str, Any]) -> str | None:
       1. ``continuationUri`` (Fabric, pre-formatted)
       2. ``@odata.nextLink`` (Power BI)
       3. ``None`` (terminal or continuationToken-only, handled by caller)
+
+    The cursor comes from the response and is followed with the bearer
+    token, so a non-https one raises
+    :class:`~sigantry_core.client.errors.ResponseUrlRefusedError`.
     """
     fabric_uri = body.get("continuationUri")
     if fabric_uri:
-        return str(fabric_uri)
+        return check_response_url(str(fabric_uri), source="continuationUri")
     odata = body.get("@odata.nextLink")
     if odata:
-        return str(odata)
+        return check_response_url(str(odata), source="@odata.nextLink")
     return None
 
 
@@ -97,6 +102,8 @@ def paginate(
     Raises:
         PaginationError: body is not a JSON object; ``value`` is present but
             not a list; cursor loop exceeds ``max_pages``.
+        ResponseUrlRefusedError: a ``continuationUri`` / ``@odata.nextLink``
+            is not https; it is not requested.
     """
     seen: set[Any] = set()
     seen_tokens: set[str] = set()

@@ -22,6 +22,7 @@ import time
 import uuid
 from collections.abc import Iterator
 from typing import Any, Self
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -29,13 +30,16 @@ from sigantry_core import _version as _fd_version
 from sigantry_core.auth import TokenProviderProtocol
 from sigantry_core.client import rate_limit as _rate_limit
 from sigantry_core.client.logging import (
+    CredentialClassName,
     configure_client_logging,
     get_correlation_id,
     get_operation_id,
+    redact_url,
     reset_correlation_id,
     set_correlation_id,
 )
 from sigantry_core.client.models import HttpResponse
+from sigantry_core.client.response_urls import absolute_url, check_response_url
 from sigantry_core.client.retry import (
     classify_response,
     execute_with_retry,
@@ -307,9 +311,12 @@ class BaseRestClient:
             )
 
         # State URL preference: Location header (canonical Fabric path) then
-        # reconstructed ``{base_url}/v1/operations/{id}``.
+        # reconstructed ``{base_url}/v1/operations/{id}``. The header comes
+        # from the response, so it must be https before the token follows it.
         state_url = _get_header(initial.headers, "Location")
-        if not state_url:
+        if state_url:
+            state_url = check_response_url(state_url, source="Location header")
+        else:
             state_url = f"{self._base_url}/v1/operations/{operation_id}"
 
         retry_after = _parse_retry_after(_get_header(initial.headers, "Retry-After")) or 3.0
@@ -392,15 +399,18 @@ class BaseRestClient:
     # ---- internals ----------------------------------------------------
 
     def _url(self, path: str) -> str:
-        if path.startswith(("http://", "https://")):
-            return path
+        # ``absolute_url`` is the same parse ``check_response_url`` uses, so a
+        # URL that check passed as https is requested as that URL and never
+        # joined to the base URL as a path.
+        absolute = absolute_url(path)
+        if absolute is not None:
+            return absolute
         return f"{self._base_url}{path if path.startswith('/') else '/' + path}"
 
     def _relative_path(self, path: str) -> str:
-        if path.startswith(("http://", "https://")):
-            from urllib.parse import urlparse
-
-            return urlparse(path).path
+        absolute = absolute_url(path)
+        if absolute is not None:
+            return urlsplit(absolute).path
         return path if path.startswith("/") else "/" + path
 
     def _build_headers(self, scope: str, extra: dict[str, str] | None) -> dict[str, str]:
@@ -423,7 +433,7 @@ class BaseRestClient:
         if cred:
             logger.info(
                 "client_credential_resolved",
-                extra={"scope": scope, "credential": cred},
+                extra={"scope": scope, "credential": CredentialClassName(cred)},
             )
             self._credential_logged_for.add(scope)
 
@@ -435,11 +445,13 @@ class BaseRestClient:
         elapsed_ms: float,
         retry_count: int,
     ) -> None:
+        # The URL can come from a response (an LRO Location, a pagination
+        # cursor), so its query values are masked before any handler sees it.
         logger.info(
             "request_completed",
             extra={
                 "method": method,
-                "url": url,
+                "url": redact_url(url),
                 "status": resp.status_code,
                 "elapsed_ms": round(elapsed_ms, 2),
                 "retry_count": retry_count,

@@ -31,9 +31,18 @@ PR-review bot's CLI entry point: auto-detects CI provider from env
 (``GITHUB_ACTIONS=true`` -> github / ``TF_BUILD=True`` -> ado),
 diffs TMDL + Lakehouse metadata, and posts a byte-identical comment
 through :class:`GithubProvider` or :class:`AdoProvider`.
+
+The console script and both ``python -m`` forms run :func:`main`, which
+routes the audit-trail warnings to stderr before handing over to ``app``.
+Importing this module, as the tests and library hosts do, changes no
+logging configuration.
 """
 
 from __future__ import annotations
+
+import logging
+import sys
+import traceback
 
 import typer
 
@@ -84,5 +93,103 @@ app.add_typer(pr_bot_app, name="pr-bot")
 app.add_typer(preflight_app, name="preflight")
 
 
-if __name__ == "__main__":
+#: Loggers whose WARNING records describe the operator's own audit trail:
+#: a ledger line that fails its hash check or cannot be parsed, an audit
+#: record that could not be written, and an audited operation that failed
+#: (``destructive_op`` and ``secret_change_failed``, logged before the
+#: operation's own error is raised). ``import sigantry_core`` imports
+#: fabric-cicd, which sets the ROOT logger to ERROR, so without a level of
+#: their own these records are dropped before any handler sees them.
+_INTEGRITY_LOGGERS: tuple[str, ...] = (
+    "sigantry_core.release.ledger",
+    "sigantry_core.governance.audit",
+)
+
+_HANDLER_MARK = "_sigantry_cli_integrity"
+
+
+def _control_escapes() -> dict[int, str]:
+    """Map every line-breaking or terminal-control character to a visible escape.
+
+    Covered: the C0 controls, DEL, the C1 controls (U+0085 NEXT LINE
+    included) and the Unicode line and paragraph separators U+2028 /
+    U+2029. Tab, line feed and carriage return print as ``\\t``, ``\\n``
+    and ``\\r``; the rest as ``\\xNN`` or ``\\uNNNN``.
+    """
+    named = {0x09: "\\t", 0x0A: "\\n", 0x0D: "\\r"}
+    table = {cp: named.get(cp, f"\\x{cp:02x}") for cp in (*range(0x20), *range(0x7F, 0xA0))}
+    table.update({cp: f"\\u{cp:04x}" for cp in (0x2028, 0x2029)})
+    return table
+
+
+_CONTROL_ESCAPES = _control_escapes()
+
+
+class _IntegrityFormatter(logging.Formatter):
+    """Exactly one line per record; an exception is reduced to its type and message.
+
+    The message carries text read from the ledger (a ``release_id``, a
+    parser's error message), so every control character in the formatted
+    line is printed as a visible escape (see :func:`_control_escapes`). A
+    value can therefore neither start a second line nor move the cursor
+    over the line that reports it.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        line = f"{record.levelname} {record.name}: {record.getMessage()}"
+        if record.exc_info and record.exc_info[1] is not None:
+            exc = record.exc_info[1]
+            detail = "".join(traceback.format_exception_only(type(exc), exc)).strip()
+            line = f"{line} ({detail})"
+        return line.translate(_CONTROL_ESCAPES)
+
+
+class _IntegrityStderrHandler(logging.Handler):
+    """Write to whatever ``sys.stderr`` is at emit time.
+
+    A plain ``StreamHandler`` keeps the stream it was built with, which is
+    wrong once a caller has swapped ``sys.stderr`` (as test runners do).
+    """
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.WARNING)
+        self.setFormatter(_IntegrityFormatter())
+        setattr(self, _HANDLER_MARK, True)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            stream = sys.stderr
+            stream.write(self.format(record) + "\n")
+            stream.flush()
+        except Exception:
+            self.handleError(record)
+
+
+def _install_integrity_log_handler() -> None:
+    """Send WARNING and above from the two audit-trail loggers to stderr.
+
+    Each record prints as one line, its control characters escaped.
+    Scoped to those two loggers on purpose: every other library logger
+    (azure, msal, httpx, fabric-cicd, the rest of sigantry_core) keeps the
+    configuration it had, so a run that printed nothing to stderr before
+    still prints nothing unless the audit trail itself has a problem or an
+    audited operation fails.
+    Records still propagate, so a host's own handlers see them as before.
+    Idempotent.
+    """
+    for name in _INTEGRITY_LOGGERS:
+        target = logging.getLogger(name)
+        if not any(getattr(h, _HANDLER_MARK, False) for h in target.handlers):
+            target.addHandler(_IntegrityStderrHandler())
+        if target.level == logging.NOTSET or target.level > logging.WARNING:
+            target.setLevel(logging.WARNING)
+
+
+def main() -> None:
+    """Entry point for the ``sigantry`` console script and ``python -m``."""
+    _install_integrity_log_handler()
     app()
+
+
+if __name__ == "__main__":
+    main()

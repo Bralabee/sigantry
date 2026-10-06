@@ -18,10 +18,12 @@ import pytest
 from sigantry_core.client.logging import (
     BODY_LOG_MAX_BYTES,
     SENSITIVE_HEADERS,
+    CredentialClassName,
     JsonFormatter,
     configure_client_logging,
     get_correlation_id,
     get_operation_id,
+    redact_url,
     reset_correlation_id,
     reset_operation_id,
     set_correlation_id,
@@ -169,6 +171,128 @@ class TestHeaderRedaction:
         record = _make_record("req", extra={"headers": {"Content-Type": "application/json"}})
         payload = json.loads(formatter.format(record))
         assert payload["headers"]["Content-Type"] == "application/json"
+
+
+class TestUrlRedaction:
+    """A logged URL keeps its shape; anything that can carry a secret is masked."""
+
+    def test_query_values_masked_names_kept(self, formatter: JsonFormatter) -> None:
+        record = _make_record(
+            "req",
+            extra={"url": "https://h.example/p?sig=PLANTEDQS&continuationToken=abc"},
+        )
+        out = formatter.format(record)
+        assert "PLANTEDQS" not in out
+        assert "abc" not in out
+        assert json.loads(out)["url"] == (
+            "https://h.example/p?sig=<redacted>&continuationToken=<redacted>"
+        )
+
+    def test_userinfo_and_fragment_masked(self, formatter: JsonFormatter) -> None:
+        record = _make_record(
+            "req", extra={"url": "https://user:PLANTEDPW@h.example/p#access_token=PLANTEDFR"}
+        )
+        out = formatter.format(record)
+        assert "PLANTEDPW" not in out
+        assert "PLANTEDFR" not in out
+        assert json.loads(out)["url"] == "https://<redacted>@h.example/p#<redacted>"
+
+    def test_url_without_secret_parts_is_unchanged(self, formatter: JsonFormatter) -> None:
+        url = "https://api.fabric.microsoft.com/v1/workspaces/abc/items"
+        payload = json.loads(formatter.format(_make_record("req", extra={"url": url})))
+        assert payload["url"] == url
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("https://h/p?flag", "https://h/p?<redacted>"),
+            ("https://h/p?a=1&&b=2", "https://h/p?a=<redacted>&&b=<redacted>"),
+            ("/v1/items?x=1", "/v1/items?x=<redacted>"),
+            (None, None),
+            ("", ""),
+        ],
+    )
+    def test_redact_url_edge_shapes(self, raw: str | None, expected: str | None) -> None:
+        assert redact_url(raw) == expected
+
+    def test_non_string_url_is_masked_through_str(self, formatter: JsonFormatter) -> None:
+        class _UrlLike:
+            def __str__(self) -> str:
+                return "https://h.example/p?sig=PLANTEDQS"
+
+        out = formatter.format(_make_record("req", extra={"url": _UrlLike()}))
+        assert "PLANTEDQS" not in out
+        assert json.loads(out)["url"] == "https://h.example/p?sig=<redacted>"
+
+    def test_header_redaction_still_applies_next_to_url(self, formatter: JsonFormatter) -> None:
+        """Control: masking the URL leaves header redaction working."""
+        record = _make_record(
+            "req",
+            extra={
+                "url": "https://h.example/p?sig=PLANTEDQS",
+                "headers": {"Authorization": "Bearer PLANTED-HDR", "X-Ok": "1"},
+            },
+        )
+        out = formatter.format(record)
+        payload = json.loads(out)
+        assert payload["headers"] == {"Authorization": "<redacted>", "X-Ok": "1"}
+        assert "PLANTED-HDR" not in out
+        assert "PLANTEDQS" not in out
+
+
+class TestOperationIdRedaction:
+    """An ARM operation is identified by its polling URL, so the field is masked too."""
+
+    ARM_STATE_URL = (
+        "https://management.azure.com/subscriptions/s/providers/Microsoft.Fabric"
+        "/locations/westeurope/operationStatuses/op-1?api-version=2023-11-01&sig=PLANTED-OP"
+    )
+    MASKED = (
+        "https://management.azure.com/subscriptions/s/providers/Microsoft.Fabric"
+        "/locations/westeurope/operationStatuses/op-1?api-version=<redacted>&sig=<redacted>"
+    )
+
+    def test_operation_id_extra_is_masked(self, formatter: JsonFormatter) -> None:
+        out = formatter.format(_make_record("lro_poll", extra={"operation_id": self.ARM_STATE_URL}))
+        assert "PLANTED-OP" not in out
+        assert json.loads(out)["operation_id"] == self.MASKED
+
+    def test_operation_id_from_the_contextvar_is_masked(self, formatter: JsonFormatter) -> None:
+        token = set_operation_id(self.ARM_STATE_URL)
+        try:
+            out = formatter.format(_make_record("request_completed"))
+        finally:
+            reset_operation_id(token)
+        assert "PLANTED-OP" not in out
+        assert json.loads(out)["operation_id"] == self.MASKED
+
+    @pytest.mark.parametrize(
+        "op_id", ["5f0c2b1e-8a5d-4c1e-9f6a-0d7e3b2a1c4f", "<arm-no-polling-url>", None]
+    )
+    def test_plain_operation_ids_print_unchanged(
+        self, formatter: JsonFormatter, op_id: str | None
+    ) -> None:
+        record = _make_record("lro_poll", extra={"operation_id": op_id} if op_id else None)
+        assert json.loads(formatter.format(record))["operation_id"] == op_id
+
+
+class TestCredentialExtra:
+    def test_unmarked_credential_value_is_redacted(self, formatter: JsonFormatter) -> None:
+        record = _make_record("plugin_event", extra={"credential": "PLANTED-CRED"})
+        out = formatter.format(record)
+        assert "PLANTED-CRED" not in out
+        assert json.loads(out)["credential"] == "<redacted>"
+
+    def test_client_marked_class_name_is_printed(self, formatter: JsonFormatter) -> None:
+        record = _make_record(
+            "client_credential_resolved",
+            extra={"credential": CredentialClassName("ClientSecretCredential")},
+        )
+        assert json.loads(formatter.format(record))["credential"] == "ClientSecretCredential"
+
+    def test_scope_still_passes_through(self, formatter: JsonFormatter) -> None:
+        record = _make_record("evt", extra={"scope": "https://h.example/.default"})
+        assert json.loads(formatter.format(record))["scope"] == "https://h.example/.default"
 
 
 class TestBodyLogging:

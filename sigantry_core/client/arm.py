@@ -9,9 +9,12 @@ Base URL: ``https://management.azure.com``.
 
 LRO header preference (Pitfall 7):
     ``Azure-AsyncOperation`` > ``Location``. ARM does NOT emit
-    ``x-ms-operation-id``; we use the polling URL itself as the operation
-    identity for logging/tracing (the URL uniquely identifies the
-    operation).
+    ``x-ms-operation-id``; we use the polling URL as the operation identity
+    for logging/tracing (its path uniquely identifies the operation), with
+    its query values masked by :func:`~sigantry_core.client.logging.redact_url`
+    because that identity is logged on every poll and carried by
+    :class:`LROTimeoutError` / :class:`OperationFailedError`. The poll itself
+    still requests the full URL.
 
 Terminal status set (Phase 2 :func:`sigantry_core.client.lro.poll_operation`):
     ``Succeeded``, ``Failed``. ARM also defines ``Canceled`` which is not in
@@ -35,7 +38,9 @@ from sigantry_core.auth import TokenProvider, get_token_provider
 from sigantry_core.auth.audiences import AZURE_RM_SCOPE
 from sigantry_core.client.base import BaseRestClient
 from sigantry_core.client.errors import LROTimeoutError
+from sigantry_core.client.logging import redact_url
 from sigantry_core.client.lro import poll_operation
+from sigantry_core.client.response_urls import check_response_url
 from sigantry_core.client.retry import _parse_retry_after
 
 ARM_DEFAULT_BASE_URL: Final[str] = "https://management.azure.com"
@@ -144,6 +149,8 @@ class FabricArmRestClient(BaseRestClient):
         Raises:
             LROTimeoutError: missing polling URL, or Phase 2 poller hit the
                 timeout / max-polls / disappearing-state limit.
+            ResponseUrlRefusedError: the polling URL is not https; it is
+                not requested.
             OperationFailedError: terminal ``Failed`` from the state service.
             HttpError: the initial call returned non-2xx (via
                 :func:`sigantry_core.client.retry.classify_response`).
@@ -160,21 +167,29 @@ class FabricArmRestClient(BaseRestClient):
             return initial.json_body
 
         headers = initial.headers
-        state_url = _get_header(headers, "Azure-AsyncOperation") or _get_header(headers, "Location")
+        async_url = _get_header(headers, "Azure-AsyncOperation")
+        state_url = async_url or _get_header(headers, "Location")
         if not state_url:
             raise LROTimeoutError(
                 operation_id="<arm-no-polling-url>",
                 elapsed_seconds=0.0,
                 last_status="missing_polling_url",
             )
+        state_url = check_response_url(
+            state_url,
+            source="Azure-AsyncOperation header" if async_url else "Location header",
+        )
 
         retry_after = (
             _parse_retry_after(_get_header(headers, "Retry-After")) or _ARM_LRO_DEFAULT_RETRY_AFTER
         )
 
+        # The polling URL doubles as the operation identity, which is logged
+        # on every poll and carried by the LRO errors; its query values are
+        # masked there. The poll itself requests the full URL.
         return poll_operation(
             self,
-            operation_id=state_url,
+            operation_id=redact_url(state_url),
             state_url=state_url,
             scope=None,
             timeout=timeout,

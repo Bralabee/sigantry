@@ -28,6 +28,7 @@ from sigantry_core.client import (
     HttpResponse,
     NotFoundError,
 )
+from sigantry_core.client.logging import JsonFormatter
 
 UUID4_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", re.I
@@ -206,6 +207,34 @@ class TestCredentialLoggedOnce:
             assert len(msgs) == 1
             assert getattr(msgs[0], "scope", None) == FABRIC_SCOPE
             assert getattr(msgs[0], "credential", None) == "MockCredential"
+
+
+class TestRequestLogRedaction:
+    def test_logged_url_masks_query_values(
+        self, client: BaseRestClient, mock_token_provider: MagicMock
+    ) -> None:
+        """A URL with a query (as a response can supply) is masked at the source."""
+        mock_token_provider.last_credential_class.return_value = "MockCredential"
+        with respx.mock(base_url=FABRIC_AUDIENCE) as router:
+            router.get("/v1/p").mock(return_value=httpx.Response(200, json={}))
+            base_logger = logging.getLogger("sigantry_core.client.base")
+            captured: list[logging.LogRecord] = []
+
+            class _Capture(logging.Handler):
+                def emit(self, record: logging.LogRecord) -> None:
+                    captured.append(record)
+
+            h = _Capture()
+            base_logger.addHandler(h)
+            try:
+                client.send("GET", f"{FABRIC_AUDIENCE}/v1/p?sig=PLANTEDQS&page=2")
+            finally:
+                base_logger.removeHandler(h)
+        done = [r for r in captured if r.getMessage() == "request_completed"]
+        assert len(done) == 1
+        assert done[0].url == f"{FABRIC_AUDIENCE}/v1/p?sig=<redacted>&page=<redacted>"
+        resolved = [r for r in captured if r.getMessage() == "client_credential_resolved"]
+        assert JsonFormatter().format(resolved[0]).count('"credential": "MockCredential"') == 1
 
 
 class TestContextManagerShape:

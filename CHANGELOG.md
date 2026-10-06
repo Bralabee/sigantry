@@ -164,6 +164,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now emits a `FutureWarning`, which a warnings filter that makes it an
   error raises as an exception; otherwise the name gives an empty string and
   the call returns a `skipped` result without sending a request.
+- **A response URL the client follows must be https.** An absolute URL with
+  any other scheme in an LRO `Location` header, an ARM
+  `Azure-AsyncOperation` header, a Fabric `continuationUri` or a Power BI
+  `@odata.nextLink` now raises `sigantry_core.client.ResponseUrlRefusedError`
+  (a `ClientError`) instead of being requested. A caller that catches only
+  `HttpError` around a long-running call or a paginated listing does not
+  catch it; catch `ClientError`. A test double that returns absolute http
+  URLs must return https or relative ones (see Changed).
+- **A `display_name` that contains `/` or `\` is refused.** In `sync.yml`
+  such a name now fails manifest load with `ManifestValidationError`.
+  `sigantry sync pull` now refuses an item it pulls whose display name
+  contains `/` or `\`, or whose directory (its folder path plus its name)
+  does not resolve strictly inside `--into`: it raises
+  `sigantry_core.sync.errors.PullItemNameRefusedError` (a `SyncEngineError`;
+  the CLI exits 1) before any item definition is fetched, and writes no file
+  and no `sync.yml`. Rename the item or its folder in the workspace (see
+  Changed).
+- **`send_arm_lro` reports the polling URL with its query values masked.**
+  `LROTimeoutError.operation_id` and `OperationFailedError.operation_id`
+  from `FabricArmRestClient.send_arm_lro` (`sigantry capacity pause` and
+  `resume`) are now the polling URL with its query values masked as
+  `<redacted>`, not the full URL. The value still identifies the operation,
+  but it is no longer a URL that can be requested as it stands (see
+  Changed).
+- **The CLI prints audit-trail warnings to stderr.** `sigantry` and both
+  `python -m` forms now print WARNING records from the
+  `sigantry_core.release.ledger` and `sigantry_core.governance.audit`
+  loggers to stderr, one line each: a ledger line that fails its hash check
+  or cannot be read, a failed audit write, or a failed destructive operation
+  or secret change. Exit codes are unchanged; a wrapper that treats any
+  stderr output as failure sees these lines (see Fixed).
 
 ### Added
 - **A name gate** (`scripts/ci/check-name-gate.py`, run by
@@ -278,6 +309,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   issue-tracker lines that named it now name `sigantry`. Three
   `!!!` admonitions, which GitHub shows as plain text, use GitHub's alert
   syntax.
+- **Responses that point at a non-https URL are refused.** When a response
+  names the next URL to request (an LRO `Location` header, including the
+  `/result` URL of a succeeded operation; ARM's `Azure-AsyncOperation` or
+  `Location` header; Fabric's `continuationUri`; Power BI's
+  `@odata.nextLink`), the client follows it with the bearer token attached.
+  Such a URL must now use `https`: any other scheme raises
+  `sigantry_core.client.ResponseUrlRefusedError` (a `ClientError`) and no
+  request is sent. A relative URL is still resolved against the configured
+  base URL, and the configured base URL itself is not checked, so a local
+  `http://localhost` endpoint such as OPA's keeps working. A program that
+  points the client at a plain-http test server returning absolute http
+  `Location` or cursor URLs now gets this error. The check and
+  `BaseRestClient`, which decides whether to request a URL as given or join
+  it to the base URL, share one definition of an absolute URL
+  (`sigantry_core.client.response_urls.absolute_url`): an `http` or `https`
+  scheme in any case, once leading and trailing spaces and C0 controls, and
+  any tab or line break, are removed. So an https URL written
+  `HTTPS://host/...`, or with a leading space, is requested at
+  `https://host/...`; before, the client joined it to the base URL as a
+  path.
+- **A `sync.yml` `display_name` must be one name, not a path.** A display
+  name that contains `/` or `\` is rejected when the manifest is loaded, and
+  with it every absolute path; before, only the other banned characters were
+  checked. Both packagers (`NotebookPackager`, `GenericPackager`) also check
+  the joined staging path after resolving it and raise `ValueError` when it
+  is not inside the staging directory, so a direct `pack()` call that never
+  went through the manifest validator is held to the same rule. The packagers
+  make that check before they read or mint a logicalId, so a refused `pack()`
+  writes nothing, the `.sigantry/*-ids.json` sidecar beside the source
+  included. `sigantry sync pull` holds the items it pulls to the same two
+  rules (one name; a directory inside `--into`) and, when an item fails
+  either, raises `PullItemNameRefusedError` before it fetches any item
+  definition. One check now decides containment for staging, for a pulled
+  item's directory and for each definition part that pull writes.
+- **The client's JSON logs mask URL query values and unmarked `credential`
+  fields.** A logged `url` keeps its scheme, host, path and query parameter
+  names; query values, userinfo and the fragment print as `<redacted>`
+  (`sigantry_core.client.logging.redact_url`). This matters because a URL the
+  client follows can come from a response, such as an LRO `Location` header
+  or a pagination cursor. The same masking applies to `operation_id`. An ARM
+  long-running operation (`sigantry capacity pause` and `resume`) is
+  identified by its polling URL, so `FabricArmRestClient.send_arm_lro` now
+  uses that URL with its query values masked as the operation identity: that
+  is what the logs, `LROTimeoutError` and `OperationFailedError` carry, and
+  the poll itself still requests the full URL. A `credential` field prints
+  only when the client set it as a credential class name
+  (`client_credential_resolved` still names the credential class); a
+  `credential` value logged by other code through the `sigantry_core.client`
+  logger prints as `<redacted>`. Header redaction is unchanged.
 - The workspace delete fallback is described as what it does. With
   `pbi_fallback=True`, a Fabric `DELETE` that fails with `UnknownError` is
   tried again through the Power BI groups endpoint. The docstring, the
@@ -538,6 +618,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every group entry had a name and none was the group; before, only the first
   page was read and entries without a name were dropped. Later `memberOf`
   pages are followed only on the Graph host.
+- **Audit-trail warnings now reach stderr on the command line.** Importing
+  the package imports fabric-cicd, which sets the root logger to ERROR, so the
+  WARNING records that report a ledger line failing its hash check
+  (`ledger_line_tampered`), an unreadable ledger line, or a failed audit
+  write (`destructive_op_audit_write_failed`) were dropped before any handler
+  saw them, and `sigantry release list` on an edited ledger printed nothing.
+  The console script and both `python -m` forms now start through
+  `sigantry_core.cli:main`, which gives the `sigantry_core.release.ledger`
+  and `sigantry_core.governance.audit` loggers a WARNING level and a stderr
+  handler, and changes nothing else: other libraries' warnings stay off
+  stderr. The same two loggers also record one WARNING when an operation
+  fails: `destructive_op` when a destructive operation raises (its audit
+  record is still written) and `secret_change_failed` when a Key Vault secret
+  set or delete raises. A command whose destructive operation fails therefore
+  prints that one line before its error; the exit code is unchanged. A run
+  whose audit trail is intact and whose operations succeed prints nothing
+  new. Each record prints as exactly one line: a control character in it
+  (C0, DEL, C1, or the Unicode line and paragraph separators), whether it
+  comes from a ledger value or from an error message, is printed as a
+  visible escape such as `\n` or `\x1b`. Programs that import the package
+  keep their own logging configuration; they see these records only if they
+  set a level on those loggers themselves.
 - **`.github/workflows/drift-check.yml` failed every day.** Its `schedule:`
   trigger ran the workflow with an empty `inputs` context (declared defaults are
   not applied to scheduled runs either), so `sigantry diff` got no workspace and
