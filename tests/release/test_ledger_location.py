@@ -48,12 +48,12 @@ def test_release_verify_reads_config_audit_dir(
     _seed(custom_audit, release_id="R-config")
 
     toml_path = work_dir / ".sigantry.toml"
-    toml_path.write_text(f'[release]\naudit_dir = "{custom_audit}"\n', encoding="utf-8")
+    toml_path.write_text(f'[release]\naudit_dir = "{custom_audit.as_posix()}"\n', encoding="utf-8")
 
     result = runner.invoke(app, ["release", "verify"])
     assert result.exit_code == 0
     assert "1 record(s) verified" in result.stdout
-    assert str(custom_audit) in result.stdout
+    assert str(custom_audit) in result.stdout.replace("\r", "").replace("\n", "")
     # Ensure home ledger was never touched/created
     assert not (fake_home / ".sigantry" / "audit" / "deploys.jsonl").exists()
 
@@ -77,7 +77,7 @@ def test_release_verify_reads_env_audit_dir(
     result = runner.invoke(app, ["release", "verify"])
     assert result.exit_code == 0
     assert "1 record(s) verified" in result.stdout
-    assert str(custom_audit) in result.stdout
+    assert str(custom_audit) in result.stdout.replace("\r", "").replace("\n", "")
     assert not (fake_home / ".sigantry" / "audit" / "deploys.jsonl").exists()
 
 
@@ -100,12 +100,12 @@ def test_release_verify_cli_flag_wins_over_config(
     _seed(flag_audit, release_id="R-flag")
 
     toml_path = work_dir / ".sigantry.toml"
-    toml_path.write_text(f'[release]\naudit_dir = "{config_audit}"\n', encoding="utf-8")
+    toml_path.write_text(f'[release]\naudit_dir = "{config_audit.as_posix()}"\n', encoding="utf-8")
 
     result = runner.invoke(app, ["release", "verify", "--audit-dir", str(flag_audit)])
     assert result.exit_code == 0
     assert "1 record(s) verified" in result.stdout
-    assert str(flag_audit) in result.stdout
+    assert str(flag_audit) in result.stdout.replace("\r", "").replace("\n", "")
 
 
 def test_destructive_op_honours_audit_dir_kwarg(
@@ -150,7 +150,7 @@ def test_destructive_op_honours_config_audit_dir(
     custom_audit.mkdir()
 
     toml_path = work_dir / ".sigantry.toml"
-    toml_path.write_text(f'[release]\naudit_dir = "{custom_audit}"\n', encoding="utf-8")
+    toml_path.write_text(f'[release]\naudit_dir = "{custom_audit.as_posix()}"\n', encoding="utf-8")
 
     @destructive_op("test_res", "test_delete")
     def sample_op(*, force: bool = False) -> str:
@@ -213,7 +213,7 @@ def test_release_list_show_diff_honour_config_audit_dir(
     _seed(custom_audit, release_id="R-102")
 
     toml_path = work_dir / ".sigantry.toml"
-    toml_path.write_text(f'[release]\naudit_dir = "{custom_audit}"\n', encoding="utf-8")
+    toml_path.write_text(f'[release]\naudit_dir = "{custom_audit.as_posix()}"\n', encoding="utf-8")
 
     # 1. list
     res_list = runner.invoke(app, ["release", "list"])
@@ -250,7 +250,7 @@ def test_deploy_rollback_emits_to_configured_audit_dir(
     _seed(custom_audit, release_id="R-roll")
 
     toml_path = work_dir / ".sigantry.toml"
-    toml_path.write_text(f'[release]\naudit_dir = "{custom_audit}"\n', encoding="utf-8")
+    toml_path.write_text(f'[release]\naudit_dir = "{custom_audit.as_posix()}"\n', encoding="utf-8")
 
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
