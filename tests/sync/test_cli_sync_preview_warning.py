@@ -18,11 +18,17 @@ the ``SIGANTRY_WORKFLOW__PREVIEW_APIS_ACKNOWLEDGED`` env var).
 from __future__ import annotations
 
 import logging
+import os
+import sys
+import warnings
+from collections.abc import Iterator
 from pathlib import Path
+from typing import TextIO
 
 import pytest
 from typer.testing import CliRunner
 
+from sigantry_core.config import _CONFIG_FILENAME, _LEGACY_CONFIG_FILENAME
 from sigantry_core.sync import cli as sync_cli_mod
 from sigantry_core.sync.cli import sync_app
 from sigantry_core.sync.errors import ManifestValidationError
@@ -232,3 +238,193 @@ def test_non_utf8_config_is_logged_not_raised(
         f"the unreadable config was not reported at all: {[r.message for r in caplog.records]}"
     )
     assert "UnicodeDecodeError" in load_failures[0]
+
+
+# ---------------------------------------------------------------------------
+# sigantry 1.0.0 compatibility (1.0.1)
+# ---------------------------------------------------------------------------
+
+_UNPREFIXED_NAMES = frozenset({"PREVIEW_APIS_ACKNOWLEDGED", "TENANT_ID", "PROVIDER", "GATE"})
+
+
+@pytest.fixture
+def settings_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
+    """No settings variable from the host; the working directory is ``tmp_path``."""
+    for name in list(os.environ):
+        upper = name.upper()
+        if upper.startswith(("FDT_", "SIGANTRY_")) or upper in _UNPREFIXED_NAMES:
+            monkeypatch.delenv(name)
+    monkeypatch.chdir(tmp_path)
+    sync_cli_mod._PREVIEW_WARNING_EMITTED.clear()
+    yield tmp_path
+    sync_cli_mod._PREVIEW_WARNING_EMITTED.clear()
+
+
+def _preview_records(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [
+        r.message
+        for r in caplog.records
+        if r.name == "sigantry_core.sync.cli"
+        and r.levelno == logging.WARNING
+        and "preview" in r.message.lower()
+    ]
+
+
+def _load_failures(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [r.message for r in caplog.records if "Could not load Sigantry settings" in r.message]
+
+
+_BROKEN_CONFIGS = {
+    "malformed": b"[auth\n",
+    "invalid-value": b"[core]\ntenant_id = 5\n",
+    "non-utf8": b'[core]\ntenant_id = "\xff\xfe not utf-8"\n',
+}
+
+
+@pytest.mark.parametrize("filename", [_LEGACY_CONFIG_FILENAME, _CONFIG_FILENAME])
+@pytest.mark.parametrize("broken", sorted(_BROKEN_CONFIGS))
+def test_env_acknowledgement_survives_a_config_that_fails_to_load(
+    broken: str,
+    filename: str,
+    settings_env: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """1.0.0 fell back to an env-reading ``ToolkitSettings()``, so an exported
+    acknowledgement kept the advisory quiet while the file was broken."""
+    (settings_env / filename).write_bytes(_BROKEN_CONFIGS[broken])
+    monkeypatch.setenv("FDT_WORKFLOW__PREVIEW_APIS_ACKNOWLEDGED", "true")
+
+    with caplog.at_level(logging.WARNING, logger="sigantry_core.sync.cli"):
+        sync_cli_mod._emit_preview_warning_once()
+
+    assert _load_failures(caplog), [r.message for r in caplog.records]
+    assert _preview_records(caplog) == []
+
+
+def test_new_prefix_acknowledgement_survives_a_config_that_fails_to_load(
+    settings_env: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    (settings_env / _CONFIG_FILENAME).write_bytes(_BROKEN_CONFIGS["malformed"])
+    monkeypatch.setenv("SIGANTRY_WORKFLOW__PREVIEW_APIS_ACKNOWLEDGED", "true")
+
+    with caplog.at_level(logging.WARNING, logger="sigantry_core.sync.cli"):
+        sync_cli_mod._emit_preview_warning_once()
+
+    assert _preview_records(caplog) == []
+
+
+def test_malformed_config_without_env_still_warns(
+    settings_env: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Control: without an acknowledgement anywhere the advisory still fires."""
+    (settings_env / _LEGACY_CONFIG_FILENAME).write_bytes(_BROKEN_CONFIGS["malformed"])
+
+    with caplog.at_level(logging.WARNING, logger="sigantry_core.sync.cli"):
+        sync_cli_mod._emit_preview_warning_once()
+
+    assert _load_failures(caplog)
+    assert len(_preview_records(caplog)) == 1
+
+
+def test_legacy_config_under_warnings_as_errors_keeps_the_acknowledgement(
+    settings_env: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """``PYTHONWARNINGS=error``: 1.0.0 raised no warning here, so nothing may raise."""
+    (settings_env / _LEGACY_CONFIG_FILENAME).write_text(
+        "[workflow]\npreview_apis_acknowledged = true\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("FDT_CORE__TENANT_ID", "t1")
+    monkeypatch.setenv("TENANT_ID", "unprefixed")
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        with caplog.at_level(logging.WARNING, logger="sigantry_core.sync.cli"):
+            sync_cli_mod._emit_preview_warning_once()
+
+    assert _preview_records(caplog) == []
+
+
+def test_env_fallback_under_warnings_as_errors(
+    settings_env: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    (settings_env / _LEGACY_CONFIG_FILENAME).write_bytes(_BROKEN_CONFIGS["malformed"])
+    monkeypatch.setenv("FDT_WORKFLOW__PREVIEW_APIS_ACKNOWLEDGED", "true")
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        with caplog.at_level(logging.WARNING, logger="sigantry_core.sync.cli"):
+            sync_cli_mod._emit_preview_warning_once()
+
+    assert _preview_records(caplog) == []
+
+
+def test_sync_apply_prints_no_settings_warning(
+    settings_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The commands record and drop settings warnings: 1.0.0 printed none, and
+    a pipeline step that fails on any stderr output must keep passing.
+
+    pytest records warnings instead of printing them, which would make this
+    test pass whatever the command did, so the block prints them to stderr
+    the way Python does outside pytest.
+    """
+    (settings_env / _LEGACY_CONFIG_FILENAME).write_text(
+        "[workflow]\npreview_apis_acknowledged = true\n", encoding="utf-8"
+    )
+    (settings_env / _CONFIG_FILENAME).write_text("[core]\n", encoding="utf-8")
+    monkeypatch.setenv("FDT_CORE__TENANT_ID", "t1")
+    monkeypatch.setenv("SIGANTRY_CORE__TENANT_ID", "t2")
+    monkeypatch.setenv("TENANT_ID", "unprefixed")
+    _stub_apply_to_raise_validation_error(monkeypatch)
+    manifest = settings_env / "synthetic-sync.yml"
+    manifest.write_text("schema_version: '1.0.0'\nitems: []\n", encoding="utf-8")
+
+    def print_to_stderr(
+        message: Warning | str,
+        category: type[Warning],
+        filename: str,
+        lineno: int,
+        file: TextIO | None = None,
+        line: str | None = None,
+    ) -> None:
+        sys.stderr.write(warnings.formatwarning(message, category, filename, lineno, line))
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("always")
+        warnings.showwarning = print_to_stderr
+        result = runner.invoke(
+            sync_app, ["apply", "--manifest", str(manifest), "--workspace-id", "ws-synthetic"]
+        )
+
+    assert result.exit_code == 1, result.output
+    for marker in ("Warning:", "deprecated", "TENANT_ID", "sigantry: warning"):
+        assert marker not in result.stderr, result.stderr
+
+
+def test_unprefixed_acknowledgement_still_silences_the_advisory(
+    settings_env: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """1.0.0 read ``PREVIEW_APIS_ACKNOWLEDGED`` unprefixed. Settings no longer
+    do, but this one only quiets an advisory, so the sync commands honour it."""
+    monkeypatch.setenv("PREVIEW_APIS_ACKNOWLEDGED", "true")
+
+    with caplog.at_level(logging.WARNING, logger="sigantry_core.sync.cli"):
+        sync_cli_mod._emit_preview_warning_once()
+
+    assert _preview_records(caplog) == []
+
+
+def test_unprefixed_acknowledgement_loses_to_a_file_value(
+    settings_env: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Guard: 1.0.0 ranked an unprefixed name below the file."""
+    (settings_env / _CONFIG_FILENAME).write_text(
+        "[workflow]\npreview_apis_acknowledged = false\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("PREVIEW_APIS_ACKNOWLEDGED", "true")
+
+    with caplog.at_level(logging.WARNING, logger="sigantry_core.sync.cli"):
+        sync_cli_mod._emit_preview_warning_once()
+
+    assert len(_preview_records(caplog)) == 1

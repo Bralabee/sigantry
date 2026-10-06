@@ -10,6 +10,138 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Upgrading from 1.0.0
+- **The bullets below describe ways this release differs from 1.0.0** when
+  it reads settings, bootstraps a workspace or checks Entra group
+  membership, one subject each: Config file; Env prefix; Invalid values in
+  the new inputs; Settings keys; `ToolkitSettings()` built directly;
+  `auth.expected_group`; Unprefixed variables (and see Security); Settings
+  classes; Warnings as errors; pytest plugin; Workspace bootstrap;
+  `diagnose-auth`.
+- **Config file.** `.sigantry.toml` is now read. When it and the legacy config
+  file both exist and differ, the legacy file is still the one read, as in
+  1.0.0, with a `UserWarning`; two identical files are read without one. A
+  `.sigantry.toml` that 1.0.0 ignored because it was the only file present now
+  takes effect.
+- **Env prefix.** `SIGANTRY_<SECTION>__<KEY>` is now read. `FDT_` is still
+  read, with a `DeprecationWarning`, and through 1.0.x it outranks
+  `SIGANTRY_` for the same setting. A `SIGANTRY_` value overrides
+  `.sigantry.toml`, but over the legacy config file, or a file passed by
+  path, it only fills what the file leaves unset, because 1.0.0 read those
+  files and ignored `SIGANTRY_`; in a table
+  such as `[release.ado]` it fills the keys the table leaves unset. A
+  `UserWarning` names each `SIGANTRY_` variable that a different legacy value
+  overrides; equal values are silent. `FDT_` names in another letter case
+  (`fdt_core__tenant_id`), and `fdt_<section>` holding a JSON object, are read
+  again and ranked as in 1.0.0: below a file key spelled `tenant_id`, above
+  one spelled in another case such as `TENANT_ID`, and with
+  `<SECTION>__<KEY>` names laid over the JSON object. Where `fdt_<section>`
+  holds JSON that is not an object (`null`, `5`), that section's
+  `<SECTION>__<KEY>` names are not read, as in 1.0.0; where
+  `fdt_<section>__<table>`, for a table such as `release.ado`, holds a value
+  that is not a JSON object (`null`, `5`, an empty value), a table spelled
+  two ways in the file resolves as it did there. Where 1.0.0 failed on such
+  a value, the value is ignored with a `UserWarning`; an `fdt_<section>`
+  value that is not JSON at all, an empty one included, is ignored that way
+  and the section's `<SECTION>__<KEY>` names are read.
+  Where several `FDT_` names set one setting, the one 1.0.0 used still wins,
+  which for names that differ only in letter case depends, as in 1.0.0, on
+  the order the environment lists them. `load_settings()` again keeps an `FDT_` name whose
+  section is not a settings section (`FDT_MYPLUG__KEY`) as a top-level extra,
+  and it now reads `FDT_<SECTION>` holding a JSON object, a spelling 1.0.0's
+  `load_settings()` failed on.
+- **Invalid values in the new inputs.** A value from a `.sigantry.toml`
+  found without its path, or from a `SIGANTRY_` variable read without a
+  prefix the caller passed or declared, is validated like any other
+  wherever it takes effect, so an invalid one, such as an empty
+  `SIGANTRY_WORKFLOW__PREVIEW_APIS_ACKNOWLEDGED` or
+  `preview_apis_acknowledged = "maybe"` under `[workflow]`, now raises
+  `ValidationError`, from `load_settings()` and, for a variable, from
+  `ToolkitSettings()` built directly. 1.0.0 read neither that file nor such
+  a variable as settings. Where an input 1.0.0 read outranks a `SIGANTRY_`
+  value in the same load, that value is ignored and does not fail the load.
+- **Settings keys.** A key written in another letter case, such as `TENANT_ID`
+  under `[core]`, sets its field, with a `DeprecationWarning`, and so does a
+  section name such as `[CORE]`. 1.0.0, with pydantic-settings 2.15, set its
+  own fields from such keys too, without a warning; `auth.expected_group`,
+  which it did not have, is described below. Where one is spelled more than
+  once, the first spelling wins, as in 1.0.0. Keys that name no field keep
+  their spelling.
+- **`ToolkitSettings()` built directly** reads settings variables again:
+  `FDT_` ones from the environment, `_env_file` and `_secrets_dir`, ranked
+  in that order as in 1.0.0, and `SIGANTRY_` ones from the same three
+  inputs, which only fill what those leave unset. Given a non-empty prefix
+  of its own, passed as `_env_prefix` or declared as `env_prefix` in the
+  `model_config` of a subclass, or of a class between it and
+  `ToolkitSettings`, `SIGANTRY_` in any letter case included, it reads the
+  names under that prefix instead (a passed one over a declared one), as
+  1.0.0 read them in place of `FDT_` names, and no others. Only names whose
+  section is a settings section are read, in the forms 1.0.0 read
+  (`<PREFIX><SECTION>__<KEY>`, and `<PREFIX><SECTION>` holding a JSON object)
+  and as `SIGANTRY_<SECTION>__<KEY>`. A name in `_env_file` that sets no
+  settings field is not kept, where 1.0.0 kept names such as
+  `FDT_MYPLUG__K=v` and an unprefixed `OTHER=o` as top-level extras
+  (`fdt_myplug__k`, `other`) and `model_dump()` rendered them. Values passed to
+  the constructor outrank them all. An empty prefix, passed or declared, is
+  refused with a `UserWarning` that names it, because it would read
+  unprefixed names, and the default prefixes are read instead; under an
+  empty prefix 1.0.0 set no field from an `FDT_` name.
+- **`auth.expected_group`** is a new field, typed `str | None`, which
+  `diagnose-auth` now reads (see Changed). 1.0.0 had no such field: it kept
+  an `expected_group` key under `[auth]` as an extra, whatever its value,
+  and its `diagnose-auth` loaded no settings. A value other than null that
+  pydantic does not accept as a string now fails validation where it takes
+  effect: in a config file, a number, a boolean, a date or time, an array or
+  a table, such as `expected_group = 5` or `expected_group = true`; in JSON,
+  a number, a boolean, an array or an object; passed to the constructor,
+  `5` or `True`, for example. `load_settings()` or `ToolkitSettings()` then
+  raises `ValidationError` where 1.0.0 kept the value as an extra and set
+  the other settings. A value pydantic converts to a string, such as
+  `b"grp"` passed to the constructor, sets the field to that string
+  (`"grp"`), where 1.0.0 kept the value unchanged as an extra. Measured
+  against 1.0.0 for a key in the legacy config file or in a file passed by
+  path, a value passed to `ToolkitSettings()`, and `FDT_AUTH` holding a
+  JSON object in the environment, an `_env_file` or a `_secrets_dir` given
+  to `ToolkitSettings()` built directly; `load_settings()` on 1.0.0 failed on
+  `FDT_AUTH={"expected_group": 5}` as well. A key in a config file spelled in
+  another letter case, such as `Expected_Group`, now sets the field, with
+  the `DeprecationWarning` described under Settings keys, where 1.0.0 kept
+  it as an extra under that spelling, so a value of the kinds above there
+  fails the same way.
+- **Unprefixed variables stay unread** (see Security). A `FutureWarning` names
+  each one that 1.0.0 would have read, where nothing else sets the field, with
+  its `SIGANTRY_<SECTION>__<KEY>` replacement: `TENANT_ID`, `PROVIDER`, `SINK`,
+  `PROFILE`, `GATE`, `REGISTRY`, `POLICY`, `STORE`, `BOT`, `AUDIT_DIR` and
+  `PREVIEW_APIS_ACKNOWLEDGED`, and `STATIC_MAP`, `ADO` or `GITHUB` holding a
+  JSON object, in any letter case. `sigantry sync apply` and `sigantry sync
+  pull` still honour an unprefixed `PREVIEW_APIS_ACKNOWLEDGED`, which only
+  silences the Preview-API notice, where no file or prefixed variable sets it.
+- **Settings classes.** The section models (`CoreSettings`, `AuthSettings` and
+  the other eleven) are plain pydantic models, not `BaseSettings`, which is
+  what stops unprefixed variables binding. A subclass that relied on
+  `BaseSettings` reading the environment must read it itself or go through
+  `load_settings()`.
+- **Warnings as errors.** Library code run with `PYTHONWARNINGS=error`,
+  `-W error` or pytest's `filterwarnings = error` turns these warnings into
+  exceptions. `sigantry sync apply`, `sigantry sync pull` and `diagnose-auth`
+  record them and print none, as 1.0.0 printed none, so neither a
+  warnings-as-errors setting nor a pipeline step that fails on any stderr
+  output stops them. A `DeprecationWarning` from the settings loader is
+  attributed to the first caller outside sigantry, so Python shows it by
+  default when the script being run made the call,
+  `FabricDataOps.from_config()` included.
+- **pytest plugin.** The `fdt_settings_toml` fixture still writes only the
+  legacy file and returns its path, as in 1.0.0. While the test that asked
+  for it runs, the loader reads that file without a warning, in the test's
+  own process and in any process the test starts that inherits its
+  environment: no `DeprecationWarning` for the legacy name, and no
+  `UserWarning` if the test also writes a `.sigantry.toml` beside it, which
+  1.0.0 did not read either. A test that changes into that directory and
+  calls `FabricDataOps.from_config()`, or runs a script there that does,
+  therefore passes under warnings as errors, as it did on 1.0.0, whether it
+  edits, replaces or deletes the file first. A key the test spells in
+  another letter case, such as `core={"TENANT_ID": ...}`, still gets the
+  `DeprecationWarning` described under Settings keys. Any other legacy file
+  warns as before.
 - **Workspace bootstrap: pin your folder names before re-running a
   blueprint.** This release changes the folder names of the
   `minimal_starter` and `medallion` blueprints, and bootstrap never renames
@@ -20,6 +152,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `folders` as `already-converged`. Bootstrap warns when a blueprint would
   add folders beside a workspace's existing top-level folders (see
   Changed).
+- **`diagnose-auth`.** The Entra group check has no built-in group name;
+  set one as described under Changed. In `diagnose-auth` output, a
+  `skipped` group check means neither `--expected-group` nor the loaded
+  settings named a group; it does not change the exit code. In 1.0.0 the
+  group check took the group name from the code and sent the Fabric token
+  to Microsoft Graph (see Fixed). Each `entra_groups` result gains a
+  `classification` field.
+  Importing `ExpectedEntraGroup` from `sigantry_core.auth.diagnose` by name,
+  or calling `check_entra_group()` with no `expected_group` or an empty one,
+  now emits a `FutureWarning`, which a warnings filter that makes it an
+  error raises as an exception; otherwise the name gives an empty string and
+  the call returns a `skipped` result without sending a request.
 - **A response URL the client follows must be https.** An absolute URL with
   any other scheme in an LRO `Location` header, an ARM
   `Azure-AsyncOperation` header, a Fabric `continuationUri` or a Power BI
@@ -71,6 +215,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   matches is printed as a hash. An exception register in the same secret
   excuses exact lines, and an entry that no longer matches fails the run.
   Without the list, as on a fork's pull request, it fails closed.
+- **The name gate reads built distributions against the tree they were built
+  from.** `check-name-gate.py --root . --dist dist` scans the tree, then the
+  wheel and the sdist in `dist/`, in one run with one verdict; `dist/` must
+  hold exactly one of each and nothing else, dot files included, because it
+  is what the upload sends. A member whose bytes are identical to the tree
+  file at the same path (a wheel's PEP 639 licence copy included) is judged
+  by that file's register entries rather than reported twice. A hit in the
+  core metadata is keyed by its header field (`METADATA#Author:1`); in a
+  field that can repeat, such as `Classifier`, `Requires-Dist` or
+  `Project-URL`, by a digest of its entry (`METADATA#Classifier@<digest>:1`);
+  or by the readme's line when the body is a byte-identical copy of the
+  readme. So a version bump, or a new classifier, dependency or URL, moves
+  no key, while an edited one is a new key. A wheel `RECORD` line
+  whose path, SHA-256 and size all check out is read as empty, because a
+  random digest can contain a short token by chance. The artifact file
+  names and each sdist member's owner and group names are read as well.
+  `--archive` without `--root` still scans only the artifacts it names, so
+  it runs outside a work tree; given `--root`, it scans that tree first and
+  reads the artifacts against it, as `--dist` does.
 - `tests/ci/test_distribution_name.py` keeps the shipped surface — templates,
   workflows, scripts and the package — free of the dead distribution name, so
   it cannot creep back. It reads `pyproject.toml` as a *precondition* — the
@@ -104,6 +267,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   part of this repository; on a clean runner they always skipped.
 
 ### Changed
+- **Corrections to how the documentation describes the audit ledger,
+  rollback and drift detection.** A forward `sigantry deploy run` writes
+  no `DeployRecord`: records come from `sync apply`,
+  `deploy run --rollback` and `release record`. Rollback publishes again
+  the items a recorded release names, with their content read from
+  `--source`; the record holds no content and no commit.
+  Tutorial 07 therefore records each release with
+  `sigantry release record --fabric-items` and rolls back from a copy of
+  the first release's source; the tutorial says these steps have not been
+  run against a tenant. The front page, the user guide, the tutorials
+  index and the cover of the tutorials PDF no longer say every tutorial
+  step was verified against a live tenant (the index gave 2026-06-11;
+  steps such as tutorial 01's
+  `pip install sigantry` were written after that date), and tutorial 12
+  says its JSON example is shortened. `sigantry diff` compares item
+  names, types and folders when it is run; it does not run continuously.
+  `sigantry release verify` checks the deploy ledger only. The ledger is
+  described as integrity-checked and unkeyed rather than immutable, signed or
+  cryptographic, and the pipeline templates' tests and approval as gating the
+  release record, not the deployment. Two entries under [1.0.0] below
+  made the same diff and rollback claims (continuous topology comparison,
+  and a rollback restoring historical item states) and are corrected in
+  place. The starter and demo templates' branching guides give the rollback
+  as `sigantry deploy run --rollback`, and no longer say that the deploy
+  template deploys every merge, runs `release record` in the deploy job,
+  checks the ledger before a `PROD` publish or publishes on approval; their
+  PR checklists ask for the release id to be linked instead of saying the
+  deploy pipeline posts it. The demo walkthrough, its operator runbook, the
+  demo template's README, quickstart, branching guide, `parameters.yml` and
+  demo CI files, and a demo entry in each of the product brief,
+  `CONSUMING.md`, `CAPABILITIES.md` and `templates/README.md` say the demo
+  does not run end to end on the shipped demo tree yet. The runbook's
+  service principal check now gets a Fabric access token with the Azure CLI
+  before it calls the API; it has not been run against a tenant.
+- The documentation says how version numbers relate: public 1.0.0
+  continues an internal 3.x line (1.0.0 corresponds to internal 3.4.x),
+  and the v2.x and v3.x numbers in older pages refer to that line. The
+  install notes say that the reserved `sigantry-core` name on PyPI holds
+  only a yanked placeholder with no code, and the remaining dependency and
+  issue-tracker lines that named it now name `sigantry`. Three
+  `!!!` admonitions, which GitHub shows as plain text, use GitHub's alert
+  syntax.
 - **Responses that point at a non-https URL are refused.** When a response
   names the next URL to request (an LRO `Location` header, including the
   `/result` URL of a succeeded operation; ARM's `Azure-AsyncOperation` or
@@ -158,7 +363,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tried again through the Power BI groups endpoint. The docstring, the
   operator runbook and a test docstring made a reliability claim for that
   endpoint that nothing in the project measures; they now say it is tried
-  instead.
+  again.
 - **One copyright statement.** ADR-0010 said copyright was held jointly by
   contributors and that a DCO sign-off check was enforced, while the guide
   cover pages named a single holder. ADR-0010 now says copyright in a
@@ -181,20 +386,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   suite once it passes, because this one outlived its reason in silence.
 - **The wheel published to PyPI is now gated by the same lint, type and test
   jobs that gate a pull request.** `publish-pypi.yml` ran checkout → build →
-  `twine check` → publish with no quality job in front of it; CI's own
-  `build` job gates only the throwaway `dist` artifact that nobody installs.
-  `ci.yml` is now callable (`workflow_call`) and the publish job depends on
-  it.
+  `twine check` → publish with no quality job in front of it, while CI's own
+  `build` job gated only a `dist` artifact that nobody installed. `ci.yml` is
+  now callable (`workflow_call`) and the publish job depends on it.
+- **A release publishes the files CI built and checked, and builds nothing
+  of its own.** Even behind the quality gate, `publish-pypi.yml` rebuilt the
+  sdist and wheel inside its publish job, so the bytes uploaded to PyPI were
+  never the bytes `ci.yml` had checked. `ci.yml`'s `build` job now records
+  the SHA-256 of each file it uploads as `dist` and hands the record to the
+  release through a `workflow_call` output, and it checks out without
+  persisting the GitHub token, so the build tools it installs from PyPI
+  cannot read that token from the git config. The publish job (renamed from
+  `build-and-publish` to `publish`; the workflow file and the `pypi`
+  environment that PyPI's trusted publisher matches are unchanged) downloads
+  that artifact, verifies it against the record, scans the tree and both
+  distributions with the name gate's `--dist`, and uploads them. It checks
+  out without persisting credentials, installs nothing from PyPI and no
+  longer restores a pip cache, so nothing from PyPI or from an earlier run
+  executes beside the OIDC token or the token list before the scan. To let
+  the scan read PDFs, it installs `poppler-utils` and the libraries it
+  depends on from the runner's Ubuntu archive, and apt-get runs the package
+  scripts and triggers they set off as root, before the scan.
+  `skip-existing` stays on: re-running all jobs of the release run is now
+  the only recovery from an upload that stopped after one file.
 - `mypy` in `.pre-commit-config.yaml` moved from `v1.13.0` to `v1.20.2`, the
   version `mypy>=1.19,<2.0` actually resolves to, so the hook and the CI gate
   cannot disagree about what counts as an error.
 
 - **Config surface renamed to match the product (ADR-0011).** `load_settings()` and
   `FabricDataOps.from_config()` now resolve `.sigantry.toml` by default, and
-  settings env overrides use the `SIGANTRY_<SECTION>__<KEY>` prefix. Before
-  this, the documented `.sigantry.toml` filename was read by nothing: an
-  operator who followed the migration guide got a config file that was
-  silently ignored and a run on all defaults.
+  settings env overrides use the `SIGANTRY_<SECTION>__<KEY>` prefix. 1.0.0
+  read the documented `.sigantry.toml` filename only when given its path:
+  an operator who followed the migration guide and relied on the default
+  lookup got a config file that was silently ignored, and a run without the
+  settings in it. Upgrading from 1.0.0 describes ways settings are now read
+  differently from 1.0.0.
 - The workflows' action pins move to `actions/checkout` v7.0.1,
   `actions/setup-python` v7.0.0 and `actions/setup-node` v7.0.0, still pinned
   by commit SHA: 28 pins in 7 workflows, moved together because the pin test
@@ -292,16 +518,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The name gate (see Added) takes over the name checks of the older
   banned-string test (see Removed). It runs on every pull request to `main`
   and on every push to `main`, and must pass before merge. The release
-  workflow also runs it on the released tree, before building the
-  distributions it uploads to PyPI.
+  workflow also runs it on the released tree and on the wheel and sdist it
+  uploads to PyPI, as the last step before the upload.
 
 ### Deprecated
 - `.fabric-dataops.toml` and the `FDT_` settings env prefix. Both are still
   read for one more minor release and each emits a `DeprecationWarning` naming
-  its replacement. Where a setting is supplied under both prefixes, `SIGANTRY_`
-  wins.
+  its replacement. Through 1.0.x, where a setting is supplied under both
+  prefixes, the `FDT_` value is used, as in 1.0.0.
+- `sigantry_core.auth.diagnose.ExpectedEntraGroup`. Importing it by name
+  emits a `FutureWarning` (see Upgrading from 1.0.0), and
+  `from sigantry_core.auth.diagnose import *` no longer binds it. Configure
+  the group instead (see Changed).
 
 ### Removed
+- `docs/migration/3.x-pr-bot.md`, a PR-bot "migration" page that told
+  adopters to depend on the dead distribution name; the PR-bot operator
+  runbook covers adoption. `docs/metrics.json` goes too: its test counts
+  were stale, and none of this repository's own CI workflows runs the
+  checker it named.
+- The wheel and the sdist no longer carry the six `TODO-*.md` planning notes
+  kept beside the code under `sigantry_core/`. Both build targets exclude
+  them, and a slow test now lists the members each distribution may carry:
+  a file that reaches either one without being listed fails, and so does a
+  listed one that goes missing.
 - The demo walkthrough video build: `scripts/remotion/` (a Node project),
   `scripts/build-walkthrough.sh`, `.github/workflows/sigantry-demo-mp4.yml`,
   `docs/demo/walkthrough-script.md` and their tests. The video was never
@@ -352,11 +592,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   3.2.1. The Markdown stays the canonical source:
   `scripts/userguide/render.py` and `scripts/tutorials/render.py` now write
   to `build/docs/`, which is gitignored.
-- `sigantry_core.auth.diagnose.ExpectedEntraGroup`, and the default group of
-  `check_entra_group()`. Both carried one deployment's group name; pass
-  `expected_group=`, or configure the group as described under Changed.
+- The value of `sigantry_core.auth.diagnose.ExpectedEntraGroup`, and the
+  default group of `check_entra_group()`. Both carried one deployment's group
+  name; Upgrading from 1.0.0 describes what the name and a call without
+  `expected_group` do now. Pass `expected_group=`, or configure the group as
+  described under Changed.
 
 ### Fixed
+- **The `diagnose-auth` group check sent the Fabric token to Microsoft
+  Graph**, which accepts only a token issued for Graph; 1.0.0 reported
+  Graph's refusal as an error, exit code 2, for member and non-member alike.
+  The command now sends Graph only a second token, which it requests from
+  the same credential for `https://graph.microsoft.com/.default`, and only
+  for a group check that has a group to check; the `--scope` token goes only
+  to the Fabric probe. `check_entra_group()` never sends a token whose `aud`
+  claim names only resources other than Graph. Each `entra_groups` result
+  now has a `classification` field; with `status` `error` it is one of
+  `token_unavailable`, `wrong_audience`, `token_rejected`,
+  `permission_denied`, `delegated_only`, `names_hidden`, `incomplete`,
+  `settings_unreadable` or `other`, and `detail` describes it.
+  `token_unavailable` means the second token could not be obtained; like any
+  group check reported as `error`, it makes the exit code 2, and exit code 3
+  still means no token for `--scope`. `missing` now means the `memberOf`
+  pages, which list direct memberships only, were read to the last one,
+  every group entry had a name and none was the group; before, only the first
+  page was read and entries without a name were dropped. Later `memberOf`
+  pages are followed only on the Graph host.
 - **Audit-trail warnings now reach stderr on the command line.** Importing
   the package imports fabric-cicd, which sets the root logger to ERROR, so the
   WARNING records that report a ledger line failing its hash check
@@ -460,9 +721,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in one group and one cancelled the other. If that was the release's gate, the
   publish job is *skipped* and nothing ships — a cancellation, not a red X.
   The group now includes `github.workflow`.
-- `twine check` in CI is now `--strict`, matching the publish path. A metadata
-  defect that is a warning under one and an error under the other would
-  otherwise pass every quality job and surface mid-release.
+- `twine check` in CI is now `--strict`. A release publishes the files that
+  job checks, so a metadata defect that is only a warning would otherwise
+  pass every quality job and surface at upload.
 - A malformed `metrics.json` (a JSON list or scalar) no longer reads as "no
   metrics". `docs_freshness` raises and names the real cause instead of passing
   clean on a broken input or later reporting a claimed metric as "absent".
@@ -521,13 +782,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nameable instead of undiscoverable. (An earlier draft put both in `docs` and
   claimed it fixed a CI gap; review found nothing installs `.[docs]` either.)
 - **Shipped templates and workflows told consumers to `pip install
-  sigantry-core`, which 404s.** The distribution is `sigantry`
-  (`pyproject.toml` declares it; `sigantry-core` has never existed on PyPI —
-  ADR-0017 records the amendment to ADR-0011). Every consumer following a
-  shipped ADO step template, starter workflow or demo quickstart hit a package
-  that is not there. 49 references corrected across `templates/`,
-  `.github/workflows/`, `scripts/` and `.pre-commit-config.yaml`. Because the
-  old name resolves for nobody, this fix cannot break an existing install.
+  sigantry-core`, a name with no release to install.** The distribution is
+  `sigantry` (`pyproject.toml` declares it; no sigantry release was ever
+  published as `sigantry-core`, and since 2026-10-04 that name on PyPI holds
+  only a yanked, code-free 0.0.1 placeholder that points to `sigantry` —
+  ADR-0017 records the amendment to ADR-0011). A consumer following a
+  shipped ADO step template, starter workflow or demo quickstart got no code
+  from PyPI. 49 references corrected across `templates/`,
+  `.github/workflows/`, `scripts/` and `.pre-commit-config.yaml`. CI
+  templates: the step templates now ask pip for `sigantry`, so a pipeline
+  whose `artifactsFeed` holds its build only as `sigantry-core` no longer
+  installs that build, and pip can take `sigantry` from PyPI instead. Such a
+  pipeline should publish its build to that feed as `sigantry`, or set
+  `fabricDataopsVersion` to a version published as `sigantry`.
 - `sigantry --help` announced the tool as "Fabric DataOps Toolkit", a name the
   project left behind in v3.0, and `sigantry doctor` titled its plugin table
   "sigantry-core plugins".
@@ -548,24 +815,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   demo quickstart and the shipped demo template after a sibling link in the
   same file was corrected.
 
-- `sigantry sync` no longer swallows a config-load failure in silence. An
-  unreadable or malformed config is logged as a warning saying the command is
-  continuing on defaults, instead of a bare `except Exception` that left the
-  operator with no signal their settings were never applied.
+- `sigantry sync` no longer swallows every config-load failure. An unreadable
+  or malformed config is logged at WARNING level on the
+  `sigantry_core.sync.cli` logger, saying the command continues without the
+  file's settings, instead of a bare `except Exception` that also absorbed
+  genuine defects in the loader. The `sigantry` command does not print that
+  logger's warnings. Settings from `FDT_` and `SIGANTRY_` variables still
+  apply after such a failure, as `FDT_` ones did in 1.0.0.
 - `load_settings`' docstring claimed a missing config file raised
   `ValidationError`. It never did — no settings field is required — so the
   documented fail-fast did not exist. The docstring now states the real
   behaviour and says who is responsible for checking.
+- The demo CI workflow for GitHub Actions
+  (`templates/demo/.github/workflows/sigantry-demo-ci.yml`) read `secrets`
+  in its step conditions, which GitHub does not allow there. The steps now
+  test a job-level flag that records whether the token secret is set. Its
+  Python setup step no longer asks for a pip cache, which looks for a
+  `requirements.txt` or `pyproject.toml`; the demo tree has neither.
 
 ### Security
-- Settings env overrides are now restricted to `<PREFIX><SECTION>__<KEY>` forms
-  whose section names a real settings field, and **no** model in the tree
-  enables pydantic-settings' own env source. `SIGANTRY_` is shared with ~70
-  operational variables, several of them credentials
-  (`SIGANTRY_SMTP_PASSWORD`, `SIGANTRY_GITHUB_TEST_PAT`,
-  `SIGANTRY_FABRIC_TOKEN`). Because `ToolkitSettings` allows extra fields, an
-  unfiltered sweep under the new prefix would have bound those onto the
-  settings object and exposed them through `model_dump()`.
+- **`publish-pypi.yml` no longer has a manual trigger.** `workflow_dispatch`
+  let a run be started against any ref, leaving the `pypi` environment's
+  `v*` tag policy and its reviewer as the only stops before an upload. A
+  published GitHub Release is now the only trigger, and a failed release is
+  recovered by re-running all jobs of its run. `docs/release-process.md` no
+  longer presents the manual run as a fallback.
+- A `SIGANTRY_` variable that names no settings section, such as
+  `SIGANTRY_PROVIDER` or one of the operational variables that share the
+  prefix, is not read as a setting and is not added to the settings object,
+  and **no** model in the tree enables pydantic-settings' own env source.
+  With the next bullet, this keeps such names, and the unprefixed
+  `PROVIDER`, `GATE`, `STORE` and `REGISTRY`, from choosing a plugin or
+  setting a field through the settings: in 1.0.0 an unprefixed `PROVIDER`
+  chose the auth and work-item provider plugins, `GATE` the data-quality and
+  approval gates, `STORE` the secret store and `REGISTRY` the runbook
+  registry.
 - **Unprefixed environment variables no longer bind to settings.** Dropping the
   env source on the root model closed only one of fourteen: each seam section is
   a `Field(default_factory=...)`, and while those sub-models were `BaseSettings`
@@ -616,16 +900,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   separate organization account and no longer counts.
 
 ### Known remaining
-- Among the `pip install` and dependency lines under `docs/`, the dependency
-  instructions in `docs/migration/3.x-pr-bot.md` and one pinning step in
-  `docs/reference/api-stability.md` still name the dead distribution, and
-  ADR-0011 and ADR-0017 name it too. They are prose rather
-  than shipped artefacts and are tangled with a separate version-scheme
-  inconsistency (docs say `>=3.0`, the shipped line is 1.0.x), so they are
-  deliberately left for their own change rather than half-corrected here.
-  Two of them must survive any such change:
-  ADR-0017 quotes the dead name to explain the defect, and ADR-0011 records it
-  as history.
+- Under `docs/`, the dead distribution name now appears only in the decision
+  records (ADR-0010, ADR-0011, ADR-0016 and ADR-0017, which quotes it to
+  explain the defect), in the dated landscape survey, and in the install notes
+  that say it is not the distribution name and what the reserved name on PyPI
+  holds. No install or dependency instruction outside those records names it.
 - The guard scans `templates/`, `.github/workflows/`, `scripts/` and the
   package. It does **not** scan `pyproject.toml`, `environment.yml`,
   `README.md` or `CONTRIBUTING.md`, so the dead name could reappear in those
@@ -672,11 +951,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Folder-aware item synchronization with `--with-publish` (wrapping `fabric-cicd`) and `--republish-existing`.
   - Staged `.platform` v2 packaging with LF line-ending normalization for Notebooks, Pipelines, Semantic Models, Reports, and Spark Job Definitions.
 - **Drift Detection (`sigantry diff`)**:
-  - Continuous topology comparison between committed manifests and live Fabric workspaces.
+  - Point-in-time topology comparison between a committed manifest and a live Fabric workspace, by item name, type and folder (not item content), run when invoked.
   - Rich color-coded terminal tables and SemVer-pinned JSON output (`--fail-on-drift` CI alerting).
-- **Deployment & Automated Rollback (`sigantry deploy`)**:
+- **Deployment & Rollback (`sigantry deploy`)**:
   - Forward deployments with topological dependency ordering and `$ENV:` parameter substitution.
-  - One-command release rollback (`--rollback --to-release <release-id> --rollback-force`) restoring historical item states.
+  - One-command release rollback (`--rollback --to-release <release-id> --rollback-force`) that publishes again the items a recorded release names, with their content read from the `--source` checkout (the record holds no content and no commit).
 - **Audit & Provenance Ledger (`sigantry release` & `governance.audit`)**:
   - Integrity-checked, append-only JSONL ledgers with SHA-256 hash chains (unkeyed and
     unanchored - see docs/reference/audit-ledger-threat-model.md for what that resists).

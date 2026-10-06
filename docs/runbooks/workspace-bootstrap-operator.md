@@ -28,7 +28,7 @@ v3.0 milestone per Council E's idempotency-gap finding.
 | Provision a NEW workspace from scratch (workspace + capacity bind + folders + Git connect + initialize) | **`sigantry workspace bootstrap`** | yes -- creates the workspace and its folder topology | **NO** -- bootstrap creates folders, never items; see section 1.1 |
 | Plan + reconcile folder topology against an existing workspace; move existing items into the manifest's `target_folder` paths | **`sigantry sync apply`** | yes -- creates / moves folders + relocates existing items | **NO** -- new items are staged locally but NOT published; see [`runbooks/sync/apply.md` section 1.1](sync/apply.md#11-what-sync-apply-does-not-do) |
 | Mirror an existing workspace into a local IaC tree (`sync.yml` + sources) so future runs are no-op idempotent | **`sigantry sync pull`** | no -- read-only | n/a |
-| Deploy first-time items + parameterise per environment (DEV/PREPROD/PROD) + write a `DeployRecord` for audit | **`sigantry deploy run`** | yes -- runs `fabric-cicd publish_all_items` | **YES** |
+| Deploy first-time items + parameterise per environment (DEV/PREPROD/PROD); writes no `DeployRecord` (record the release with `sigantry release record`) | **`sigantry deploy run`** | yes -- runs `fabric-cicd publish_all_items` | **YES** |
 | Compare a manifest against a live workspace and report drift | **`sigantry diff`** | no -- read-only | n/a |
 | Capture a workspace's current state for diffing later | **`sigantry sync snapshot`** | no -- read-only | n/a |
 
@@ -61,9 +61,13 @@ the manifest. Re-running on a partly-bootstrapped workspace MUST converge
 tests + the live UAT (see §6 below).
 
 A `BootstrapRecord` lands in `~/.sigantry/audit/bootstraps.jsonl` after
-every successful run. Records carry an `audit_hash` (SHA-256 over
-canonical JSON) so a verifier can prove tamper-evidence later via
-`record.verify_hash()`.
+every successful run that is not a dry run. Records carry an
+`audit_hash` (SHA-256 over canonical JSON) and a `prev_hash` link to the
+record before them. `record.verify_hash()` returning `True` shows a
+record is internally consistent: it catches corruption and an edit made
+without recomputing the hash, but a record edited and then re-hashed
+also passes, and `sigantry release verify` does not read this ledger
+(see the [audit ledger threat model](../reference/audit-ledger-threat-model.md)).
 
 ### 1.1. What `workspace bootstrap` does NOT do
 
@@ -303,8 +307,11 @@ print('audit_hash matches:', r.verify_hash())
 "
 ```
 
-`True` is the cryptographic guarantee the line has not been tampered
-with after-the-fact.
+`True` means the line is internally consistent: its fields still hash to
+its stored `audit_hash`. It does not prove the line is the one bootstrap
+wrote. The hash is unkeyed, so a line that was edited and then re-hashed
+with the same public algorithm also prints `True` (see the
+[audit ledger threat model](../reference/audit-ledger-threat-model.md)).
 
 ---
 

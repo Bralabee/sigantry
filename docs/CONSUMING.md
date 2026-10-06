@@ -31,17 +31,19 @@ The base package registers its own notification sinks, secret stores and approva
 | Scaffold in this repository | Use it when |
 |---|---|
 | [`templates/starter/`](../templates/starter/) | greenfield adoption -- a dev/preprod/prod `parameters.yml`, the PR-review bot as a GitHub Actions / Azure DevOps pair, PR templates, branching strategy |
-| [`templates/demo/`](../templates/demo/) | 15-minute end-to-end walkthrough against a demo Fabric tenant |
+| [`templates/demo/`](../templates/demo/) | walkthrough against a demo Fabric tenant; the demo does not run end to end on the shipped demo tree yet (see [docs/demo/QUICKSTART.md](demo/QUICKSTART.md)) |
 
 Copy the scaffold into your own repository. Public mirror repositories for both are planned but not provisioned. `scripts/export-starter.py` and `scripts/export-demo.py` are parity checks for those trees, not publishing tools: their live `--target-*` flags raise `NotImplementedError` deliberately.
 
-## Quick start (15 minutes against a demo Fabric tenant)
+## Quick start (against a demo Fabric tenant)
+
+The demo does not run end to end on the shipped demo tree yet.
 
 From a copy of [`templates/demo/`](../templates/demo/):
 
 ```bash
 pip install sigantry
-# set 4 env vars: SIGANTRY_DEMO_{TENANT_ID,WORKSPACE_ID,CAPACITY_ID,FABRIC_TOKEN}
+# set SIGANTRY_DEMO_{TENANT_ID,WORKSPACE_ID,CAPACITY_ID,FABRIC_TOKEN} and SIGANTRY_FABRIC_{WORKSPACE,CAPACITY}_ID_{PREPROD,PROD}
 sigantry config validate parameters.yml
 sigantry sync apply --manifest sync.yml --workspace-id "$SIGANTRY_DEMO_WORKSPACE_ID"
 sigantry diff --workspace-id "$SIGANTRY_DEMO_WORKSPACE_ID" --manifest sync.yml
@@ -71,7 +73,7 @@ Evaluators routinely ask when to use Microsoft's [Terraform provider](https://re
 |---|---|
 | You run fleet-scale, state-managed IaC and already operate Terraform (state backends, plan/apply pipelines, modules). | You want an operator-driven, single-verb, stateless flow -- `workspace bootstrap workspace.yml` probes live state and converges, no state file to manage or drift against. |
 | Provisioning-level resources are the concern: workspaces, RBAC, domains, gateways, tenant settings as code. | Item-level lifecycle is the concern: manifest-driven sync, first-time publish, folder preservation, deploy rollback to a prior release. |
-| `terraform plan` drift coverage of provisioned resources is sufficient. | You need scheduled drift detection against a manifest plus an integrity-checked audit ledger of every deploy, bootstrap, secret change, and approval. |
+| `terraform plan` drift coverage of provisioned resources is sufficient. | You need drift detection against a manifest that you can run on a schedule, plus hash-chained audit records of each release you record (`sigantry release record`; `sync apply` writes one too, a forward `deploy run` none), each bootstrap, and each secret change and approval made through Sigantry's secret stores and approval gates. |
 | Your change-control process is PR-reviewed HCL. | Your change-control process needs work-item traceability (release records written back to ADO / GitHub items) and destructive-op gating (`force=True` on every gated operation, plus a runbook id for capacity pause and resume). |
 
 Notable gap on the Terraform side (as of 2026-06-11): no Variable Library resource ([provider issue #515](https://github.com/microsoft/terraform-provider-fabric/issues/515)) -- `sigantry variable-library` is one of the few non-portal paths. Full ecosystem comparison: [docs/LANDSCAPE-2026-06.md](LANDSCAPE-2026-06.md).

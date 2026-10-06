@@ -36,16 +36,19 @@ from __future__ import annotations
 
 import json as _json
 import logging
+import os
 import sys
 import tomllib
+import warnings
 from pathlib import Path
 
 import typer
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 from pydantic_settings import SettingsError
 from rich.console import Console
 
-from sigantry_core.config import ToolkitSettings, load_settings
+from sigantry_core._cli_settings import load_settings_for_cli, settings_warnings_dropped
+from sigantry_core.config import ToolkitSettings
 from sigantry_core.deploy.parameters import (
     HardcodedGuidError,
     load_and_validate,
@@ -83,16 +86,22 @@ def _emit_preview_warning_once(settings: ToolkitSettings | None = None) -> None:
 
     The function is intentionally tolerant of a missing or malformed
     config file -- a config-load failure must NOT break the sync command.
-    It falls back to a fresh ``ToolkitSettings()`` (which carries the False
-    default), but it *logs* that it did so: a governance tool that silently
-    swallows an unreadable config runs the operator's whole session on
-    defaults with no signal that their settings were never applied. The
-    handler names the ways loading can legitimately fail rather than catching
-    ``Exception``, so a genuine defect inside the loader still surfaces instead
-    of being absorbed as "bad config". ``UnicodeDecodeError`` is one of them:
-    ``tomllib.load`` decodes the file itself, so a config with a non-UTF-8 byte
-    raises it rather than ``TOMLDecodeError``, and it is a ``ValueError``
-    sibling that neither of the other two covers.
+    It falls back to settings built from the environment alone (see
+    :func:`_env_only_settings`), so an acknowledgement exported as an env var
+    still counts, as it did in 1.0.0, but it *logs* that it did so: a
+    governance tool that silently swallows an unreadable config runs the
+    operator's whole session without their file's settings and no signal that
+    they were never applied. The handler names the ways loading can
+    legitimately fail rather than catching ``Exception``, so a genuine defect
+    inside the loader still surfaces instead of being absorbed as "bad
+    config". ``UnicodeDecodeError`` is one of them: ``tomllib.load`` decodes
+    the file itself, so a config with a non-UTF-8 byte raises it rather than
+    ``TOMLDecodeError``, and it is a ``ValueError`` sibling that neither of
+    the other two covers.
+
+    Settings warnings are recorded and dropped (see
+    :mod:`sigantry_core._cli_settings`): 1.0.0 printed none, and a warning
+    turned into an error by ``PYTHONWARNINGS=error`` must not stop the command.
 
     ``snapshot_cmd`` does NOT call this helper: snapshot is read-only and
     operator-explicit; we do not want to interrupt the operator's
@@ -100,7 +109,7 @@ def _emit_preview_warning_once(settings: ToolkitSettings | None = None) -> None:
     """
     if settings is None:
         try:
-            settings = load_settings()
+            settings = load_settings_for_cli()
         except (
             OSError,
             UnicodeDecodeError,
@@ -109,14 +118,15 @@ def _emit_preview_warning_once(settings: ToolkitSettings | None = None) -> None:
             SettingsError,
         ) as exc:
             logger.warning(
-                "Could not load Sigantry settings (%s: %s); continuing with "
-                "defaults, so no operator configuration is in effect for this "
-                "command.",
+                "Could not load Sigantry settings (%s: %s); continuing without "
+                "the config file's settings for this command.",
                 type(exc).__name__,
                 exc,
             )
-            settings = ToolkitSettings()
+            settings = _env_only_settings()
     if settings.workflow.preview_apis_acknowledged:
+        return
+    if _unprefixed_acknowledgement(settings):
         return
     if _PREVIEW_WARNING_SENTINEL in _PREVIEW_WARNING_EMITTED:
         return
@@ -130,6 +140,59 @@ def _emit_preview_warning_once(settings: ToolkitSettings | None = None) -> None:
     )
     logger.warning(msg)
     _console.print(f"[yellow]preview-API warning:[/yellow] {msg}")
+
+
+def _env_only_settings() -> ToolkitSettings:
+    """Settings from the environment alone, or all defaults if that fails too.
+
+    ``ToolkitSettings()`` reads the same filtered env layer as
+    ``load_settings()``, without a file. 1.0.0 fell back the same way, so an
+    ``FDT_WORKFLOW__PREVIEW_APIS_ACKNOWLEDGED`` export kept silencing the
+    advisory while the config file was broken.
+    """
+    try:
+        with settings_warnings_dropped():
+            return ToolkitSettings()
+    except (ValidationError, SettingsError):
+        return ToolkitSettings.model_construct()
+
+
+_UNPREFIXED_ACKNOWLEDGEMENT = "PREVIEW_APIS_ACKNOWLEDGED"
+
+
+def _unprefixed_acknowledgement(settings: ToolkitSettings) -> bool:
+    """True if an unprefixed ``PREVIEW_APIS_ACKNOWLEDGED`` acknowledges.
+
+    sigantry 1.0.0 bound unprefixed variables, in any letter case, to settings
+    fields. Settings no longer read them, because a generic name could select
+    which plugin runs. This one only silences an advisory, so the sync
+    commands keep honouring it through 1.0.x where no file or prefixed
+    variable sets the field (1.0.0 ranked it below both). Its
+    ``FutureWarning`` is recorded and dropped like the other settings warnings.
+    """
+    if "preview_apis_acknowledged" in settings.workflow.model_fields_set:
+        return False
+    names = sorted(
+        (name for name in os.environ if name.upper() == _UNPREFIXED_ACKNOWLEDGEMENT),
+        key=lambda name: (name != _UNPREFIXED_ACKNOWLEDGEMENT, name),
+    )
+    if not names:
+        return False
+    try:
+        acknowledged = TypeAdapter(bool).validate_python(os.environ[names[0]])
+    except ValidationError:
+        return False
+    if acknowledged:
+        with settings_warnings_dropped():
+            warnings.warn(
+                f"{_UNPREFIXED_ACKNOWLEDGEMENT} is honoured through 1.0.x only. "
+                "Set SIGANTRY_WORKFLOW__PREVIEW_APIS_ACKNOWLEDGED=true or "
+                "[workflow] preview_apis_acknowledged = true in .sigantry.toml "
+                "instead.",
+                FutureWarning,
+                stacklevel=2,
+            )
+    return acknowledged
 
 
 def _split_csv(value: str | None) -> list[str]:

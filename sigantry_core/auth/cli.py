@@ -13,12 +13,28 @@ Exit codes:
 - 3 = broken (no credential returned a token)
 - 4 = invalid `--output` value
 
-The expected Entra group comes from `--expected-group`, else from
+The Entra group check runs only for the Fabric scope (the default,
+`--scope fabric`). The expected group comes from `--expected-group`, else from
 `auth.expected_group` in the settings (`SIGANTRY_AUTH__EXPECTED_GROUP`, or
-`[auth] expected_group` in `.sigantry.toml`). With none set, the group check
-is reported as `skipped` and does not change the exit code. If the settings
-cannot be loaded and no `--expected-group` is given, the group check is
-reported as `error` (exit 2): a configured check is never skipped silently.
+`[auth] expected_group` in `.sigantry.toml`). `skipped` means neither named a
+group; it does not change the exit code, and the skip writes nothing to
+stderr. If the settings cannot be loaded and no `--expected-group` is given,
+the group check is reported as `error` (exit 2): a configured check is never
+skipped silently. Warnings from the settings loader are recorded and dropped,
+so they neither raise under `PYTHONWARNINGS=error` nor reach stderr (see
+`sigantry_core._cli_settings`).
+
+Microsoft Graph receives only a second token, which the command requests from
+the same credential for `https://graph.microsoft.com/.default`, and only for a
+group check that has a group to check; the token for `--scope` is sent only to
+the Fabric probe. A group check reported as `error` carries a `classification`
+naming what stopped it, such as `token_unavailable` (no Graph token),
+`token_rejected` (a 401 from Graph) or `permission_denied` (a 403), and makes
+the exit code 2. Listing the principal's memberships takes a Graph permission:
+for a user, at least delegated `User.Read`; for a service principal
+(`--principal-id`), at least `Application.Read.All`. The classification
+`names_hidden` means some memberships came back without their names and none
+of the named ones is the group; its detail asks for `GroupMember.Read.All`.
 
 Never logs the raw token. JSON output schema does not include a `token` key.
 """
@@ -37,6 +53,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
+from sigantry_core._cli_settings import load_settings_for_cli
 from sigantry_core.auth.audiences import (
     AZURE_DEVOPS_SCOPE,
     AZURE_RM_SCOPE,
@@ -50,10 +67,10 @@ from sigantry_core.auth.diagnose import (
     check_entra_group,
     check_tenant_toggles,
     decode_token_claims,
+    group_check_result,
 )
 from sigantry_core.auth.errors import TokenAcquisitionError
 from sigantry_core.auth.token_provider import TokenProvider
-from sigantry_core.config import load_settings
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +80,13 @@ app = typer.Typer(
 )
 
 console = Console()
+
+#: ``entra_groups.detail`` of a skipped group check. It goes in the report,
+#: never to stderr.
+_SKIPPED_DETAIL = (
+    "not checked: neither --expected-group nor the loaded settings named a group. "
+    "sigantry 1.0.0 checked a built-in group name"
+)
 
 _SCOPE_ALIASES = {
     "fabric": FABRIC_SCOPE,
@@ -92,16 +116,18 @@ def _resolve_expected_group(flag: str | None) -> tuple[str | None, str | None]:
     ``--expected-group`` wins and needs no settings; otherwise
     ``auth.expected_group`` from :func:`sigantry_core.config.load_settings`
     (``SIGANTRY_AUTH__EXPECTED_GROUP`` over ``[auth] expected_group`` in
-    ``.sigantry.toml``). A blank value counts as unset, and ``(None, None)``
-    means the check is skipped. If the settings cannot be loaded, the group is
-    unknown rather than unset -- an env value is lost when the file fails to
-    parse -- so ``settings_error`` describes the failure and the caller reports
-    the check as an error instead of skipping it.
+    ``.sigantry.toml``), loaded with its warnings recorded and dropped
+    (:func:`sigantry_core._cli_settings.load_settings_for_cli`). A blank value
+    counts as unset, and ``(None, None)`` means the check is skipped. If the
+    settings cannot be loaded, the group is unknown rather than unset -- an env
+    value is lost when the file fails to parse -- so ``settings_error``
+    describes the failure and the caller reports the check as an error instead
+    of skipping it.
     """
     if flag is not None and flag.strip():
         return flag.strip(), None
     try:
-        settings = load_settings()
+        settings = load_settings_for_cli()
     except (
         OSError,
         UnicodeDecodeError,
@@ -123,6 +149,33 @@ def _resolve_expected_group(flag: str | None) -> tuple[str | None, str | None]:
     if configured is None or not configured.strip():
         return None, None
     return configured.strip(), None
+
+
+def _check_group_with_graph_token(
+    provider: TokenProvider, group: str, principal_id: str | None
+) -> dict[str, Any]:
+    """Run the group check with a Microsoft Graph token from the same credential.
+
+    The token passed in for the Fabric probe is never sent to Graph: Graph
+    accepts only a token issued for its own audience. If no Graph token can
+    be acquired, the check is an error (the membership is unknown), not a
+    missing membership; the Fabric result and the exit code 3 contract are
+    unaffected, since a Fabric token was acquired.
+    """
+    try:
+        graph_token = provider.get_token(GRAPH_SCOPE)
+    except TokenAcquisitionError as exc:
+        logger.warning("Could not acquire a Microsoft Graph token for the group check: %s", exc)
+        return group_check_result(
+            "error",
+            "token_unavailable",
+            expected=group,
+            detail=(
+                f"not checked: no Microsoft Graph token ({GRAPH_SCOPE}) could be acquired "
+                "from the credential; the membership is unknown"
+            ),
+        )
+    return check_entra_group(graph_token, principal_id=principal_id, expected_group=group)
 
 
 @app.command()
@@ -149,9 +202,9 @@ def diagnose(
             "--expected-group",
             help=(
                 "Expected Entra group display name, e.g. fabric-deployers. "
-                "Default: auth.expected_group from .sigantry.toml or "
-                "SIGANTRY_AUTH__EXPECTED_GROUP. When none is set, the group "
-                "check is reported as skipped."
+                "Default: auth.expected_group in the loaded settings. Only a "
+                "--scope fabric run checks a group; skipped means neither this "
+                "flag nor the loaded settings named one."
             ),
         ),
     ] = None,
@@ -212,18 +265,17 @@ def diagnose(
         tenant_toggles = check_tenant_toggles(token)
         group, settings_error = _resolve_expected_group(expected_group)
         if settings_error is not None:
-            entra_groups = {
-                "status": "error",
-                "groups": [],
-                "expected": None,
-                "detail": settings_error,
-            }
-        else:
-            entra_groups = check_entra_group(
-                token,
-                principal_id=principal_id,
-                expected_group=group,
+            entra_groups = group_check_result(
+                "error", "settings_unreadable", expected=None, detail=settings_error
             )
+        elif group is None:
+            # Built here, not by check_entra_group(), which emits a
+            # FutureWarning for library callers.
+            entra_groups = group_check_result(
+                "skipped", "skipped", expected=None, detail=_SKIPPED_DETAIL
+            )
+        else:
+            entra_groups = _check_group_with_graph_token(provider, group, principal_id)
 
     # Tenant sanity check (Pitfall P1-6)
     claims = decode_token_claims(token)

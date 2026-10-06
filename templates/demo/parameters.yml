@@ -1,12 +1,12 @@
 # Sigantry demo -- parameters.yml
 # ------------------------------
+# The demo does not run end to end on the shipped demo tree yet.
+#
 # Byte-extension of templates/starter/parameters.yml. Only the DEV
-# ENV-var refs differ -- DEV slot points at the SIGANTRY_DEMO_*
-# secrets supplied by the demo CI workflow (per CONTEXT.md D-06 +
-# 15-HUMAN-UAT.md Test 2). PREPROD/PROD slots are unused in the
-# demo CI workflow but kept for shape parity with the starter
-# (and so the parameters.yml validates clean against
-# sigantry_core.deploy.parameters.load_and_validate's whitelist).
+# ENV-var refs differ -- the DEV slot reads SIGANTRY_DEMO_* variables
+# (per CONTEXT.md D-06). The demo uses only the DEV slot; the
+# PREPROD/PROD slots are kept for shape parity with the starter, and
+# `sigantry config validate` needs their $ENV: references set too.
 #
 # Validate locally with:
 #     sigantry config validate parameters.yml

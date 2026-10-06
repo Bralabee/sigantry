@@ -11,9 +11,10 @@ it to fire automatically on release, *safely*.
 `env sync` and the consumption model.
 **Uses:** `sigantry env sync-all`.
 
-> Every `env sync-all` invocation in this tutorial (including the JSON output blocks)
-> was executed locally on 2026-06-14 in `--dry-run` mode, which performs no tenant
-> calls. The live publish behaviour is the same `env sync` mechanism from Tutorial 11.
+> The JSON block in Step 2 is shortened: the command also prints `workspaceId`,
+> `environmentId` and `error` for each target, and `installedLibraryName` and `error`
+> for each wheel. Without `--dry-run`, `env sync-all` publishes through the same
+> function as `env sync` in Tutorial 11.
 
 ## Why a manifest, not a loop
 

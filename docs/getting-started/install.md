@@ -90,8 +90,10 @@ examples).
 > - When you upgrade past 1.0.0, rename the file to `.sigantry.toml` and keep only that
 >   one, change any path you pass explicitly, such as `from_config(".fabric-dataops.toml")`,
 >   to the new name, and rename the overrides to `SIGANTRY_`. Later releases still read the
->   old names during a deprecation period, and the CLI and `from_config()` report that only
->   through a `DeprecationWarning`, which Python does not show by default.
+>   old names during a deprecation period, and through 1.0.x an old name still wins over a
+>   new one. `from_config()` reports an old name through a `DeprecationWarning`, which
+>   Python shows by default only when the script being run made the call; the `sigantry`
+>   commands do not print it. The migration guide's Verify step checks for old names.
 
 Create the config file in the directory you run `sigantry` or your Python code from,
 normally the repo root (or the consumer repo's root); parent directories are not searched.
@@ -148,19 +150,19 @@ which is also the machine-readable answer to "which interpreter belongs to
 this checkout". `environment.yml` declares the same name, so
 `conda activate "$(cat .conda-env)"` always lands in the right place.
 
-!!! warning "An editable install elsewhere can shadow this checkout"
-
-    If another clone of this project is editable-installed in the same
-    environment, `import sigantry_core` resolves to **whichever tree comes
-    first on `sys.path`** — and from a directory other than this repo root
-    that can be the other tree, silently. Confirm which tree you are running
-    before trusting any result:
-
-    ```bash
-    cd <this repo> && python -c "import sigantry_core, os; \
-      print(os.path.dirname(sigantry_core.__file__), sigantry_core.__version__)"
-    # expect: <this repo>/sigantry_core  and the version in sigantry_core/_version.py
-    ```
+> [!WARNING]
+> **An editable install elsewhere can shadow this checkout.**
+> If another clone of this project is editable-installed in the same
+> environment, `import sigantry_core` resolves to **whichever tree comes
+> first on `sys.path`** — and from a directory other than this repo root
+> that can be the other tree, silently. Confirm which tree you are running
+> before trusting any result:
+>
+> ```bash
+> cd <this repo> && python -c "import sigantry_core, os; \
+>   print(os.path.dirname(sigantry_core.__file__), sigantry_core.__version__)"
+> # expect: <this repo>/sigantry_core  and the version in sigantry_core/_version.py
+> ```
 
 Plugin packages install cleanly alongside the base:
 
