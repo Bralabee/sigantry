@@ -546,8 +546,8 @@ def _build_combined_record(
 
     The encoding is constrained by D-17-05 -- :class:`DeployRecord` is
     ``extra="forbid"`` + ``frozen=True``, so we cannot add new top-level
-    fields without breaking verify-without-trust on every existing
-    record. Both lists go inside ``test_evidence: dict[str, str]`` as
+    fields without changing the hash of every existing record.
+    Both lists go inside ``test_evidence: dict[str, str]`` as
     JSON-stringified arrays. Consumers ``json.loads()`` the field --
     runbook §1.3 documents the encoding contract.
 

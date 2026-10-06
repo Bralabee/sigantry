@@ -73,24 +73,31 @@ def test_operational_errors_go_to_stderr(
             ),
             ("Manifest validation failed", "items.0.target_folder"),
         ),
-        ("bogus", None, ("Invalid --output 'bogus'",)),
+        (
+            "html",
+            ManifestValidationError(
+                "bad manifest",
+                violations=[
+                    {"field": "items.0.target_folder", "decision_id": "D-05", "severity": "error"}
+                ],
+            ),
+            ("Manifest validation failed", "items.0.target_folder"),
+        ),
     ],
-    ids=["manifest-validation", "invalid-output"],
+    ids=["manifest-validation-json", "manifest-validation-html"],
 )
 def test_rejections_go_to_stderr(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     output: str,
-    exc: Exception | None,
+    exc: Exception,
     texts: tuple[str, ...],
 ) -> None:
-    """The two rejection branches, including each violation line."""
+    """The rejection branch under json and html, including each violation line."""
     manifest = tmp_path / "sync.yml"
     manifest.write_text("schema_version: '1.0.0'\nitems: []\n", encoding="utf-8")
 
     def reject(*_a: object, **_k: object) -> None:
-        if exc is None:
-            raise AssertionError("an invalid --output must be rejected before diffing")
         raise exc
 
     monkeypatch.setattr(diff_cli, "diff_workspace_against_manifest", reject)

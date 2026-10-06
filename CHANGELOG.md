@@ -9,14 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-07
+
 ### Upgrading from 1.0.0
-- **The bullets below describe ways this release differs from 1.0.0** when
-  it reads settings, bootstraps a workspace or checks Entra group
-  membership, one subject each: Config file; Env prefix; Invalid values in
-  the new inputs; Settings keys; `ToolkitSettings()` built directly;
-  `auth.expected_group`; Unprefixed variables (and see Security); Settings
-  classes; Warnings as errors; pytest plugin; Workspace bootstrap;
-  `diagnose-auth`.
+- **The bullets below describe ways this release differs from 1.0.0**, one
+  subject each: Config file; Env prefix; Invalid values in the new inputs;
+  Settings keys; `ToolkitSettings()` built directly; `auth.expected_group`;
+  Unprefixed variables (and see Security); Settings classes; Warnings as
+  errors; pytest plugin; Workspace bootstrap; `diagnose-auth`; Response
+  URLs (and see Security); `display_name` (and see Security);
+  `send_arm_lro` (and see Security); Audit-trail warnings; `sigantry diff`
+  errors; Copied templates.
 - **Config file.** `.sigantry.toml` is now read. When it and the legacy config
   file both exist and differ, the legacy file is still the one read, as in
   1.0.0, with a `UserWarning`; two identical files are read without one. A
@@ -108,11 +111,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it as an extra under that spelling, so a value of the kinds above there
   fails the same way.
 - **Unprefixed variables stay unread** (see Security). A `FutureWarning` names
-  each one that 1.0.0 would have read, where nothing else sets the field, with
-  its `SIGANTRY_<SECTION>__<KEY>` replacement: `TENANT_ID`, `PROVIDER`, `SINK`,
-  `PROFILE`, `GATE`, `REGISTRY`, `POLICY`, `STORE`, `BOT`, `AUDIT_DIR` and
-  `PREVIEW_APIS_ACKNOWLEDGED`, and `STATIC_MAP`, `ADO` or `GITHUB` holding a
-  JSON object, in any letter case. `sigantry sync apply` and `sigantry sync
+  each one that 1.0.0 would have read, in any letter case, where nothing else
+  sets the field, with its replacement, `SIGANTRY_<SECTION>__<KEY>`:
+  `TENANT_ID`, `PROVIDER`, `SINK`, `PROFILE`, `GATE`, `REGISTRY`, `POLICY`,
+  `STORE`, `BOT`, `AUDIT_DIR` and `PREVIEW_APIS_ACKNOWLEDGED`. `STATIC_MAP`,
+  `ADO` or `GITHUB` holding a JSON object is named the same way. Its
+  replacement is one `SIGANTRY_<SECTION>__<TABLE>__<KEY>` variable per key of
+  the object, such as `SIGANTRY_RELEASE__GITHUB__REPO`, where every key is
+  non-empty, in lower case and without `__` or `=`, and every value is a
+  string; otherwise it is the
+  table in `.sigantry.toml`, such as `[runbooks.static_map]`, because a key in
+  a variable name is read in lower case, split at `__` and cannot hold `=`, and a variable
+  holds only a string. A JSON object in
+  `SIGANTRY_RELEASE__GITHUB`, `SIGANTRY_RELEASE__ADO` or
+  `SIGANTRY_RUNBOOKS__STATIC_MAP` itself is ignored with a `UserWarning` by
+  `load_settings()`, and by `ToolkitSettings()` built without a prefix of its
+  own. Where a config file sets the same table (`static_map` under
+  `[runbooks]`, `[release.github]` or `[release.ado]`), no `FutureWarning`
+  names such a JSON object and its keys are missing from the result: 1.0.0
+  merged them into that table when it read the file (the legacy config file,
+  or a file passed by path), and used them alone where the file was a
+  `.sigantry.toml` it did not read. Set those keys in the file, or, for keys
+  that meet those conditions, as `SIGANTRY_<SECTION>__<TABLE>__<KEY>` variables, which
+  fill the keys the table leaves unset. `sigantry sync apply` and `sigantry sync
   pull` still honour an unprefixed `PREVIEW_APIS_ACKNOWLEDGED`, which only
   silences the Preview-API notice, where no file or prefixed variable sets it.
 - **Settings classes.** The section models (`CoreSettings`, `AuthSettings` and
@@ -149,9 +170,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   1.0.0 bootstrapped creates the new folders beside the old ones. To keep
   an existing layout, list its folder names under `folders.list` in
   `workspace.yml` instead of naming a blueprint; a dry run then reports
-  `folders` as `already-converged`. Bootstrap warns when a blueprint would
-  add folders beside a workspace's existing top-level folders (see
-  Changed).
+  `folders` as `already-converged`. Bootstrap now prints one
+  `sigantry: warning:` line on stderr, and adds a `warnings` list to its
+  JSON report, when a blueprint would add folders beside a workspace's
+  existing top-level folders; a wrapper that treats any stderr output as
+  failure sees that line (see Changed).
 - **`diagnose-auth`.** The Entra group check has no built-in group name;
   set one as described under Changed. In `diagnose-auth` output, a
   `skipped` group check means neither `--expected-group` nor the loaded
@@ -164,7 +187,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now emits a `FutureWarning`, which a warnings filter that makes it an
   error raises as an exception; otherwise the name gives an empty string and
   the call returns a `skipped` result without sending a request.
-- **A response URL the client follows must be https.** An absolute URL with
+- **Response URLs: a URL the client follows must be https.** An absolute URL with
   any other scheme in an LRO `Location` header, an ARM
   `Azure-AsyncOperation` header, a Fabric `continuationUri` or a Power BI
   `@odata.nextLink` now raises `sigantry_core.client.ResponseUrlRefusedError`
@@ -172,7 +195,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `HttpError` around a long-running call or a paginated listing does not
   catch it; catch `ClientError`. A test double that returns absolute http
   URLs must return https or relative ones (see Changed).
-- **A `display_name` that contains `/` or `\` is refused.** In `sync.yml`
+- **`display_name`: a name that contains `/` or `\` is refused.** In `sync.yml`
   such a name now fails manifest load with `ManifestValidationError`.
   `sigantry sync pull` now refuses an item it pulls whose display name
   contains `/` or `\`, or whose directory (its folder path plus its name)
@@ -188,13 +211,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `<redacted>`, not the full URL. The value still identifies the operation,
   but it is no longer a URL that can be requested as it stands (see
   Changed).
-- **The CLI prints audit-trail warnings to stderr.** `sigantry` and both
+- **Audit-trail warnings: the CLI prints them to stderr.** `sigantry` and both
   `python -m` forms now print WARNING records from the
   `sigantry_core.release.ledger` and `sigantry_core.governance.audit`
   loggers to stderr, one line each: a ledger line that fails its hash check
   or cannot be read, a failed audit write, or a failed destructive operation
   or secret change. Exit codes are unchanged; a wrapper that treats any
   stderr output as failure sees these lines (see Fixed).
+- **`sigantry diff` errors with `--output json` or `--output html`.** With
+  either, an error now prints on stderr and nothing on stdout, where 1.0.0
+  printed it on stdout. With `--output human`, and for an invalid
+  `--output` value, errors still print on stdout, as in 1.0.0. Moving the
+  stream changes no exit code (see Fixed).
+- **Copied templates.** Upgrading the package does not change the pipeline
+  and workflow files you copied from `templates/` for 1.0.0. The 1.0.1
+  copies install `sigantry` where the 1.0.0 ones asked for `sigantry-core`,
+  which has no release to install, and carry the other template fixes
+  listed under Changed and Fixed; copy them again to pick these up. A
+  pipeline whose `artifactsFeed` holds its build only as `sigantry-core`
+  should publish it as `sigantry`, or set `fabricDataopsVersion` to a
+  version published as `sigantry` (see Fixed).
 
 ### Added
 - **A name gate** (`scripts/ci/check-name-gate.py`, run by
@@ -265,14 +301,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   suite red (ADR-0016). The
   contract suite no longer carries arms for plugin distributions that are not
   part of this repository; on a clean runner they always skipped.
+- The README, the install page, the handbook and tutorial 01 say what to do
+  when the shell reports `sigantry: command not found` after `pip install`:
+  refresh the shell's command table, check that the environment is active
+  and its scripts directory is on `PATH`, or run `python -m sigantry_core.cli`.
+- `docs/reference/audit-ledger-threat-model.md` says what the ledgers'
+  unkeyed hash chains resist, what they do not, and what an operator adds
+  before a ledger is evidence against someone who can write its file.
+  Tutorial 04 now also shows that an edited record re-sealed with the
+  public API passes its own hash check, and that a ledger re-sealed that
+  way passes `sigantry release verify`.
+- `environment.yml` and `.conda-env` describe the development environment;
+  every dependency still comes from `pyproject.toml`.
+- A `review-record` commit status, posted by
+  `.github/workflows/review-record.yml` using the vendored
+  `scripts/gates/review-record-check.sh`, reports whether a pull request's
+  head commit has been reviewed. `main` requires it before a merge (see
+  Security for what counts and how it is posted).
 
 ### Changed
 - **Corrections to how the documentation describes the audit ledger,
   rollback and drift detection.** A forward `sigantry deploy run` writes
   no `DeployRecord`: records come from `sync apply`,
   `deploy run --rollback` and `release record`. Rollback publishes again
-  the items a recorded release names, with their content read from
-  `--source`; the record holds no content and no commit.
+  those items a recorded release names whose types are in `--item-types`
+  (by default `Lakehouse`, `Environment`, `Notebook` and `DataPipeline`, as
+  for a forward `deploy run`), with their content read from `--source`; a
+  recorded item of another type, such as a `SemanticModel`, is published
+  again only when `--item-types` names its type. The record holds no
+  content and no commit.
   Tutorial 07 therefore records each release with
   `sigantry release record --fabric-items` and rolls back from a copy of
   the first release's source; the tutorial says these steps have not been
@@ -284,12 +341,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   says its JSON example is shortened. `sigantry diff` compares item
   names, types and folders when it is run; it does not run continuously.
   `sigantry release verify` checks the deploy ledger only. The ledger is
-  described as integrity-checked and unkeyed rather than immutable, signed or
-  cryptographic, and the pipeline templates' tests and approval as gating the
-  release record, not the deployment. Two entries under [1.0.0] below
-  made the same diff and rollback claims (continuous topology comparison,
-  and a rollback restoring historical item states) and are corrected in
-  place. The starter and demo templates' branching guides give the rollback
+  described as integrity-checked and unkeyed, and the pipeline templates'
+  tests and approval as gating the release record, not the deployment. The
+  starter and demo templates' branching guides give the rollback
   as `sigantry deploy run --rollback`, and no longer say that the deploy
   template deploys every merge, runs `release record` in the deploy job,
   checks the ledger before a `PROD` publish or publishes on approval; their
@@ -301,6 +355,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   does not run end to end on the shipped demo tree yet. The runbook's
   service principal check now gets a Fabric access token with the Azure CLI
   before it calls the API; it has not been run against a tenant.
+- Entries under [1.0.0] below are corrected in place to describe what 1.0.0
+  does: `sigantry diff` compares a manifest with a workspace when it is
+  run; a rollback publishes again the recorded items whose types
+  `--item-types` lists, with their content read from `--source`; the
+  ledgers' SHA-256 chains are unkeyed; `--bulk` publishing is described
+  without a speed figure; `sigantry preflight` treats warnings as failures
+  with `--strict`; and `sync pull` is described without a completeness
+  claim.
+- `sigantry release --help` describes the deploy ledger as
+  integrity-checked and unkeyed. The `deploy run --rollback` help says
+  which items a rollback publishes (the recorded items whose type is in
+  `--item-types`) and that their content comes from `--source`.
 - The documentation says how version numbers relate: public 1.0.0
   continues an internal 3.x line (1.0.0 corresponds to internal 3.4.x),
   and the v2.x and v3.x numbers in older pages refer to that line. The
@@ -410,8 +476,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `skip-existing` stays on: re-running all jobs of the release run is now
   the only recovery from an upload that stopped after one file.
 - `mypy` in `.pre-commit-config.yaml` moved from `v1.13.0` to `v1.20.2`, the
-  version `mypy>=1.19,<2.0` actually resolves to, so the hook and the CI gate
-  cannot disagree about what counts as an error.
+  version `mypy>=1.19,<2.0` actually resolves to, so the hook and the CI
+  gate run the same mypy. They still report different errors, because the
+  hook runs in its own environment without all of the package's runtime
+  types (see Known remaining).
 
 - **Config surface renamed to match the product (ADR-0011).** `load_settings()` and
   `FabricDataOps.from_config()` now resolve `.sigantry.toml` by default, and
@@ -520,6 +588,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and on every push to `main`, and must pass before merge. The release
   workflow also runs it on the released tree and on the wheel and sdist it
   uploads to PyPI, as the last step before the upload.
+- The README and the install page carry a note on the config file name and
+  the settings prefix that 1.0.0 looks for, on what to do while on 1.0.0,
+  and on what to rename after upgrading (see Upgrading from 1.0.0).
 
 ### Deprecated
 - `.fabric-dataops.toml` and the `FDT_` settings env prefix. Both are still
@@ -633,8 +704,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   record is still written) and `secret_change_failed` when a Key Vault secret
   set or delete raises. A command whose destructive operation fails therefore
   prints that one line before its error; the exit code is unchanged. A run
-  whose audit trail is intact and whose operations succeed prints nothing
-  new. Each record prints as exactly one line: a control character in it
+  whose audit trail is intact and whose operations succeed prints none of
+  these lines. Each record prints as exactly one line: a control character in it
   (C0, DEL, C1, or the Unicode line and paragraph separators), whether it
   comes from a ledger value or from an error message, is printed as a
   visible escape such as `\n` or `\x1b`. Programs that import the package
@@ -651,10 +722,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a required input or whose jobs mention `inputs.`. It does not see reads
   outside `jobs` or the index form `inputs['x']`, and it flags a read with a
   `||` fallback, which does work on a schedule.
-- **`sigantry diff --output json` wrote its errors to stdout**, the stream the
-  drift pipelines capture into `drift.json`, so a failed run's `drift.json`
-  held error text. Errors now go to stderr, and on an error `drift.json` is
-  empty. The notify step still cannot report an operational error (#34).
+- **`sigantry diff --output json` and `--output html` wrote their errors to
+  stdout**, which carries the report (for `--output html`, unless
+  `--html-out` names a file): the drift pipelines capture `--output json`
+  into `drift.json`, so a failed run's `drift.json` held error text. In these
+  two modes errors now go to stderr, and on an error `drift.json` is empty.
+  In human mode, and for an invalid `--output` value, errors stay on stdout,
+  as in 1.0.0. The notify step still cannot report an operational error
+  (#34).
+- **`sigantry diff` could crash on the text it printed.** It printed
+  manifest values, workspace item names, file paths and error text as Rich
+  markup. Text holding a closing tag such as `[/old]` raised `MarkupError`:
+  the command exited 1, its drift exit code, with a traceback in place of
+  its message. A word in square brackets such as `[draft]` was dropped from
+  the output, and an emoji code such as `:fire:` in a quoted YAML line was
+  shown as an emoji. This text now prints as written, and an operational
+  error exits 2 (#35). `sigantry release diff`, `release show`,
+  `release verify`, `deploy validate` and the `deploy run --rollback`
+  failure message had the same fault for recorded item names, release ids
+  and paths; they now print them as written.
+- **`sigantry release list` and `sigantry release record` could crash on
+  release text.** `release list` read each record's release id, workspace,
+  approver and timestamp from the ledger as Rich markup, so one record whose
+  release id held a closing tag such as `[/old]` made the command exit 1 for
+  the whole ledger, and `[draft]` was dropped. The `release record` summary
+  did the same with `--release-id`, after the record was written and the
+  work items commented on, so a retry on exit 1 would append a second
+  record. Both now print these values as written.
+- **`sigantry deploy run` could lose its own failure message.** The message
+  quotes item names and paths from the publish error, and was read as Rich
+  markup: a closing tag such as `[/old]` replaced it with a `MarkupError`
+  traceback. It now prints as written, as do the failure lines of
+  `fabric-item copy`, `fabric-item set-binding` and `env sync-all`'s manifest
+  validation, the `fabric-item copy` and `fabric-item set-binding` results,
+  and the confirmations of `git connect`, `git update`, `git commit`,
+  `git disconnect` and `variable-library delete`.
+- **`sigantry sync pull` printed error text and paths as Rich markup.** A
+  `--into` path or an error message holding a closing tag such as `[/old]`
+  raised `MarkupError` in place of the message, and `[draft]` was dropped.
+  The refusal of an item whose display name contains `/` or `\` (see
+  `display_name` under Upgrading from 1.0.0) quotes that name, so an item
+  named like `Sales [/old]` would have crashed the refusal itself. The
+  refusal, the other failure lines and the success line now print as
+  written; a refused or failed pull still exits 1.
 - **`scripts/audit_chain_migrate.py` could destroy or launder audit records,
   and reported success either way.** A re-run read the `.pre-w3.1.bak` backup
   whenever it existed and replaced the live ledger with it, so every record
@@ -687,8 +797,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `conftest.py` fixture now points `HOME` and every default audit location at
   a per-test temp directory, and a guard test fails if either half is removed.
 - **The assertions guarding "a configured tool must actually RUN" could not
-  fail for the reasons that mattered — twice.** Review of the first rewrite
-  found it still passed with `if: false` on the mypy step (or a never-matching
+  fail for the reasons that mattered.** They passed with `if: false` on the mypy step (or a never-matching
   `if:` on the `types` job, which makes it *skipped*, and a skipped run
   satisfies its required context), with `mypy ... | tee mypy.log` (steps run
   under `bash -e {0}` with pipefail OFF, so the step exits with tee's 0), with
@@ -697,7 +806,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   longer a denylist of neutering suffixes: an invocation counts only when it is
   the whole command, in an unconditional step and job, in a `run:` block that
   neither disables `errexit` nor forces `exit 0`.
-- **A third round found the rewrite still defeatable**, each confirmed by arm
+- **Four more ways round those assertions are closed**, each confirmed by arm
   against the file's own helpers: `if: always()` on the *publish* job (the
   enforcement check ran only on the gate it depends on, never on the publisher
   itself); `python -m twine upload` (the scan compared raw tokens to
@@ -727,8 +836,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A malformed `metrics.json` (a JSON list or scalar) no longer reads as "no
   metrics". `docs_freshness` raises and names the real cause instead of passing
   clean on a broken input or later reporting a claimed metric as "absent".
-- **The original finding, for the record.** Measured clean → arms → clean against a
-  parsed copy of the real `ci.yml`, the substring checks passed when the whole
+- **The substring checks these assertions replace** were measured clean → arms →
+  clean against a parsed copy of the real `ci.yml`: they passed when the whole
   `types` job body was replaced with `pip install mypy ruff` (the string is
   present, nothing executes it), when the mypy step became a comment plus an
   `echo`, when `continue-on-error: true` was added to it, and when both ruff
@@ -760,9 +869,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   just exit 0") asks the reader to rule out. `CONTRIBUTING.md`,
   `docs/contributing.md`, `docs/release-process.md` and **both** pull-request
   templates now say `python -m pytest`, and name `scripts/` and `mypy` so they
-  match the gates that are actually required on `main`. (An earlier draft of
-  this entry claimed "all three contributor docs"; review found the two PR
-  templates still carrying the `pytest -q` tick-box.)
+  match the gates that are actually required on `main`.
 - **The ADO lane kept the gap the GitHub lane just closed.**
   `templates/jobs/lint-python.yml` still defaulted `sourcePaths` to
   `sigantry_core/ tests/` and had no mypy step at all, so a type error or a
@@ -779,8 +886,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   weasyprint absent from the environment. Nor does any workflow install
   `.[render]`; the render scripts are run by hand, and weasyprint needs system
   pango/cairo, so it does not belong in `dev`. The extra makes the requirement
-  nameable instead of undiscoverable. (An earlier draft put both in `docs` and
-  claimed it fixed a CI gap; review found nothing installs `.[docs]` either.)
+  nameable instead of undiscoverable.
 - **Shipped templates and workflows told consumers to `pip install
   sigantry-core`, a name with no release to install.** The distribution is
   `sigantry` (`pyproject.toml` declares it; no sigantry release was ever
@@ -832,8 +938,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   test a job-level flag that records whether the token secret is set. Its
   Python setup step no longer asks for a pip cache, which looks for a
   `requirements.txt` or `pyproject.toml`; the demo tree has neither.
+- Documentation commands that did not run as written: the handbook's
+  `sigantry preflight` examples now use `--environment` and `--strict`, and
+  no page runs `sigantry --version`, which does not exist. CONTRIBUTING.md
+  installs `.[dev,test]`; with `dev` alone the test suite does not collect.
+  `sigantry release list --help` no longer names a file that is not in the
+  repository.
+- `scripts/ci/check-no-sys-path.py`, which
+  `templates/extends/secure-pipeline.yml` runs in consumer pipelines, now
+  scans repository content: inside a git work tree it reads the files
+  `git ls-files` lists (tracked, and untracked files that are not ignored),
+  and elsewhere it walks the directory as before. Excluded directory names
+  are matched below the scanned root only, so a checkout under a directory
+  named `build`, `dist` or `.venv` is scanned instead of passing with
+  nothing read. In a git work tree it exits 2, not 0, when the listing
+  leaves no file to read; outside one, an empty or missing directory still
+  passes (#14). A malformed `.py` file no longer stops it with an
+  `AttributeError`.
+- The sync schema reference listed `schema_version` values that `sync.yml`
+  refuses; it now gives `1.0.0` and its shorthand `1.0`, the values the
+  loader accepts. The sync apply runbook's sample record now has the fields
+  a sync record carries: items as `<name>.<type>` strings, `approver`
+  `sync-engine`, and the outcome under `test_evidence`. The pull runbook no
+  longer cites an integration test that is not in the repository, and the
+  apply runbook no longer calls workspace bootstrap deferred.
 
 ### Security
+- **The client refuses a non-https URL that a response names.** An LRO or
+  ARM `Location` header, an ARM `Azure-AsyncOperation` header, a Fabric
+  `continuationUri` or a Power BI `@odata.nextLink` with a scheme other
+  than https raises `ResponseUrlRefusedError` before any request is sent
+  to it (see Changed).
+- **Item names that would place files outside the staging directory or
+  `--into` are refused.** A `sync.yml` `display_name`, or the name of an
+  item `sigantry sync pull` writes, that contains `/` or `\`, or whose
+  directory does not resolve inside the staging directory or `--into`, is
+  refused before any file is written (see Changed).
+- **The client's logs mask URL query values.** Its JSON logs, and the
+  operation id that `send_arm_lro` errors carry (`sigantry capacity pause`
+  and `resume`), print a URL's query values, userinfo and fragment as
+  `<redacted>`, and a `credential` field the client did not set prints as
+  `<redacted>` (see Changed).
 - **`publish-pypi.yml` no longer has a manual trigger.** `workflow_dispatch`
   let a run be started against any ref, leaving the `pypi` environment's
   `v*` tag policy and its reviewer as the only stops before an upload. A
@@ -902,13 +1047,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Known remaining
 - Under `docs/`, the dead distribution name now appears only in the decision
   records (ADR-0010, ADR-0011, ADR-0016 and ADR-0017, which quotes it to
-  explain the defect), in the dated landscape survey, and in the install notes
-  that say it is not the distribution name and what the reserved name on PyPI
-  holds. No install or dependency instruction outside those records names it.
-- The guard scans `templates/`, `.github/workflows/`, `scripts/` and the
-  package. It does **not** scan `pyproject.toml`, `environment.yml`,
-  `README.md` or `CONTRIBUTING.md`, so the dead name could reappear in those
-  without failing CI.
+  explain the defect), in the dated landscape survey, and in notes in the
+  user guide, the quickstart and `CONSUMING.md` that say it is not the
+  distribution name. No install or dependency instruction outside those
+  records names it.
+- `tests/ci/test_distribution_name.py` scans `templates/`,
+  `.github/workflows/`, `scripts/`, the package and
+  `.pre-commit-config.yaml`. It does **not** scan `pyproject.toml`,
+  `environment.yml`, `README.md` or `CONTRIBUTING.md`, so the dead name
+  could reappear in those without failing that test.
 - The ADO artifact identifier `sigantry-core-wheel` and the template parameter
   `fabricDataopsVersion` are public interface names. Renaming them breaks
   consumer pipelines that reference them, so both need a deprecation window
@@ -925,8 +1072,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a real limit, recorded rather than discovered later.
 - The pre-commit `mypy` hook still scopes to `^sigantry_core/` while CI also
   type-checks `scripts/`, so a type error under `scripts/` is caught in CI
-  rather than at commit time. The hook runs in an isolated environment with its
-  own pinned dependency list, so widening it means maintaining that list too.
+  rather than at commit time. The hook also reports errors that CI does not,
+  because it runs in an isolated environment with its own pinned dependency
+  list (#21); widening it means maintaining that list too.
+- A rollback to a release recorded by the shipped CD templates publishes
+  nothing and exits 0, because those templates record no item names (#71).
+- `sigantry sync pull` writes two items with the same display name in one
+  folder to one directory, so the second overwrites the first, and writes
+  an item whose name `sync.yml` refuses for a reason other than a path
+  separator before that check runs (#67).
+- The starter and demo PR-bot workflows ask `actions/setup-python` for a pip
+  cache, which fails on runners with a cache service because those trees
+  carry no `requirements.txt` or `pyproject.toml` (#72).
+- With `pbi_fallback=True`, the Power BI retry of a failed workspace delete
+  authenticates with the process default credential for the tenant, not
+  the credential the caller passed (#62).
+- Workspace bootstrap matches existing folders by name without regard to
+  their parent folder, so a nested folder that has a blueprint folder's
+  name stands in for the top-level one: that folder is not created, and a
+  later run reports the layout as converged (#65).
+- `diagnose-auth` exits 1 with a traceback, and prints no report, when the
+  first request of the Fabric probe or of the group check cannot connect
+  or times out, as in 1.0.0 (#74).
+- The demo walkthrough and the demo CI files stop with errors on the
+  shipped demo tree (#70).
+- The `diagnose-auth` group check reads direct memberships only, so a
+  principal that is in the group through another group is reported as
+  `missing` (#75).
 
 ## [1.0.0] - 2026-09-19
 
@@ -934,7 +1106,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Initial Open-Source Release** of Sigantry as a standalone Python library on PyPI.
 - **Pre-Deployment Safety Probes (`sigantry preflight`)**:
   - Non-destructive simulation engine evaluating Schema Syntax, Dependency DAG order, Entra ID scope permissions, and Fabric capacity active state prior to execution (ADR-0015).
-  - Human-friendly colored terminal tables, machine-readable JSON (`--json`), and `--fail-on-warning` flags.
+  - Human-friendly colored terminal tables, machine-readable JSON (`--json`), and `--strict`, which treats warnings as failures.
 - **Bulk Publishing Concurrency Acceleration**:
   - `--bulk` parallel execution flag on `sigantry deploy run` and `sigantry sync apply`, publishing items through a multi-worker thread pool (`max_workers=4`, not currently configurable) instead of serially.
 - **Standalone Interactive HTML Reports (`sigantry_core.reports`)**:
@@ -946,7 +1118,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `--fail-on-breaking` CI/CD gate surfacing prominent alert banners in PR reviews and preventing accidental breaking schema deployments.
 - **Dual-Mode Workspace Lifecycle**:
   - Declarative greenfield workspace bootstrapping (`sigantry workspace bootstrap`) with probe-before-act convergence and `BootstrapRecord` audit.
-  - Lossless brownfield workspace adoption (`sigantry sync pull`) reverse-engineering live Fabric workspaces into local code and `sync.yml`.
+  - Brownfield workspace adoption (`sigantry sync pull`) reverse-engineering live Fabric workspaces into local code and `sync.yml`.
 - **Sync Engine (`sigantry sync`)**:
   - Folder-aware item synchronization with `--with-publish` (wrapping `fabric-cicd`) and `--republish-existing`.
   - Staged `.platform` v2 packaging with LF line-ending normalization for Notebooks, Pipelines, Semantic Models, Reports, and Spark Job Definitions.
@@ -955,7 +1127,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Rich color-coded terminal tables and SemVer-pinned JSON output (`--fail-on-drift` CI alerting).
 - **Deployment & Rollback (`sigantry deploy`)**:
   - Forward deployments with topological dependency ordering and `$ENV:` parameter substitution.
-  - One-command release rollback (`--rollback --to-release <release-id> --rollback-force`) that publishes again the items a recorded release names, with their content read from the `--source` checkout (the record holds no content and no commit).
+  - One-command release rollback (`--rollback --to-release <release-id> --rollback-force`) that publishes again the items a recorded release names whose types `--item-types` lists (the same default as a forward deploy), with their content read from the `--source` checkout (the record holds no content and no commit).
 - **Audit & Provenance Ledger (`sigantry release` & `governance.audit`)**:
   - Integrity-checked, append-only JSONL ledgers with SHA-256 hash chains (unkeyed and
     unanchored - see docs/reference/audit-ledger-threat-model.md for what that resists).

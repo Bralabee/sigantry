@@ -1,12 +1,12 @@
 # Sigantry deploy with tests -- pipeline orchestration runbook
 
-**Phase 12 (PIPELINE-01..05).** Operator-facing reference for the Sigantry
+Operator-facing reference for the Sigantry
 five-stage pipeline templates (ADO + GHA), approval-gate setup, rollback
 workflow, and the canonical pitfalls to avoid.
 
 ## 0. Decision matrix -- which deploy verb am I looking for?
 
-`sigantry deploy run` is the **publish** verb -- it deploys first-time items and parameterises per environment. It writes no `DeployRecord`; the release is recorded separately by `sigantry release record`. The dual-CI templates this runbook documents wrap that verb in a five-stage `deploy -> smoke -> integration -> approval -> promote` flow with platform-native approval gates, where `promote` runs `sigantry release record`. [ADR-0012](../../decisions/ADR-0012-sync-apply-vs-deploy-run-boundary.md) formalises the boundary between `deploy run` and the sync verbs (`apply` / `pull` / `diff` / `snapshot`); [ADR-0013](../../decisions/ADR-0013-sync-publish-parameters-resolution.md) covers the Phase 17 follow-up `parameters.yml` resolution rule and the `sync apply --with-publish` composite verb.
+`sigantry deploy run` is the **publish** verb -- it deploys first-time items and parameterises per environment. It writes no `DeployRecord`; the release is recorded separately by `sigantry release record`. The dual-CI templates this runbook documents wrap that verb in a five-stage `deploy -> smoke -> integration -> approval -> promote` flow with platform-native approval gates, where `promote` runs `sigantry release record`. [ADR-0012](../../decisions/ADR-0012-sync-apply-vs-deploy-run-boundary.md) formalises the boundary between `deploy run` and the sync verbs (`apply` / `pull` / `diff` / `snapshot`); [ADR-0013](../../decisions/ADR-0013-sync-publish-parameters-resolution.md) covers the `parameters.yml` resolution rule and the `sync apply --with-publish` composite verb.
 
 | You want to ... | Verb | Touches workspace? | First-time item creation? |
 |---|---|---|---|
@@ -34,23 +34,23 @@ the release. They do not gate the deployment itself:
   workflow that consumer repos call via `workflow_call:` or trigger via
   `workflow_dispatch:`.
 
-Both halves are kept in semantic parity by `scripts/ci/check-dual-ci-parity.py`
-(Plan 10-06). The five named stages, the parameter set, the approval-gate
+Both halves are kept in semantic parity by `scripts/ci/check-dual-ci-parity.py`.
+The five named stages, the parameter set, the approval-gate
 mechanism, and the `sigantry release record` invocation all match by basename.
 
 The `promote` stage runs `sigantry release record`, which appends a
 `DeployRecord` to `~/.sigantry/audit/deploys.jsonl` on the runner and
-comments on the linked work items (Plan 11-03 -- the audit jsonl is the
+comments on the linked work items (the audit jsonl is the
 deploy ledger). The templates pass no `--audit-dir`
 and upload nothing, so on a hosted runner that ledger file is discarded
 with the runner unless your pipeline keeps it (see the
 [audit ledger threat model](../../reference/audit-ledger-threat-model.md)).
 They also pass no `--fabric-items`, so their records name no items, and a
 rollback to one of them publishes nothing. `sigantry release list / show / diff`
-(Plan 12-03) read the ledger; `sigantry deploy run --rollback --to-release <id>`
-(Plan 12-04) publishes the items a record names, through `fabric-cicd`'s
-`items_to_include` selective publish, with their content read from
-`--source`.
+read the ledger; `sigantry deploy run --rollback --to-release <id>` publishes
+the items a record names whose type is in `--item-types`, through
+`fabric-cicd`'s `items_to_include` selective publish, with their content
+read from `--source`.
 
 ### 1.1. What `deploy run` (and the dual-CI pipeline templates) does NOT do
 
@@ -58,7 +58,7 @@ This is the boundary the five-stage pipeline enforces -- ADR-0012 formalises the
 
 - **It does not handle workspace bootstrap.** `deploy run` assumes the target workspace already exists with the correct capacity binding and folder topology. For greenfield workspace creation, use `sigantry workspace bootstrap` first; only then point the deploy pipeline at the new workspace GUID.
 - **It does not handle folder reconcile alone.** If the manifest's folder topology diverges from the workspace, `fabric-cicd publish_all_items` will create new folders implicitly as it publishes items into them, but it will not move existing items between folders or delete orphans. For folder reconcile of an established workspace, use `sigantry sync apply` (folder topology + existing-item placement only, no publish). The `sync apply --with-publish` composite verb (ADR-0013) handles both in one step when first-time setup needs both.
-- **It does not roll back across workspaces.** `sigantry deploy run --rollback --to-release <id>` re-applies the recorded item set against the **same** workspace the release was produced from. Cross-workspace rollback (DEV -> PROD or PROD -> DEV) is REJECTED; `rollback_to_release` asserts `record.workspace == workspace` and raises `ValueError` on mismatch (Pitfall 9 -- see section 6 lines 152-157 for the parameters.yml interaction that motivates the rejection).
+- **It does not roll back across workspaces.** `sigantry deploy run --rollback --to-release <id>` publishes again the recorded items of the types in `--item-types` against the **same** workspace the release was produced from. Cross-workspace rollback (DEV -> PROD or PROD -> DEV) is rejected; `rollback_to_release` asserts `record.workspace == workspace` and raises `ValueError` on mismatch (see section 6 for the parameters.yml interaction that motivates the rejection).
 - **It does not handle content drift.** The five-stage pipeline runs on operator triggers (commit / dispatch / promote). It does not detect drift between scheduled runs. For ongoing drift detection, schedule `sigantry diff` via the dual-CI templates documented in [`../drift-detection/scheduled-drift.md`](../drift-detection/scheduled-drift.md).
 
 **For greenfield workspace creation, use `sigantry workspace bootstrap`. For folder topology changes, use `sigantry sync apply`.**
@@ -72,14 +72,14 @@ This is the boundary the five-stage pipeline enforces -- ADR-0012 formalises the
    - Add resource: Generic resource is sufficient (no Kubernetes / VM / etc.).
    - Approvals and checks -> Approvals -> Add the named reviewer(s).
 
-2. Enable the **Exclusive Lock** check (Pitfall 8 -- prevents two concurrent
+2. Enable the **Exclusive Lock** check (it prevents two concurrent
    runs from racing through the approval gate):
    - Approvals and checks -> Add check -> Exclusive lock.
    - This serialises runs targeting the environment so the ledger stays
      in causal order.
 
-3. Confirm the workload-identity-federation service connection (Phase 5
-   Plan 05-01) is granted access to the environment.
+3. Confirm the workload-identity-federation service connection is granted
+   access to the environment.
 
 ## 3. Operator setup -- GHA side
 
@@ -88,21 +88,21 @@ This is the boundary the five-stage pipeline enforces -- ADR-0012 formalises the
    - Name: e.g. `production`.
    - Required reviewers -> Add the named reviewer(s).
 
-2. Pitfall 3 -- the Sigantry GHA workflow declares the protected
+2. The Sigantry GHA workflow declares the protected
    `environment:` on the **`approval` job only**, NOT on `promote`.
    This is intentional: a single approval prompt covers the workflow.
    If you attach the same protected environment to `promote` in your
    own consumer workflow, your reviewers will be prompted twice.
 
-3. Pitfall 8 (GHA equivalent) -- the workflow already carries
+3. The GHA equivalent of the exclusive lock: the workflow already carries
    `concurrency: { group: deploy-${{ inputs.environment }}, cancel-in-progress: false }`
    on the `promote` job. Two near-simultaneous releases queue rather
    than reorder. No additional configuration required.
 
 ## 4. Pipeline parameter reference
 
-Both halves accept the same 12-parameter surface (with two intentional
-per-platform divergences -- see CONTEXT.md D-03 / Plan 12-02 SUMMARY):
+Both halves accept the same 12-parameter surface, with two intentional
+per-platform divergences (the parameters marked ADO or GHA below):
 
 | Parameter | Required | Default | Purpose |
 |-----------|----------|---------|---------|
@@ -112,8 +112,8 @@ per-platform divergences -- see CONTEXT.md D-03 / Plan 12-02 SUMMARY):
 | `sourceDir` | no | `fabric_items/` | Repo path to .platform items |
 | `parametersPath` | no | `parameters.yml` | Override path |
 | `itemTypes` | no | `Lakehouse,Environment,Notebook,DataPipeline` | fabric-cicd scope |
-| `smokeCommand` | no | `sigantry doctor` | D-05 pluggable hook |
-| `integrationCommand` | no | `python -m pytest tests/integration/ -m sigantry_pipeline -v` | D-05 pluggable hook |
+| `smokeCommand` | no | `sigantry doctor` | Pluggable hook (section 5) |
+| `integrationCommand` | no | `python -m pytest tests/integration/ -m sigantry_pipeline -v` | Pluggable hook (section 5) |
 | `adoApprovalEnvironment` (ADO) | yes | -- | ADO env with required reviewers |
 | `ghApprovalEnvironment` (GHA) | yes | -- | GitHub env with required_reviewers |
 | `releaseId` | no | `$(Build.BuildId)` (ADO) / `${{ github.run_id }}` (GHA) | See section 7 (collision guidance) |
@@ -125,7 +125,7 @@ via the platform's pipeline/workflow inputs.
 
 ## 5. Smoke + integration command override recipe
 
-Per CONTEXT.md D-05, the `smokeCommand` and `integrationCommand` parameters
+The `smokeCommand` and `integrationCommand` parameters
 are pluggable hooks with sensible defaults. Override via `parameters.yml`:
 
 ```yaml
@@ -158,8 +158,9 @@ jobs:
 
 ## 6. Rollback workflow
 
-Rollback is an **idempotent fabric-cicd re-apply** of the item names a
-recorded release lists. The record holds no item content and no commit:
+Rollback publishes again, through fabric-cicd, the item names a recorded
+release lists whose type is in `--item-types`. The record holds no item
+content and no commit:
 the content comes from `--source`, so check out the source of the release
 you are restoring before step 3. A record that names no items (such as
 one the pipeline templates write, which pass no `--fabric-items`) makes
@@ -174,9 +175,9 @@ sigantry release show R-prod-2026-04-26-1 --json | jq
 sigantry release diff R-prod-2026-04-26-1 R-prod-2026-04-27-1 --json | jq
 
 # 3. Roll back. With ./fabric_items checked out at the source of
-#    R-prod-2026-04-26-1, the CLI re-applies that release's recorded item
-#    names against the same workspace (cross-workspace rollback is
-#    REJECTED -- Pitfall 9 / D-02).
+#    R-prod-2026-04-26-1, the CLI publishes again that release's recorded
+#    items of the types in --item-types against the same workspace
+#    (cross-workspace rollback is rejected).
 sigantry deploy run --rollback --to-release R-prod-2026-04-26-1 \
   --rollback-force \
   --workspace-id <ws-guid> \
@@ -184,13 +185,13 @@ sigantry deploy run --rollback --to-release R-prod-2026-04-26-1 \
   --environment prod \
   --item-types Notebook,Lakehouse,Environment,DataPipeline
 
-# 4. Verify a NEW DeployRecord landed for the rollback action (Open Q3 --
-#    emitted from the CLI wrapper, not the rollback function).
+# 4. Verify a NEW DeployRecord landed for the rollback action (the CLI
+#    writes it, not the rollback function).
 sigantry release list --limit 5
 # The topmost record carries release_id "rollback-of-R-prod-2026-04-26-1-<ISO_TS>".
 ```
 
-Pitfall 9 -- `parameters.yml` substitution interaction: `items_to_include`
+`parameters.yml` substitution interaction: `items_to_include`
 matches against the SOURCE-TREE-AS-AT-DEPLOY-TIME logical names, but
 `parameters.yml` may rewrite them per environment. Cross-environment
 rollback (DEV -> PROD) is NOT supported. The `rollback_to_release`
@@ -199,7 +200,7 @@ on mismatch.
 
 ## 7. release_id collision guidance
 
-Pitfall 5 -- `$(Build.BuildId)` (ADO) and `${{ github.run_id }}` (GHA)
+`$(Build.BuildId)` (ADO) and `${{ github.run_id }}` (GHA)
 are unique within their own scope but NOT globally unique across multiple
 consumers writing to the same `~/.sigantry/audit/deploys.jsonl` (e.g. an
 ops engineer running `sigantry release record` locally alongside CI runs).
@@ -237,21 +238,19 @@ sigantry release show R-prod-2026-04-27-1 --json | jq
 sigantry release diff R-prod-2026-04-26-1 R-prod-2026-04-27-1 --json \
   | jq '.added[].fabric_item_id'
 
-# SemVer-committed JSON schema (Pattern 5 / D-06):
+# SemVer-committed JSON schema:
 #   {release_a, release_b, added, removed, unchanged}
 # Each entry: {logical_name, item_type, fabric_item_id}
 # Adding a new top-level or per-entry key requires a SemVer-minor bump.
 ```
 
 The audit jsonl lives at `~/.sigantry/audit/deploys.jsonl` (mode 0o600,
-fsync'd, dir 0o700 -- Plan 11-03 invariant). Override via `--audit-dir
+fsync'd, dir 0o700). Override via `--audit-dir
 <path>` for hermetic CI runners (e.g. mounting Azure Files).
 
 ---
 
 Cross-references:
-- Plan 12-01 / 12-02 (the YAML pair).
-- Plan 12-03 (`sigantry release list / show / diff`).
-- Plan 12-04 (`sigantry deploy run --rollback`).
-- Plan 12-05 / `tests/integration/pipeline/test_e2e_deploy_rollback.py` (the regression test).
-- `.planning/phases/12-pipeline-test-orchestration-rollback/12-HUMAN-UAT.md` (operator-side live exercise).
+- `templates/stages/sigantry-cd.yml` and `.github/workflows/sigantry-cd.yml` (the YAML pair).
+- `sigantry_core/release/cli.py` (`sigantry release list / show / diff`).
+- `sigantry_core/deploy/rollback.py` and `tests/deploy/test_rollback.py` (`sigantry deploy run --rollback`).

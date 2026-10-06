@@ -71,34 +71,33 @@ examples).
 
 ## Configuration
 
-> **Important: the 1.0.0 release on PyPI reads the old config names.** Installed from PyPI,
-> `sigantry` 1.0.0 looks for `.fabric-dataops.toml` in the current directory when it
-> is given no path (the CLI, or `FabricDataOps.from_config()` with no argument), and
-> reads settings overrides as `FDT_<SECTION>__<KEY>`, not `SIGANTRY_<SECTION>__<KEY>`.
-> The docs use `.sigantry.toml` and `SIGANTRY_<SECTION>__<KEY>`, which releases after
-> 1.0.0, and a source install of `main`, read
-> ([#31](https://github.com/Bralabee/sigantry/issues/31)). If you installed 1.0.0 from PyPI:
+> **Important: the config names changed after 1.0.0.** Since 1.0.1, `sigantry` reads the config file
+> `.sigantry.toml` and settings overrides named `SIGANTRY_<SECTION>__<KEY>`, the names
+> these docs use. `sigantry` 1.0.0 looks for neither: given no path (the CLI, or
+> `FabricDataOps.from_config()` with no argument) it looks only for `.fabric-dataops.toml`,
+> and it reads settings overrides as `FDT_<SECTION>__<KEY>`, not `SIGANTRY_<SECTION>__<KEY>`.
+> To see which version you have, run `pip show sigantry`.
 >
-> - Name the file `.fabric-dataops.toml`; its contents are the same. Where the docs pass
->   the path explicitly, as in `from_config(".sigantry.toml")`, pass the name you used:
->   1.0.0 reads an explicit path under any name, and skips a missing one without a message.
-> - Write settings overrides as `FDT_<SECTION>__<KEY>`, for example `FDT_CORE__TENANT_ID`.
->   Keep every other `SIGANTRY_` variable under its documented name. 1.0.0 itself reads
+> - **On 1.0.0,** upgrade with `pip install --upgrade sigantry`. Until you do, name the file
+>   `.fabric-dataops.toml` (its contents are the same), or pass its path explicitly: 1.0.0
+>   reads an explicit path under any name, and skips a missing one without a message.
+>   Write settings overrides as `FDT_<SECTION>__<KEY>`, for example `FDT_CORE__TENANT_ID`.
+>   Keep every other `SIGANTRY_` variable under its documented name: 1.0.0 reads
 >   `SIGANTRY_TRUSTED_PLUGIN_DISTS`, `SIGANTRY_NOTIFICATION_SINK`, the webhook and
 >   `SIGANTRY_SMTP_*` variables and `SIGANTRY_DRIFT_WORKSPACE_ID` under those names, and
 >   the code that uses them ignores an `FDT_` spelling.
-> - When you upgrade past 1.0.0, rename the file to `.sigantry.toml` and keep only that
->   one, change any path you pass explicitly, such as `from_config(".fabric-dataops.toml")`,
->   to the new name, and rename the overrides to `SIGANTRY_`. Later releases still read the
->   old names during a deprecation period, and through 1.0.x an old name still wins over a
->   new one. `from_config()` reports an old name through a `DeprecationWarning`, which
->   Python shows by default only when the script being run made the call; the `sigantry`
->   commands do not print it. The migration guide's Verify step checks for old names.
+> - **On 1.0.1 or later,** rename the file to `.sigantry.toml` and keep only that one,
+>   change any path you pass explicitly, such as `from_config(".fabric-dataops.toml")`, to
+>   the new name, and rename the overrides to `SIGANTRY_`. The old names are still read
+>   during a deprecation period, and through 1.0.x an old name wins over a new one: while
+>   both config files exist and differ, `.fabric-dataops.toml` is the file read.
+>   `from_config()` reports an old name through a `DeprecationWarning`, which Python shows
+>   by default only when the script being run made the call; the `sigantry` commands do not
+>   print it. The migration guide's Verify step checks for old names.
 
 Create the config file in the directory you run `sigantry` or your Python code from,
 normally the repo root (or the consumer repo's root); parent directories are not searched.
-Name it `.sigantry.toml`, or `.fabric-dataops.toml` if you installed 1.0.0 from PyPI (see
-the note above):
+Name it `.sigantry.toml` (on 1.0.0, `.fabric-dataops.toml`; see the note above):
 
 ```toml
 [core]

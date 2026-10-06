@@ -1,12 +1,13 @@
 """DeployRecord pydantic v2 model + deterministic audit hash.
 
-The record is the cryptographic anchor of the audit plane:
+The record carries an unkeyed integrity hash:
 
 - ``audit_hash`` is SHA-256 over a canonical JSON serialisation
   (``sort_keys=True``, ``separators=(',', ':')``, ``ensure_ascii=False``,
   UTF-8) of every field except the hash itself.
-- A reader can verify-without-trust by recomputing the hash from the
-  remaining fields and comparing.
+- A reader can recompute the hash from the remaining fields and
+  compare. Anyone who can write the ledger can recompute it too, so a
+  match shows the record is consistent, not who wrote it.
 - The model is frozen (``ConfigDict(frozen=True)``) and rejects extra
   fields (``extra="forbid"``) — defensive against future drift in the
   audit-record schema.

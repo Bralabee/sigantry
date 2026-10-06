@@ -15,6 +15,7 @@ import subprocess
 import sys
 import textwrap
 import warnings
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -1640,6 +1641,88 @@ def test_bare_dict_field_scalar_not_reported(monkeypatch: pytest.MonkeyPatch) ->
     assert len(future) == 1, future
     assert "ADO -> SIGANTRY_RELEASE__ADO" in future[0]
     assert "GITHUB" not in future[0] and "EXPECTED_GROUP" not in future[0]
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "replacement", "get"),
+    [
+        (
+            "STATIC_MAP",
+            {"q": "r"},
+            "SIGANTRY_RUNBOOKS__STATIC_MAP__<KEY>",
+            lambda s: s.runbooks.static_map,
+        ),
+        ("GITHUB", {"repo": "r"}, "SIGANTRY_RELEASE__GITHUB__<KEY>", lambda s: s.release.github),
+        ("ADO", {"project": "p"}, "SIGANTRY_RELEASE__ADO__<KEY>", lambda s: s.release.ado),
+    ],
+)
+def test_bare_dict_field_warning_names_a_replacement_that_is_read(
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+    value: dict[str, str],
+    replacement: str,
+    get: Callable[[ToolkitSettings], Any],
+) -> None:
+    """The replacement a table's ``FutureWarning`` names is one the loader reads.
+
+    A JSON object in ``SIGANTRY_<SECTION>__<TABLE>`` is ignored with a
+    ``UserWarning``, so the warning names one variable per key instead.
+    """
+    monkeypatch.setenv(name, json.dumps(value))
+    _, caught = _load()
+    future = _messages(caught, FutureWarning)
+    assert len(future) == 1, future
+    assert f"{name} -> {replacement}" in future[0]
+
+    monkeypatch.delenv(name)
+    for key, val in value.items():
+        monkeypatch.setenv(replacement.replace("<KEY>", key.upper()), val)
+    settings, caught = _load()
+    assert get(settings) == value
+    noisy = [str(w.message) for w in caught if issubclass(w.category, (UserWarning, FutureWarning))]
+    assert noisy == []
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "table", "get"),
+    [
+        # A variable name's key is read in lower case: "HighCPU-Alert" would load
+        # as "highcpu-alert".
+        (
+            "STATIC_MAP",
+            {"HighCPU-Alert": "rb-1"},
+            "runbooks.static_map",
+            lambda s: s.runbooks.static_map,
+        ),
+        # "__" in a variable name starts a nested key.
+        ("STATIC_MAP", {"a__b": "rb-1"}, "runbooks.static_map", lambda s: s.runbooks.static_map),
+        # A variable holds a string; the object holds a number.
+        ("GITHUB", {"app_id": 12345}, "release.github", lambda s: s.release.github),
+    ],
+)
+def test_bare_dict_field_warning_names_the_config_file_for_keys_a_variable_cannot_carry(
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+    value: dict[str, Any],
+    table: str,
+    get: Callable[[ToolkitSettings], Any],
+) -> None:
+    """Where one variable per key would not reproduce the object, the
+    ``FutureWarning`` names the config-file table, and that table reproduces it."""
+    monkeypatch.setenv(name, json.dumps(value))
+    _, caught = _load()
+    future = _messages(caught, FutureWarning)
+    assert len(future) == 1, future
+    assert f"{name} -> [{table}] in {_CONFIG_FILENAME}" in future[0]
+    assert "<KEY>" not in future[0]
+
+    monkeypatch.delenv(name)
+    body = "".join(f"{json.dumps(k)} = {json.dumps(v)}\n" for k, v in value.items())
+    _write(_CONFIG_FILENAME, f"[{table}]\n{body}")
+    settings, caught = _load()
+    assert get(settings) == value
+    noisy = [str(w.message) for w in caught if issubclass(w.category, (UserWarning, FutureWarning))]
+    assert noisy == []
 
 
 def test_warning_never_contains_value(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -805,8 +805,8 @@ class _EnvReport:
             pairs = "; ".join(f"{name} -> {' or '.join(new)}" for name, new in self.bare)
             _warn(
                 f"Unprefixed environment variable(s) {_names(n for n, _ in self.bare)} "
-                "are no longer read as settings; sigantry 1.0.0 read them. Use the "
-                f"prefixed form instead: {pairs}. Unprefixed names stopped binding "
+                "are no longer read as settings; sigantry 1.0.0 read them. Use "
+                f"instead: {pairs}. Unprefixed names stopped binding "
                 "because any variable that happened to share a generic name, such as "
                 "PROVIDER or GATE, could select which plugin runs.",
                 FutureWarning,
@@ -1359,7 +1359,7 @@ def _bare_names_1_0_0_would_read(
     for name, raw in sorted(environ.items()):
         targets = _BARE_NAMES_1_0_0.get(name.lower(), ())
         replacements = [
-            f"{_ENV_PREFIX}{section.upper()}{_ENV_DELIM}{field.upper()}"
+            _replacement_for(section, field, raw)
             for section, field in targets
             if not _get_leaf(supplied, (section, field))[0]
             and (not _is_mapping_field(section, field) or _json_object(raw) is not None)
@@ -1367,6 +1367,29 @@ def _bare_names_1_0_0_would_read(
         if replacements:
             found.append((name, replacements))
     return found
+
+
+def _replacement_for(section: str, field: str, raw: str) -> str:
+    """The input that sets ``<section>.<field>`` to what ``raw`` set in 1.0.0.
+
+    A scalar field takes one ``SIGANTRY_<SECTION>__<FIELD>`` variable. A table
+    takes one ``SIGANTRY_<SECTION>__<FIELD>__<KEY>`` variable per key only where
+    that reproduces the object: a key in a variable name is read in lower case
+    and split at ``__``, and a variable holds a string. Otherwise the table in
+    the config file is named, which keeps keys and values as written.
+    """
+    prefixed = f"{_ENV_PREFIX}{section.upper()}{_ENV_DELIM}{field.upper()}"
+    if not _is_mapping_field(section, field):
+        return prefixed
+    obj = _json_object(raw) or {}
+    if all(_key_survives_env_name(key) and isinstance(val, str) for key, val in obj.items()):
+        return f"{prefixed}{_ENV_DELIM}<KEY>"
+    return f"[{section}.{field}] in {_CONFIG_FILENAME}"
+
+
+def _key_survives_env_name(key: str) -> bool:
+    """True if ``key`` comes back unchanged from ``SIGANTRY_<SECTION>__<TABLE>__<key>``."""
+    return bool(key) and key == key.lower() and _ENV_DELIM not in key and "=" not in key
 
 
 def _apply_env_overrides(
