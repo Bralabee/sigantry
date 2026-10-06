@@ -272,3 +272,58 @@ def test_fenced_property_expression_absorbs_until_the_closing_fence() -> None:
     ]
     assert "    Source = 1" in blocks[1].body
     assert "dataType: int64" in blocks[2].body
+
+
+# ---------------------------------------------------------------------------
+# Recorded review round 1 on #83 (head e8373b09): fence edges and the bare-name
+# pattern must not invent or swallow objects.
+# ---------------------------------------------------------------------------
+
+
+def test_fence_marker_at_end_of_a_value_does_not_open_a_fence() -> None:
+    """Only ``= ```` at the end of a line opens a fence; a value ending in ``` does not."""
+    text = (
+        "table T\n"
+        "\tmeasure M = ```1```\n"
+        "\tmeasure N = 2\n"
+        "\t\tdescription: see ```\n"
+        "\tcolumn C\n"
+        "\t\tdataType: int64\n"
+    )
+    blocks = parse(text)
+    assert [(b.kind, b.name, b.parent_table) for b in blocks] == [
+        ("table", "T", None),
+        ("measure", "M", "T"),
+        ("measure", "N", "T"),
+        ("column", "C", "T"),
+    ]
+
+
+def test_unclosed_fence_raises_instead_of_swallowing_the_file() -> None:
+    """A fence that never closes is an error naming the line, not an empty diff."""
+    text = "table T\n\tmeasure M = ```\nVAR x = 1\n\tmeasure N = 2\n"
+    with pytest.raises(TmdlParseError, match=r"fence opened at line 2"):
+        parse(text, source="t.tmdl")
+
+
+def test_keyword_inside_an_m_step_is_not_a_declaration() -> None:
+    """``column #"x" = 1`` inside a partition source stays in the partition body."""
+    text = (
+        "table T\n"
+        "\tpartition P = m\n"
+        "\t\tmode: import\n"
+        "\t\tsource =\n"
+        "\t\t\t\tlet\n"
+        '\t\t\t\t\tcolumn #"x" = 1\n'
+        "\t\t\t\tin\n"
+        "\t\t\t\t\tcolumn\n"
+        "\tcolumn C\n"
+        "\t\tdataType: int64\n"
+    )
+    blocks = parse(text)
+    assert [(b.kind, b.name, b.parent_table) for b in blocks] == [
+        ("table", "T", None),
+        ("partition", "P", "T"),
+        ("column", "C", "T"),
+    ]
+    assert 'column #"x" = 1' in blocks[1].body
