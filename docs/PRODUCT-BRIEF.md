@@ -66,7 +66,7 @@ All three of these are involved in the buying decision. The brief addresses each
 ### Head of data (owns the data org, budget holder)
 
 - **Top pain:** "Data releases feel slower and less safe than our software releases. Incidents take hours to triage because nobody can tell what changed when."
-- **Top Sigantry capability:** The `deploy → smoke → integration → approval → promote` pipeline template pair, plus rollback by release id: `sigantry deploy run --rollback` publishes again the items a recorded release names. The record holds item names, not content or a commit, so the operator still checks out the source of release X; the rollback then republishes exactly the items that release recorded.
+- **Top Sigantry capability:** The `deploy → smoke → integration → approval → promote` pipeline template pair, plus rollback by release id: `sigantry deploy run --rollback` publishes again the items a recorded release names whose type is in `--item-types`. The record holds item names, not content or a commit, so the operator still checks out the source of release X; the rollback then publishes those recorded items from it.
 - **Adoption metric:** **Mean time to rollback (MTTR-rollback).** Target: under 5 minutes from decision to the rolled-back items republished.
 
 ### Data engineer (writes the pipelines + notebooks)

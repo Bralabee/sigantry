@@ -323,7 +323,7 @@ sequenceDiagram
 |---|---|---|
 | `sigantry deploy run` | Deploy a Fabric item tree. Non-zero exit on item-publish failure. `--bulk` publishes through a concurrent worker pool; `--items-to-include`, `--item-name-exclude-regex`, `--folder-path-to-include`, `--folder-path-exclude-regex` and `--shortcut-exclude-regex` scope the publish. | `sigantry_core/deploy/cli.py:53` |
 | `sigantry deploy validate` | Validate WITHOUT deploying (ADOPIPE-05 pre-flight). | `cli.py:315` |
-| `sigantry deploy run --rollback --to-release <id>` | Publish again the items a prior `DeployRecord` names (`fabric_items_changed`), with their content read from the `--source` checkout. The record holds item names only, no content and no commit; a record that names no items makes the rollback publish nothing. | `sigantry_core/deploy/rollback.py:88` |
+| `sigantry deploy run --rollback --to-release <id>` | Publish again the items a prior `DeployRecord` names (`fabric_items_changed`) whose type is in `--item-types`, with their content read from the `--source` checkout. The record holds item names only, no content and no commit; a record that names no items makes the rollback publish nothing. | `sigantry_core/deploy/rollback.py:88` |
 | `sigantry fabric-item copy` | Duplicate an item folder with a fresh `logicalId`. | `sigantry_core/deploy/cli.py:463` |
 | `sigantry fabric-item set-binding` | Attach an Environment and/or a default Lakehouse to a deployed notebook. | `sigantry_core/deploy/cli.py:504` |
 
@@ -515,7 +515,7 @@ The base package registers no deploy profile, DQ gate or telemetry sink, so step
 
 - **File.** Called with no path, `load_settings()` reads `.sigantry.toml` from the working directory, or the legacy `.fabric-dataops.toml` with a `DeprecationWarning` when `.sigantry.toml` is absent. When both exist and differ, the legacy file is read, as on 1.0.0, with a `UserWarning`. A missing file is not an error: every setting keeps its default. An explicit path is read as given, whatever its name.
 - **Environment overrides.** `SIGANTRY_<SECTION>__<KEY>`, for example `SIGANTRY_CORE__TENANT_ID`, wins over `.sigantry.toml`; over the legacy file or a file passed by path, which 1.0.0 also read, it only fills what the file leaves unset. The legacy `FDT_<SECTION>__<KEY>` is still read, warns, and through 1.0.x wins over both `SIGANTRY_` and the file, as on 1.0.0.
-- **1.0.0.** Given no path, the 1.0.0 release on PyPI looks for `.fabric-dataops.toml`, and it reads settings overrides as `FDT_<SECTION>__<KEY>`, not `SIGANTRY_`. See the note in [`README.md`](../README.md) and [`migration/2.x-to-3.0.md`](migration/2.x-to-3.0.md).
+- **1.0.0.** Given no path, sigantry 1.0.0 looks only for `.fabric-dataops.toml`, and it reads settings overrides only as `FDT_<SECTION>__<KEY>`, not `SIGANTRY_`. See the note in [`README.md`](../README.md) and [`migration/2.x-to-3.0.md`](migration/2.x-to-3.0.md).
 
 No PowerShell module ships in this repository. The `templates/jobs/build-powershell.yml` and `lint-powershell.yml` job templates run Pester and PSScriptAnalyzer over a consumer's own PowerShell code.
 
@@ -713,7 +713,7 @@ flowchart TD
     B --> C["3 Add UI-created paths to folders[]<br/>preservation set"]
     C --> D["4 sigantry sync apply --dry-run"]
     D --> E{"plan empty?"}
-    E -->|"yes (idempotent)"| F["pull was lossless"]
+    E -->|"yes (idempotent)"| F["re-apply changes nothing"]
     E -->|"no"| G["investigate divergence<br/>fix manifest or workspace"]
     G --> D
     F --> H["5 sigantry diff<br/>baseline drift-check"]

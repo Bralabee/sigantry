@@ -7,7 +7,7 @@ After this drill, "bad deploy" stops being an incident and becomes a procedure.
 
 **Time:** ~30 minutes.
 **Builds on:** [Tutorial 06](06-bootstrap-workspace.md) — use a scratch workspace
-(rollback supplants live state; never drill on a shared workspace).
+(a rollback overwrites workspace items; never drill on a shared workspace).
 **Uses:** `sigantry deploy run` — the content-level deploy engine (distinct from the
 topology-level `sync apply` you used in Tutorial 02). This is also the verb for
 republishing the content of items sync already governs. It also uses
@@ -155,7 +155,7 @@ Release A, because that is what `../sigantry-tut07-A` holds.
   the machine or runner that wrote it (see the
   [audit ledger threat model](../reference/audit-ledger-threat-model.md)), and record
   every release you may need to roll back to with `--fabric-items`.
-- Rollback publishes the **recorded item names** from the `--source` you give it; the
+- Rollback publishes the **recorded item names** whose type is in `--item-types` from the `--source` you give it; the
   record holds no content and no commit. Keep a way to check out each release's
   source, for example by using the commit SHA as the `--release-id`. Items created
   after release A are not deleted by rollback — combine with orphan cleanup

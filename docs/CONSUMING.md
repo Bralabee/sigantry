@@ -13,7 +13,7 @@ You **do not** need to clone this repository (`Bralabee/sigantry`) to run Sigant
 
 | Surface | State |
 |---|---|
-| `sigantry` on PyPI | published; 1.0.0 reads the pre-rename config names (see the note in [README.md](../README.md)) |
+| `sigantry` on PyPI | published; 1.0.1 and later read `.sigantry.toml` and `SIGANTRY_` overrides; 1.0.0 looks only for the pre-rename names (see the note in [README.md](../README.md)) |
 | Public `sigantry/sigantry-starter` and `sigantry/demo-sigantry` repositories | not provisioned; use [`templates/starter/`](../templates/starter/) and [`templates/demo/`](../templates/demo/) |
 
 ## Install

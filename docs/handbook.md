@@ -1,7 +1,7 @@
 # Usage Handbook
 
-**Last updated:** 2026-09-19 (v1.0.0 open-source debut)
-**Toolkit version:** 1.0.0
+**Last updated:** 2026-10-07 (1.0.1)
+**Toolkit version:** 1.0.1
 
 This is the living, day-to-day usage reference for `sigantry`. It covers the scenarios the toolkit is designed for, the environment you work in, the complete CLI surface across all 18 subapps, configuration patterns, and common recipes.
 
@@ -29,7 +29,7 @@ From the 18 wired CLI subapps (`sigantry_core/cli.py`) plus the `diagnose-auth` 
 | "Which plugins are installed, and did any fail to import?" | `sigantry doctor` |
 | "Why is auth failing — 401 or 403?" | `diagnose-auth` |
 | Release records — `record` / `list` / `show` / `diff` with an integrity-checked audit hash ([threat model](reference/audit-ledger-threat-model.md)) and `--html` reports | `sigantry release` |
-| Lossless Fabric workspace round-trip adoption and local sync (`apply`, `pull`, `snapshot`, `--bulk`) | `sigantry sync` |
+| Fabric workspace adoption and local sync (`apply`, `pull`, `snapshot`, `--bulk`) | `sigantry sync` |
 | Scheduled or CI drift detection with CLI table, SemVer JSON, or standalone interactive HTML (`--output html`) | `sigantry diff` |
 | Headless PR review bot diffing TMDL and schemas, with breaking change guards (`--fail-on-breaking`) | `sigantry pr-bot` |
 | Validating Sigantry configuration files (e.g. `parameters.yml` schemas) | `sigantry config` |

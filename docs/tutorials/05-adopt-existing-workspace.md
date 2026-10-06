@@ -1,8 +1,8 @@
 # Tutorial 05 — Adopt an Existing Workspace (Brownfield)
 
 **Goal:** take a workspace that was built by hand in the portal and bring it under
-manifest control — pulled into a committed `sync.yml` + sources tree, with the
-round-trip proven lossless (re-applying the pulled manifest is a no-op).
+manifest control — pulled into a committed `sync.yml` + sources tree, with a
+dry run showing that re-applying the pulled manifest is a no-op.
 
 **Time:** ~25 minutes.
 **Builds on:** [Tutorial 01](01-setup-and-first-contact.md). Works on any workspace
@@ -28,7 +28,7 @@ sequenceDiagram
     P->>R: write per-folder sources tree
     Note over R: commit to Git -- the workspace<br/>is now described in code
     A->>W: apply the pulled manifest
-    W-->>A: nothing to do (lossless round-trip)
+    W-->>A: nothing to do (0 folders created, 0 items moved)
 ```
 
 The key detail is `logical_id`: pull preserves each item's workspace identity in the
@@ -72,7 +72,7 @@ Inspect critically before committing:
 - Items of types pull does not handle were skipped, not broken — compare counts
   against your Tutorial 01 snapshot if you want the exact delta.
 
-## Step 3 — Prove the round-trip is lossless
+## Step 3 — Check that re-applying the manifest changes nothing
 
 Apply the manifest you just pulled, in dry-run first, then for real:
 
@@ -84,7 +84,7 @@ sigantry sync apply --manifest ./adopted/sync.yml --workspace-id "$WSID"
 # expect: sync apply succeeded ... folders_created=0 items_moved=0
 ```
 
-`0 / 0` is the proof: the manifest fully and faithfully describes the workspace.
+`0 / 0` means the manifest's folders and item placements match the workspace.
 If the plan is NOT empty, the pull and the workspace diverged in the seconds between
 the two commands (someone is editing live), or you edited the manifest — investigate
 before proceeding.

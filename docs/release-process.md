@@ -22,24 +22,31 @@ only**; contributors and agents MUST NOT push tags.
 
 ## Versioning
 
-Version lives in three places that MUST stay aligned (enforced by
-`tests/prereqs/test_version_alignment.py`):
+`sigantry_core/_version.py` (`__version__ = "X.Y.Z"`) is the single
+source: `pyproject.toml` declares `dynamic = ["version"]` and Hatchling
+reads `_version.py` through `[tool.hatch.version]`, so there is no literal
+version in `pyproject.toml`. Two other places must name the same version
+(enforced by `tests/prereqs/test_version_alignment.py` and
+`tests/prereqs/test_changelog.py`):
 
-1. `sigantry_core/_version.py` - `__version__ = "X.Y.Z"`
-   (Hatchling single source of truth via `[tool.hatch.version]`).
-2. `CHANGELOG.md` - the most recent dated release heading.
-3. `pyproject.toml` - carries `dynamic = ["version"]`; Hatchling
-   resolves from `_version.py` at build time. There is no literal
-   version string in `pyproject.toml`.
+1. `CHANGELOG.md` - the most recent dated heading, `## [X.Y.Z] - YYYY-MM-DD`,
+   below `## [Unreleased]`.
+2. `docs/index.md` - the first `vX.Y.Z` on the page, which opens the
+   "Current release" section: put the new release's paragraph above the
+   previous one.
 
-Additional references the grep audit catches (fix manually as part of
-the bump):
+The other version tests read the version from `_version.py`, so a bump
+needs no test edit. These state the current version and no test checks
+them; update them in the bump:
 
-- `docs/index.md` version banner.
-- `docs/getting-started/install.md` pip-install examples.
-- `docs/getting-started/quickstart.md` version assertions.
-- Any other docs that pin a version (grep for the old version across
-  `docs/` + `README.md`, then fix stragglers).
+- `docs/USER-GUIDE.md`: the `<!-- VERSION: X.Y.Z -->` marker on line 1
+  (the rendered PDF's cover reads it) and the "Versioning" paragraph.
+- `docs/handbook.md`: the "Last updated" and "Toolkit version" lines.
+
+Then search `README.md` and `docs/` for the previous version and fix any
+sentence that states the current one. Leave `schema_version: "1.0.0"`
+alone: it is the version of the manifest and report schemas, not of the
+package, and a `sync.yml` accepts only `"1.0"` or `"1.0.0"` there.
 
 ## Pre-release checklist
 
@@ -72,9 +79,17 @@ Run before opening the release PR:
    that still holds an earlier version's files fails the scan with exit 2
    before it reads anything.
 5. `pwsh -c "Invoke-Pester -Configuration ./tests/Pester.config.ps1"`.
-6. Update `CHANGELOG.md`: move `[Unreleased]` to a dated heading.
-7. Bump `sigantry_core/_version.py`.
+6. Update `CHANGELOG.md`: add the dated heading `## [X.Y.Z] - YYYY-MM-DD`
+   directly below `## [Unreleased]`, so the unreleased entries become that
+   release's and `## [Unreleased]` stays on top (the alignment test
+   requires it above the newest dated heading).
+7. Bump `sigantry_core/_version.py`, then reinstall the package in your
+   environment (`pip install -e .`):
+   `tests/sigantry_core/test_version_single_source.py` compares the
+   imported version with the installed metadata, which an editable install
+   records when it is installed.
 8. Grep for the old version across docs + README; fix stragglers.
+9. Run steps 1-5 again on the bumped tree.
 
 ## Release PR
 
@@ -87,12 +102,21 @@ Run before opening the release PR:
 ## Tag + publish
 
 Maintainer only. The tag is necessary but **not sufficient** -- the
-publish fires on the GitHub Release, not on the tag push:
+publish fires on the GitHub Release, not on the tag push.
+
+Tag the release PR's merge commit. Update `main` first and check that the
+commit you tag declares the version you are releasing. Nothing in the
+release workflow compares the tag with `_version.py`, and with
+`skip-existing` on, a tag on a commit that declares an already-uploaded
+version builds files PyPI already holds and can finish without publishing
+anything new:
 
 ```bash
+git switch main && git pull --ff-only
+git show HEAD:sigantry_core/_version.py   # must declare X.Y.Z
 git tag -a vX.Y.Z -m "Release vX.Y.Z"
 git push origin vX.Y.Z
-gh release create vX.Y.Z --title "vX.Y.Z" --notes-file <changelog-excerpt>
+gh release create vX.Y.Z --verify-tag --title "vX.Y.Z" --notes-file <changelog-excerpt>
 ```
 
 Publishing the Release runs `publish-pypi.yml`, in two halves:
@@ -112,32 +136,33 @@ Publishing the Release runs `publish-pypi.yml`, in two halves:
    nothing from PyPI.
 
 If the run fails, use **Re-run all jobs**: the build, its checks and the
-scan run again on the same commit. There is no manual trigger to fall back
-on. `skip-existing` stays on so that a re-run can finish an upload that
-stopped after one file. Verify that the files appear on PyPI with the
-SHA-256 the `build` job printed, and that `pip install sigantry==X.Y.Z`
-resolves in a clean environment.
+scan run again on the same commit, with that commit's workflow files. A
+re-run therefore recovers from a cause outside the repository -- a
+rejected or expired environment approval, the PyPI trusted-publisher
+record, the `NAME_GATE_TOKENS` secret, a transient runner or network
+failure -- but not from one in the tagged commit. For that, fix it on
+`main` and release again: if nothing reached PyPI, delete the Release and
+the tag and create them on the fixed commit; once a file of X.Y.Z is on
+PyPI, release the next patch version instead. There is no manual trigger
+to fall back on. `skip-existing` stays on so that a re-run can finish an
+upload that stopped after one file. Verify that the files appear on PyPI
+with the SHA-256 the `build` job printed (a file a re-run skipped keeps
+the digest of the attempt that uploaded it), and that
+`pip install sigantry==X.Y.Z` resolves in a clean environment.
 
 ## Known gaps in the published record
 
-- **The 1.0.0 PyPI page does not carry the CLI-troubleshooting section.** The
-  `sigantry: command not found` guidance was committed ten minutes *after* the
-  1.0.0 upload, and PyPI forbids re-uploading a released version. The wheel is
-  otherwise byte-identical to what this tree builds. The next patch release is
-  what puts that section on the project page; nothing can change 1.0.0 itself.
-- **The Release trigger has never been observed publishing successfully.** Of
-  the three 1.0.0 publish runs, two fired on the Release trigger and failed --
-  the first on an unresolvable action pin (fixed in `a3b54bc`), the second on
-  PyPI `invalid-publisher` -- and the run that succeeded was a
+- **1.0.0 was not published by the Release trigger.** Of the three 1.0.0
+  publish runs, two fired on the Release trigger and failed -- the first on
+  an unresolvable action pin (fixed in `3d5eda7`), the second on PyPI
+  `invalid-publisher` -- and the run that succeeded was a
   `workflow_dispatch` twenty-three minutes later, on the same tag, the same
   workflow file and the same `pypi` environment. PyPI matches a trusted
-  publisher on owner, repository, workflow filename and environment, none of
-  which differed, so the publisher record appears to have been corrected
+  publisher on owner, repository, workflow filename and environment, none
+  of which differed, so the publisher record appears to have been corrected
   server-side in between. That is an inference, not an observation: PyPI's
-  publisher configuration cannot be read back. **Treat the next
-  Release-triggered run as the confirmation.** The manual trigger has since
-  been removed, so if it fails, all jobs of the run are re-run after the
-  cause is fixed.
+  publisher configuration cannot be read back. The manual trigger has since
+  been removed, so every release now goes through the Release trigger.
 
 ## Plugin releases
 

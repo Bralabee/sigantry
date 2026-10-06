@@ -160,7 +160,7 @@ artefact is `/tmp/snap.json` on your machine.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `sigantry: command not found` | env not activated | `conda activate fabric-dataops-toolkits` |
+| `sigantry: command not found` | env not activated | activate the environment you ran `pip install sigantry` in, for example `conda activate <env>` |
 | `DefaultAzureCredential failed to retrieve a token` | no az session | `az login`, re-check `az account show` |
 | `401` on every call | account in the wrong tenant | `az login --tenant <tenant-id>` |
 | `403` on a specific workspace | no role on that workspace | ask the workspace admin for Viewer+ |

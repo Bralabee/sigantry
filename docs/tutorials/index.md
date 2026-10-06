@@ -30,7 +30,7 @@ flowchart TD
 | 02 | [Sync notebooks into a workspace](02-sync-notebooks.md) | Local notebooks governed by a manifest, published to Fabric, idempotency proven | 30 min |
 | 03 | [Detect drift](03-drift-detection.md) | A drift baseline; a deliberately-injected change detected and reconciled | 20 min |
 | 04 | [Read the audit trail](04-audit-trail.md) | Find, inspect, diff and hash-verify the release records your work created | 15 min |
-| 05 | [Adopt an existing workspace](05-adopt-existing-workspace.md) | A live workspace pulled into a committed manifest, round-trip proven lossless | 25 min |
+| 05 | [Adopt an existing workspace](05-adopt-existing-workspace.md) | A live workspace pulled into a committed manifest that re-applies as a no-op | 25 min |
 | 06 | [Bootstrap a new workspace](06-bootstrap-workspace.md) | A workspace + capacity + folders + Git wiring from one YAML file | 25 min |
 | 07 | [Roll back a release](07-rollback.md) | Two recorded releases, a diff of their item lists, the first release's items re-published from its source | 30 min |
 | 08 | [Scheduled drift alerts](08-scheduled-drift-alerts.md) | A cron workflow that posts to Teams when a workspace drifts | 30 min |

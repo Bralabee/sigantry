@@ -1,4 +1,4 @@
-<!-- VERSION: 1.0.0 -->
+<!-- VERSION: 1.0.1 -->
 <!-- This markdown is the canonical guide: edit it here, never a
      rendered PDF.
 
@@ -68,12 +68,11 @@ Throughout the guide:
 
 ## Versioning
 
-This guide tracks Sigantry **1.0.0** -- the open-source release
-published on PyPI on 2026-09-19. The version line restarted at 1.0.0
-for the public release; the internal 3.x line this guide was first
-written against is its ancestor, not a later version. The CLI
-contracts, manifest schemas, and audit-record shapes in this document
-are stable for the 1.x line and will not break-change before 2.0.
+This guide tracks Sigantry **1.0.1**. The public version line started at
+1.0.0, published on PyPI on 2026-09-19; the internal 3.x line this guide
+was first written against is its ancestor, not a later version.
+`CHANGELOG.md` lists the changes in each release; read its "Upgrading
+from 1.0.0" section before upgrading from 1.0.0.
 
 ---
 
@@ -114,8 +113,8 @@ You probably want Sigantry if any of the following is true:
 - You run **CI/CD against Fabric** and want a hash-chained ledger
   record for each release you record (`sigantry release record`; `sync
   apply` writes one too, a forward `deploy run` none), plus a
-  rollback verb that publishes the items a recorded release names again
-  from a source checkout you supply.
+  rollback verb that publishes again the items a recorded release names
+  whose type is in `--item-types`, from a source checkout you supply.
 - You manage **pre-deployment governance gates** (RBAC audits, tenant
   setting checks, capacity policies) and want them in pipeline form
   rather than as periodic manual sweeps.
@@ -331,18 +330,18 @@ If you received a wheel by email, signed link, or direct download:
 
 ```bash
 # Verify the file integrity first
-sha256sum sigantry-1.0.0-py3-none-any.whl
+sha256sum sigantry-<version>-py3-none-any.whl
 # Compare against the SHA256 your distributor provided
 
 # Install
-pip install /path/to/sigantry-1.0.0-py3-none-any.whl
+pip install /path/to/sigantry-<version>-py3-none-any.whl
 ```
 
 If you also received a plugin wheel built against Sigantry, install
 both files in one invocation:
 
 ```bash
-pip install /path/to/sigantry-1.0.0-py3-none-any.whl \
+pip install /path/to/sigantry-<version>-py3-none-any.whl \
             /path/to/<plugin>-<version>-py3-none-any.whl
 ```
 
@@ -929,15 +928,20 @@ sigantry deploy run \
 Rollback is destructive by definition (it overwrites the recorded items
 in the live workspace with the content in `--source`), so it refuses
 without `--rollback-force`. It publishes only the items the recorded
-release names, so items created after that release stay in place, and
-a record that names no items makes it publish nothing.
+release names whose type is in `--item-types` (the same default as a
+forward `deploy run`), so items created after that release, and
+recorded items of other types, stay as they are, and a record that
+names no items makes it publish nothing.
 `--rollback-runbook-id` threads your incident reference into the
 `DestructiveOpRecord` the destructive-op gate appends to
 `destructive_ops.jsonl`. A rollback also appends a new `DeployRecord`
 with `release_id="rollback-of-<original>-<TS>"`,
 `test_evidence={"rollback_of": "<original>"}` and
 `approver="cli@sigantry"`, so the audit trail captures the "we rolled
-back" event distinctly from the original release.
+back" event distinctly from the original release. Its
+`fabric_items_changed` copies every name the original record holds,
+including the names of items whose type was not in `--item-types` and
+that the rollback therefore did not publish.
 Cross-environment rollback (PROD -> DEV) is deliberately rejected;
 stay within one workspace per release.
 
