@@ -317,12 +317,11 @@ def list_cmd(
         "--workspace",
         "--env",
         help=(
-            "Filter records by workspace substring. ``--env`` is the "
-            "deprecated v3.0 spelling and is preserved as an alias; it "
-            "matches the SAME field (DeployRecord.workspace) as "
-            "``--workspace``. ``DeployRecord`` does not currently carry "
-            "a separate environment label -- a real env-aware filter is "
-            "deferred to a v3.x schema bump."
+            "Filter records by workspace substring. ``--env`` is a "
+            "deprecated alias that matches the same field "
+            "(DeployRecord.workspace) as ``--workspace``. "
+            "``DeployRecord`` carries no separate environment label, so "
+            "filtering by environment is not supported yet."
         ),
     ),
     limit: int = typer.Option(

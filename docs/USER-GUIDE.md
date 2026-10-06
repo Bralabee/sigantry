@@ -33,7 +33,7 @@ The guide is organised in six parts:
   and the smallest possible "it works" run.
 - **Part III -- Core workflows.** The seven operator verbs, when to reach
   for each, and a worked example per verb.
-- **Part IV -- Audit and governance.** How `DeployRecord`s are signed,
+- **Part IV -- Audit and governance.** How `DeployRecord`s are hashed,
   verified, and rotated; how to inspect the local audit ledger.
 - **Part V -- Plugin authoring.** How to register your own seam
   implementations without forking the base package.
