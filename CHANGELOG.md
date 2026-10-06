@@ -9,7 +9,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Classifier `Development Status :: 4 - Beta`** (was `5 - Production/Stable`).
+  The project has one maintainer, every review is by the author, and the
+  CHANGELOG's own "Known remaining" list is not empty. The classifier now
+  says so; the code is unchanged.
+- **`sigantry preflight` runs three probes, not four.** `DependencyGraphProbe`
+  is no longer in the default set: the shipped `sync.yml` schema declares no
+  item dependencies and `workspace.yml` has no items, so against a real
+  manifest it ordered nothing and reported "0 item(s) verified" as a pass.
+  The class stays importable for manifests that carry `items[].depends_on`.
+  `BaseProbe.run` gains `token_provider`, `workspace_id` and `tenant_id`
+  keyword arguments; a subclass must accept them.
+
 ### Fixed
+- **Preflight reports only what it checked, and `--strict` fails on what it
+  could not.** Measured at 1.0.1: a manifest reading `foo: bar` passed the
+  schema probe (it only parsed `.platform`/`.ipynb` files under the
+  manifest's directory, never the manifest); the demo manifest copied without
+  its item tree passed with "0 artifacts"; `--params` was accepted and never
+  read; `AZURE_CLIENT_ID=not-a-real-id AZURE_CLIENT_SECRET=garbage` made the
+  Entra probe PASS (it checked that the variables existed); the capacity
+  probe always reported SKIP because the CLI attached no client; and
+  `--strict` exited 0 with two probes skipped, printing "Preflight simulation
+  successful". Now: the schema probe loads the manifest as a `sync.yml` or a
+  `workspace.yml` (a file that is neither fails with both loaders' errors),
+  requires every sync item's `local_path` to exist, parses the fabric-cicd
+  files under it, and runs `--params` through the `config validate` rules;
+  the Entra probe acquires a Fabric token through the credential chain
+  (a configured credential that gets none is a FAIL, no credential at all is
+  a SKIP) and with `--tenant-id` fails when the token's `tid` differs; the
+  capacity probe, given `--workspace-id`, reads the workspace's capacity and
+  fails when it is missing, paused or otherwise down; a `SKIP` message starts
+  `not checked:`, the summary names every skipped probe, and under
+  `--strict` a skip exits 1. Probe messages are rendered as text, so a path
+  holding `[...]` is printed, not read as markup.
 - **PR review bot: serializer-shaped TMDL.** Three parser gaps made a real
   Power BI Desktop or Fabric export diff as "no changes". Indentation counted
   spaces only, so a tab-indented model (one tab per level, the serializer's
