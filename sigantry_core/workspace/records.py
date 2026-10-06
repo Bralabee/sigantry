@@ -161,11 +161,14 @@ def emit_bootstrap_record(record: BootstrapRecord, *, audit_dir: Path | str | No
     Returns:
         The :class:`Path` to the JSONL file the record was appended to.
     """
-    from sigantry_core.governance.audit_io import audit_chain_lock, read_last_audit_hash
-
-    target = (
-        Path(audit_dir) / "bootstraps.jsonl" if audit_dir is not None else DEFAULT_BOOTSTRAP_LEDGER
+    from sigantry_core.governance.audit_io import (
+        audit_chain_lock,
+        read_last_audit_hash,
+        resolve_audit_dir,
     )
+
+    resolved_dir = resolve_audit_dir(audit_dir, default_dir=DEFAULT_BOOTSTRAP_LEDGER.parent)
+    target = resolved_dir / "bootstraps.jsonl"
     target.parent.mkdir(parents=True, exist_ok=True)
     # Audit-2026-05-07 review follow-up (BL-02): serialise W3.1 chain
     # linkage. The read+seal+append sequence below shares the audit-

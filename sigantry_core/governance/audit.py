@@ -39,6 +39,7 @@ from typing import TYPE_CHECKING
 
 from sigantry_core.governance.audit_io import (
     _DEFAULT_AUDIT_DIR,
+    resolve_audit_dir,
     write_audit_record,
 )
 from sigantry_core.governance.destructive import (
@@ -98,7 +99,7 @@ def emit_deploy_record(
         a write that did not happen is a release that did not record.
     """
     write_audit_record(
-        target_dir=audit_dir if audit_dir is not None else _DEFAULT_AUDIT_DIR,
+        target_dir=resolve_audit_dir(audit_dir, default_dir=_DEFAULT_AUDIT_DIR),
         filename="deploys.jsonl",
         event_name="deploy_record",
         record=record,
@@ -148,7 +149,7 @@ def emit_approval_record(
         cannot be written.
     """
     write_audit_record(
-        target_dir=audit_dir if audit_dir is not None else _DEFAULT_AUDIT_DIR,
+        target_dir=resolve_audit_dir(audit_dir, default_dir=_DEFAULT_AUDIT_DIR),
         filename="approvals.jsonl",
         event_name="approval_record",
         record=record,
@@ -190,7 +191,7 @@ def emit_secret_change_record(
         cannot be written.
     """
     write_audit_record(
-        target_dir=audit_dir if audit_dir is not None else _DEFAULT_AUDIT_DIR,
+        target_dir=resolve_audit_dir(audit_dir, default_dir=_DEFAULT_AUDIT_DIR),
         filename="secret_changes.jsonl",
         event_name="secret_change_record",
         record=record,
@@ -233,7 +234,7 @@ def emit_destructive_op_record(
         cannot be written.
     """
     write_audit_record(
-        target_dir=audit_dir if audit_dir is not None else _DEFAULT_AUDIT_DIR,
+        target_dir=resolve_audit_dir(audit_dir, default_dir=_DEFAULT_AUDIT_DIR),
         filename="destructive_ops.jsonl",
         event_name="destructive_op_record",
         record=record,
@@ -257,4 +258,5 @@ __all__ = [
     "emit_destructive_op_record",
     "emit_secret_change_record",
     "logger",
+    "resolve_audit_dir",
 ]

@@ -59,6 +59,34 @@ _AUDIT_FILE_MODE: Final[int] = 0o600
 _TAIL_WINDOW_BYTES: Final[int] = 8192
 
 
+def resolve_audit_dir(
+    audit_dir: Path | str | None = None,
+    *,
+    default_dir: Path | None = None,
+) -> Path:
+    """Resolve the effective audit directory.
+
+    Order of precedence:
+    1. Explicit ``audit_dir`` argument when non-empty / not None.
+    2. Configured ``[release] audit_dir`` / ``SIGANTRY_RELEASE__AUDIT_DIR``
+       from settings (:func:`sigantry_core.config.load_settings`).
+    3. ``default_dir`` when provided, falling back to :data:`_DEFAULT_AUDIT_DIR`.
+    """
+    if audit_dir:
+        return Path(audit_dir).expanduser()
+    try:
+        from sigantry_core._cli_settings import load_settings_for_cli
+
+        settings = load_settings_for_cli()
+        if settings.release.audit_dir:
+            return Path(settings.release.audit_dir).expanduser()
+    except Exception:
+        pass
+    if default_dir is not None:
+        return Path(default_dir).expanduser()
+    return _DEFAULT_AUDIT_DIR
+
+
 class AuditLedgerCorruptionError(RuntimeError):
     """The audit ledger's last line is present but not parseable as JSON.
 
@@ -361,7 +389,7 @@ def write_audit_record(
         a write that did not happen is a release/approval/secret change
         that did not record.
     """
-    resolved_dir = target_dir if target_dir is not None else _DEFAULT_AUDIT_DIR
+    resolved_dir = resolve_audit_dir(target_dir, default_dir=_DEFAULT_AUDIT_DIR)
     resolved_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     jsonl_path = resolved_dir / filename
 
@@ -411,6 +439,7 @@ __all__ = [
     "_audit_file_opener",
     "audit_chain_lock",
     "read_last_audit_hash",
+    "resolve_audit_dir",
     "verify_audit_chain",
     "write_audit_record",
 ]

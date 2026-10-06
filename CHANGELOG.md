@@ -24,6 +24,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   closes is an error instead of an empty diff. The name and fence rules apply
   to every file, tabbed or not. Tutorial 09 and the PR-bot runbook no longer
   call tabs a mistake. (#82)
+- **Ledger location: respect `[release] audit_dir` and route `@destructive_op`.**
+  The audit directory for release ledgers (`deploys.jsonl`, `approvals.jsonl`,
+  `secret_changes.jsonl`, `destructive_ops.jsonl`, `bootstraps.jsonl`) now
+  resolves consistently across all CLI subcommands (`sigantry release verify`,
+  `list`, `show`, `diff`, `record`, `deploy run`, `sync apply`,
+  `workspace bootstrap`) using the configured `[release] audit_dir` in
+  `.sigantry.toml` or `SIGANTRY_RELEASE__AUDIT_DIR`, falling back to
+  `~/.sigantry/audit/`. An explicit `--audit-dir` flag or caller argument
+  continues to take highest precedence. `@destructive_op` now honours any
+  `audit_dir` parameter passed to the wrapped function and routes both
+  success and failure entries (`destructive_ops.jsonl`) to the configured or
+  specified directory instead of hardcoding `~/.sigantry/audit/`.
 
 ## [1.0.1] - 2026-10-06
 

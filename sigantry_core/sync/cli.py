@@ -54,6 +54,7 @@ from sigantry_core.deploy.parameters import (
     HardcodedGuidError,
     load_and_validate,
 )
+from sigantry_core.governance.audit_io import resolve_audit_dir
 from sigantry_core.sync.apply import apply_sync
 from sigantry_core.sync.errors import (
     ManifestValidationError,
@@ -359,7 +360,7 @@ def apply_cmd(
             manifest_path=manifest,
             workspace_id=workspace_id,
             environment=environment,
-            audit_dir=Path(audit_dir) if audit_dir else None,
+            audit_dir=resolve_audit_dir(audit_dir),
             dry_run=dry_run,
             with_publish=with_publish,
             republish_existing=republish_existing,

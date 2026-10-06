@@ -28,7 +28,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from sigantry_core.governance.audit_io import _DEFAULT_AUDIT_DIR
+from sigantry_core.governance.audit_io import _DEFAULT_AUDIT_DIR, resolve_audit_dir
 from sigantry_core.release.record import DeployRecord
 
 logger = logging.getLogger("sigantry_core.release.ledger")
@@ -68,10 +68,11 @@ def iter_records(*, audit_dir: Path | None = None) -> Iterator[DeployRecord]:
     ----------
     audit_dir : Path | None
         Override ``~/.sigantry/audit/`` (used in tests + hermetic CI).
-        Default reads from :data:`_DEFAULT_AUDIT_DIR` (Plan 11-03).
+        Default reads from :data:`_DEFAULT_AUDIT_DIR` (Plan 11-03) or
+        the configured ``[release] audit_dir`` setting.
     """
     known_fields = set(DeployRecord.model_fields.keys())
-    target = audit_dir if audit_dir is not None else _DEFAULT_AUDIT_DIR
+    target = resolve_audit_dir(audit_dir, default_dir=_DEFAULT_AUDIT_DIR)
     path = target / "deploys.jsonl"
     if not path.exists():
         return
