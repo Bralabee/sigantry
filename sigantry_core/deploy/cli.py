@@ -294,7 +294,7 @@ def deploy_cmd(
             bulk=bulk,
         )
     except Exception as exc:  # CLI boundary: surface anything to the user.
-        _console.print(f"[red]deploy failed[/red]: {exc}")
+        _console.print(Text.assemble(("deploy failed", "red"), f": {exc}"))
         raise typer.Exit(code=1) from exc
     _console.print_json(
         data={
@@ -485,9 +485,9 @@ def copy_cmd(
             new_description=new_description,
         )
     except ItemCopyError as exc:
-        _console.print(f"[red]fabric-item copy failed[/red]: {exc}")
+        _console.print(Text.assemble(("fabric-item copy failed", "red"), f": {exc}"))
         raise typer.Exit(code=1) from exc
-    _console.print(f"Copied {src} -> {dst} (new logicalId={new_id})")
+    _console.print(Text(f"Copied {src} -> {dst} (new logicalId={new_id})"))
 
 
 # ---------------------------------------------------------------------------
@@ -545,16 +545,22 @@ def set_binding_cmd(
                 lakehouse_workspace_id=lakehouse_workspace_id,
             )
     except NotebookBindingError as exc:
-        _console.print(f"[red]fabric-item set-binding failed[/red]: {exc}")
+        _console.print(Text.assemble(("fabric-item set-binding failed", "red"), f": {exc}"))
         raise typer.Exit(code=1) from exc
 
     if result.changed:
         _console.print(
-            f"[green]bound[/green] item {item_id}: "
-            f"environment={result.environment} lakehouse={result.lakehouse}"
+            Text.assemble(
+                ("bound", "green"),
+                f" item {item_id}: environment={result.environment} lakehouse={result.lakehouse}",
+            )
         )
     else:
-        _console.print(f"[cyan]no change[/cyan] item {item_id} already had the requested binding.")
+        _console.print(
+            Text.assemble(
+                ("no change", "cyan"), f" item {item_id} already had the requested binding."
+            )
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -608,8 +614,10 @@ def git_connect_cmd(
             git_connection_id=git_connection_id,
         )
     _console.print(
-        f"connected workspace {workspace_id} to "
-        f"{organization_name}/{project_name}/{repository_name}#{branch_name}"
+        Text(
+            f"connected workspace {workspace_id} to "
+            f"{organization_name}/{project_name}/{repository_name}#{branch_name}"
+        )
     )
 
 
@@ -640,7 +648,7 @@ def git_update_cmd(
             workspace_head=workspace_head,
             remote_commit_hash=remote_commit_hash,
         )
-    _console.print(f"workspace {workspace_id} updated from remote {remote_commit_hash}")
+    _console.print(Text(f"workspace {workspace_id} updated from remote {remote_commit_hash}"))
 
 
 @git_app.command("commit")
@@ -660,7 +668,7 @@ def git_commit_cmd(
             comment=comment,
             mode=mode,  # type: ignore[arg-type]
         )
-    _console.print(f"committed workspace {workspace_id} (mode={mode})")
+    _console.print(Text(f"committed workspace {workspace_id} (mode={mode})"))
 
 
 @git_app.command("status")
@@ -711,7 +719,7 @@ def git_disconnect_cmd(
             runbook_id=runbook_id,
             resource_id=workspace_id,
         )
-    _console.print(f"workspace {workspace_id} disconnected from Git")
+    _console.print(Text(f"workspace {workspace_id} disconnected from Git"))
 
 
 # ---------------------------------------------------------------------------
@@ -831,7 +839,7 @@ def vl_delete_cmd(
             runbook_id=runbook_id,
             resource_id=variable_library_id,
         )
-    _console.print(f"variableLibrary {variable_library_id} deleted")
+    _console.print(Text(f"variableLibrary {variable_library_id} deleted"))
 
 
 # ---------------------------------------------------------------------------
@@ -909,9 +917,11 @@ def env_sync_all_cmd(
     try:
         env_manifest = load_environments_manifest(manifest)
     except EnvironmentsManifestError as exc:
-        _console.print(f"[red]environments manifest validation failed:[/red] {exc}")
+        _console.print(
+            Text.assemble(("environments manifest validation failed:", "red"), f" {exc}")
+        )
         for violation in exc.violations:
-            _console.print(f"  [yellow]-[/yellow] {violation}")
+            _console.print(Text.assemble("  ", ("-", "yellow"), f" {violation}"))
         raise typer.Exit(code=1) from exc
 
     if dry_run:
