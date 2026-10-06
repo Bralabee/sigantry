@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-07
+
 ### Upgrading from 1.0.0
 - **The bullets below describe ways this release differs from 1.0.0** when
   it reads settings, bootstraps a workspace or checks Entra group

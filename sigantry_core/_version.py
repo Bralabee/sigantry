@@ -3,4 +3,4 @@
 Hatchling reads this file via `[tool.hatch.version]` in pyproject.toml.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"

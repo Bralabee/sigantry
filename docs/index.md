@@ -50,6 +50,14 @@ sibling plugin packages that ship alongside the base.
 
 ## Current release
 
+v1.0.1 (2026-10-07). Reads the `.sigantry.toml` config file and the
+`SIGANTRY_<SECTION>__<KEY>` settings overrides that these docs use, and still
+reads the old names, `.fabric-dataops.toml` and `FDT_<SECTION>__<KEY>` (see the
+[legacy-names note](migration/2.x-to-3.0.md)). It also makes the `diagnose-auth`
+group check configurable, gives the workspace-bootstrap blueprints new folder
+names, and carries security and bug fixes. `CHANGELOG.md` lists the changes;
+read its "Upgrading from 1.0.0" section before upgrading.
+
 v1.0.0 (2026-09-19). Initial open-source standalone release of Sigantry on PyPI.
 Includes dual-mode workspace bootstrapping (`workspace bootstrap`),
 brownfield adoption (`sync pull`), drift detection (`diff`), deployment
