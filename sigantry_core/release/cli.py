@@ -322,7 +322,7 @@ def list_cmd(
             "matches the SAME field (DeployRecord.workspace) as "
             "``--workspace``. ``DeployRecord`` does not currently carry "
             "a separate environment label -- a real env-aware filter is "
-            "deferred to a v3.x schema bump (WR-04 / 12-REVIEW.md)."
+            "deferred to a v3.x schema bump."
         ),
     ),
     limit: int = typer.Option(
@@ -349,8 +349,7 @@ def list_cmd(
     NOT match unless the workspace GUID happens to contain that
     substring (unlikely). The flag is honest about what it filters; a
     real env-aware filter requires adding an ``environment`` field to
-    ``DeployRecord`` (SemVer-minor bump per Pattern 4 schema commitment),
-    and is deferred.
+    ``DeployRecord`` (a SemVer-minor schema change), and is deferred.
     """
     audit_dir_path = Path(audit_dir) if audit_dir else None
     records = list(iter_records(audit_dir=audit_dir_path))
@@ -445,7 +444,7 @@ def diff_cmd(
     json_output: bool = typer.Option(
         False,
         "--json",
-        help="Emit structured diff (Pattern 5 / D-06 SemVer-committed schema).",
+        help="Emit the diff as JSON (its schema follows SemVer).",
     ),
     audit_dir: str | None = typer.Option(
         None,

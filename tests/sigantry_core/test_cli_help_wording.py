@@ -30,3 +30,14 @@ def test_rollback_help_names_its_scope() -> None:
     assert "overwrites" in result.stdout
     for stale in ("supplants", "Audit-2026", "@destructive_op"):
         assert stale not in result.stdout, stale
+
+
+def test_release_list_and_diff_help_name_no_planning_files() -> None:
+    for command, option in (("list", "--workspace"), ("diff", "--json")):
+        result = runner.invoke(app, ["release", command, "--help"])
+        assert result.exit_code == 0, command
+        # Join wrapped lines so a phrase split across the help box still counts.
+        text = " ".join(result.stdout.replace("\u2502", " ").split())
+        assert option in text, command
+        for stale in ("REVIEW.md", "WR-04", "Pattern 4", "Pattern 5", "D-06"):
+            assert stale not in text, (command, stale)
