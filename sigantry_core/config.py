@@ -1360,6 +1360,7 @@ def _bare_names_1_0_0_would_read(
         targets = _BARE_NAMES_1_0_0.get(name.lower(), ())
         replacements = [
             f"{_ENV_PREFIX}{section.upper()}{_ENV_DELIM}{field.upper()}"
+            + (f"{_ENV_DELIM}<KEY>" if _is_mapping_field(section, field) else "")
             for section, field in targets
             if not _get_leaf(supplied, (section, field))[0]
             and (not _is_mapping_field(section, field) or _json_object(raw) is not None)
