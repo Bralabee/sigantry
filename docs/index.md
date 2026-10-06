@@ -50,7 +50,7 @@ sibling plugin packages that ship alongside the base.
 
 ## Current release
 
-v1.0.1 (2026-10-07). Reads the `.sigantry.toml` config file and the
+v1.0.1 (2026-10-06). Reads the `.sigantry.toml` config file and the
 `SIGANTRY_<SECTION>__<KEY>` settings overrides that these docs use, and still
 reads the old names, `.fabric-dataops.toml` and `FDT_<SECTION>__<KEY>` (see the
 [legacy-names note](migration/2.x-to-3.0.md)). It also makes the `diagnose-auth`
