@@ -740,6 +740,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `release verify`, `deploy validate` and the `deploy run --rollback`
   failure message had the same fault for recorded item names, release ids
   and paths; they now print them as written.
+- **`sigantry release list` and `sigantry release record` could crash on
+  release text.** `release list` read each record's release id, workspace,
+  approver and timestamp from the ledger as Rich markup, so one record whose
+  release id held a closing tag such as `[/old]` made the command exit 1 for
+  the whole ledger, and `[draft]` was dropped. The `release record` summary
+  did the same with `--release-id`, after the record was written and the
+  work items commented on, so a retry on exit 1 would append a second
+  record. Both now print these values as written.
+- **`sigantry deploy run` could lose its own failure message.** The message
+  quotes item names and paths from the publish error, and was read as Rich
+  markup: a closing tag such as `[/old]` replaced it with a `MarkupError`
+  traceback. It now prints as written, as do the failure lines of
+  `fabric-item copy`, `fabric-item set-binding` and `env sync-all`'s manifest
+  validation, the `fabric-item copy` and `fabric-item set-binding` results,
+  and the confirmations of `git connect`, `git update`, `git commit`,
+  `git disconnect` and `variable-library delete`.
+- **`sigantry sync pull` printed error text and paths as Rich markup.** A
+  `--into` path or an error message holding a closing tag such as `[/old]`
+  raised `MarkupError` in place of the message, and `[draft]` was dropped.
+  The refusal of an item whose display name contains `/` or `\` (see
+  `display_name` under Upgrading from 1.0.0) quotes that name, so an item
+  named like `Sales [/old]` would have crashed the refusal itself. The
+  refusal, the other failure lines and the success line now print as
+  written; a refused or failed pull still exits 1.
 - **`scripts/audit_chain_migrate.py` could destroy or launder audit records,
   and reported success either way.** A re-run read the `.pre-w3.1.bak` backup
   whenever it existed and replaced the live ledger with it, so every record
