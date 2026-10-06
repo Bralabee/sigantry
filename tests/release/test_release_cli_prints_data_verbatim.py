@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 from typer.testing import CliRunner
@@ -46,15 +47,22 @@ def _flat(text: str) -> str:
     return " ".join(text.split())
 
 
-def _seed(audit_dir: Path, release_id: str, items: list[str]) -> DeployRecord:
+def _seed(
+    audit_dir: Path,
+    release_id: str,
+    items: list[str],
+    *,
+    workspace: str = "ws-test",
+    approver: str = "alice@example.invalid",
+) -> DeployRecord:
     audit_dir.mkdir(parents=True, exist_ok=True)
     record = DeployRecord(
-        workspace="ws-test",
+        workspace=workspace,
         release_id=release_id,
         work_items=[],
         fabric_items_changed=items,
         test_evidence={"smoke": "passed"},
-        approver="alice@example.invalid",
+        approver=approver,
         audit_hash="",
         created_at=datetime.now(UTC),
     ).with_hash()
@@ -166,3 +174,57 @@ def test_release_verify_broken_chain_prints_path_as_written() -> None:
     assert "CHAIN BROKEN" in result.stdout
     assert str(ledger) in _flat(result.stdout)
     assert "first bad record index: 1" in result.stdout
+
+
+def test_release_list_prints_ledger_values_as_written() -> None:
+    _seed(Path(AUDIT), "[/old]", [SHARED], workspace="ws[/w]", approver="a[b]")
+    _seed(Path(AUDIT), "v1 [draft]", [SHARED], workspace="w [x]", approver="[/c]")
+    result = runner.invoke(app, ["release", "list", "--audit-dir", AUDIT])
+    assert result.exit_code == 0, repr(result.exception)
+    for value in ("[/old]", "ws[/w]", "a[b]", "w [x]", "[/c]"):
+        assert value in result.stdout, value
+    assert "v1" in result.stdout and "[draft]" in result.stdout
+
+
+def test_release_record_success_line_prints_release_id_as_written(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The summary prints after the ledger write and the work-item comments, so a
+    failure there exits 1 on a record that was written."""
+    provider = MagicMock(name="provider")
+    import sigantry_core.workitems.ado as ado_mod
+
+    monkeypatch.setattr(
+        ado_mod.AdoWorkItemProvider, "from_defaults", MagicMock(return_value=provider)
+    )
+    result = runner.invoke(
+        app,
+        [
+            "release",
+            "record",
+            "--provider",
+            "ado",
+            "--ado-organization",
+            "org",
+            "--ado-project",
+            "proj",
+            "--audit-dir",
+            AUDIT,
+            "--release-id",
+            "[/x] [draft]",
+            "--workspace",
+            "ws-test",
+            "--work-items",
+            "1",
+            "--approver",
+            "alice@example.invalid",
+            "--fabric-items",
+            CLOSING_TAG,
+        ],
+    )
+    assert result.exit_code == 0, repr(result.exception)
+    provider.link_release.assert_called_once()
+    assert len((Path(AUDIT) / "deploys.jsonl").read_text(encoding="utf-8").splitlines()) == 1
+    flat = _flat(result.stdout)
+    assert "Recorded release [/x] [draft] with audit_hash" in flat
+    assert "commented on 1 work items." in flat

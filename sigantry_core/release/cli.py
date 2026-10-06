@@ -294,9 +294,16 @@ def record_cmd(
     emit_deploy_record(record, audit_dir=audit_dir_path)
     provider_obj.link_release(release_id, ids, record)
 
+    # The record is written and the work items commented on; the release id is
+    # free text, so it goes to Rich as Text, which is not read as markup.
     _console.print(
-        f"Recorded release [bold]{release_id}[/bold] with audit_hash "
-        f"[dim]{record.audit_hash}[/dim]; commented on {len(ids)} work items."
+        Text.assemble(
+            "Recorded release ",
+            (release_id, "bold"),
+            " with audit_hash ",
+            (record.audit_hash, "dim"),
+            f"; commented on {len(ids)} work items.",
+        )
     )
 
 
@@ -366,12 +373,13 @@ def list_cmd(
     table.add_column("items")
     table.add_column("created_at")
     for r in records:
+        # Ledger text goes to Rich as Text: a str cell is read as markup.
         table.add_row(
-            r.release_id,
-            r.workspace,
-            r.approver,
+            Text(r.release_id),
+            Text(r.workspace),
+            Text(r.approver),
             str(len(r.fabric_items_changed)),
-            r.created_at.isoformat(),
+            Text(r.created_at.isoformat()),
         )
     _console.print(table)
 
