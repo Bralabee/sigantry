@@ -4,7 +4,7 @@ Mirrors :class:`sigantry_core.release.record.DeployRecord` exactly --
 same canonical-JSON hashing strategy, same millisecond-truncated
 datetime, same frozen ``ConfigDict`` with ``extra="forbid"``. The audit
 plane treats deploys and bootstraps symmetrically: each has its own
-JSONL ledger but both verify-without-trust under the same algorithm.
+JSONL ledger, and both are checked with the same unkeyed hash.
 
 Hash algorithm (lifted verbatim from ``release/record.py`` so a verifier
 implemented for one record type works for the other):
