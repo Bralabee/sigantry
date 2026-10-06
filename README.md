@@ -38,8 +38,8 @@ pip install sigantry
 > `.sigantry.toml` and settings overrides named `SIGANTRY_<SECTION>__<KEY>`, the names
 > these docs use. `sigantry` 1.0.0 looks for neither: given no path (the CLI, or
 > `FabricDataOps.from_config()` with no argument) it looks only for `.fabric-dataops.toml`,
-> and it reads settings overrides only as `FDT_<SECTION>__<KEY>`. To see which version you
-> have, run `pip show sigantry`.
+> and it reads settings overrides as `FDT_<SECTION>__<KEY>`, not `SIGANTRY_<SECTION>__<KEY>`.
+> To see which version you have, run `pip show sigantry`.
 >
 > - **On 1.0.0,** upgrade with `pip install --upgrade sigantry`. Until you do, name the file
 >   `.fabric-dataops.toml` (its contents are the same), or pass its path explicitly: 1.0.0

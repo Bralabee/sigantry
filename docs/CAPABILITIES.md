@@ -515,7 +515,7 @@ The base package registers no deploy profile, DQ gate or telemetry sink, so step
 
 - **File.** Called with no path, `load_settings()` reads `.sigantry.toml` from the working directory, or the legacy `.fabric-dataops.toml` with a `DeprecationWarning` when `.sigantry.toml` is absent. When both exist and differ, the legacy file is read, as on 1.0.0, with a `UserWarning`. A missing file is not an error: every setting keeps its default. An explicit path is read as given, whatever its name.
 - **Environment overrides.** `SIGANTRY_<SECTION>__<KEY>`, for example `SIGANTRY_CORE__TENANT_ID`, wins over `.sigantry.toml`; over the legacy file or a file passed by path, which 1.0.0 also read, it only fills what the file leaves unset. The legacy `FDT_<SECTION>__<KEY>` is still read, warns, and through 1.0.x wins over both `SIGANTRY_` and the file, as on 1.0.0.
-- **1.0.0.** Given no path, sigantry 1.0.0 looks only for `.fabric-dataops.toml`, and it reads settings overrides only as `FDT_<SECTION>__<KEY>`, not `SIGANTRY_`. See the note in [`README.md`](../README.md) and [`migration/2.x-to-3.0.md`](migration/2.x-to-3.0.md).
+- **1.0.0.** Given no path, sigantry 1.0.0 looks only for `.fabric-dataops.toml`, and it reads settings overrides as `FDT_<SECTION>__<KEY>`, not `SIGANTRY_`. See the note in [`README.md`](../README.md) and [`migration/2.x-to-3.0.md`](migration/2.x-to-3.0.md).
 
 No PowerShell module ships in this repository. The `templates/jobs/build-powershell.yml` and `lint-powershell.yml` job templates run Pester and PSScriptAnalyzer over a consumer's own PowerShell code.
 

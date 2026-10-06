@@ -938,8 +938,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The client refuses a non-https URL that a response names.** An LRO or
   ARM `Location` header, an ARM `Azure-AsyncOperation` header, a Fabric
   `continuationUri` or a Power BI `@odata.nextLink` with a scheme other
-  than https raises `ResponseUrlRefusedError` before any request is sent,
-  so the bearer token is not sent to it (see Changed).
+  than https raises `ResponseUrlRefusedError` before any request is sent
+  to it (see Changed).
 - **Item names that would place files outside the staging directory or
   `--into` are refused.** A `sync.yml` `display_name`, or the name of an
   item `sigantry sync pull` writes, that contains `/` or `\`, or whose
