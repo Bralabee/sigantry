@@ -63,7 +63,7 @@ The toolkit already has the config substrate: `ToolkitSettings`
 `FDT_` prefix is still read and is outranked), and is declared
 `extra="allow"` — so a **new top-level section can be added without changing the model**.
 The 1.0.0 release differs: its loader defaults to `.fabric-dataops.toml` and reads
-only `FDT_` overrides.
+settings overrides as `FDT_<SECTION>__<KEY>`, not `SIGANTRY_<SECTION>__<KEY>`.
 
 ## Decision (proposed)
 

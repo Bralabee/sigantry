@@ -119,7 +119,7 @@ def test_note_installs_only_the_published_distribution(guide_text: str) -> None:
 
 
 def test_verify_section_is_scoped_past_1_0_0(guide_text: str) -> None:
-    """1.0.0 reads only the old names and warns about neither.
+    """1.0.0 does not read the new config names and warns about neither old one.
 
     The Verify command passes on 1.0.0 whatever the config file is called, so
     the section must say which releases it applies to and what 1.0.0 reads.
