@@ -1,16 +1,16 @@
-"""Rollback by recorded item set (PIPELINE-03).
+"""Rollback by release id.
 
-Re-applies a previously-recorded DeployRecord against its original
-workspace. Uses fabric-cicd 1.0's items_to_include selective publish
-(experimental feature; both feature flags appended at module import).
+Publishes again the items a recorded ``DeployRecord`` names
+(``fabric_items_changed``), against the workspace the record names. It is
+a forward deploy through fabric-cicd's ``items_to_include`` selective
+publish (an experimental feature; both feature flags are appended at
+module import).
 
-The rollback IS a forward deploy with a filtered item list. fabric-cicd
-is idempotent -- re-publishing the same item set converges the workspace
-regardless of intermediate releases.
-
-NOT git revert. NOT git checkout + redeploy. The recorded item set IS
-the rollback target; logicalId stability across renames is guaranteed
-by the audit_hash invariant in DeployRecord.
+The record holds item names only, not content and not a commit: the
+content published is read from ``repository_directory``, so the caller
+checks out the source to restore first. fabric-cicd publishes only the
+item types in ``item_type_in_scope``, so a named item of another type is
+skipped without an error. Items created after the release stay in place.
 """
 
 from __future__ import annotations
@@ -99,24 +99,25 @@ def rollback_to_release(
     runbook_id: str | None = None,
     principal: str | None = None,
 ) -> DeployResult:
-    """Re-apply a recorded item set against the named workspace.
+    """Publish again the items a recorded release names.
 
-    Audit-2026-05-07 W1.7 follow-up (security re-audit finding):
-    rollback supplants live workspace state with a previously-recorded
-    item set, which is destructive in the same class as
-    ``delete_workspace`` / ``delete_folder``. The `@destructive_op` gate
-    enforces ``force=True`` at call site and emits a structured audit
-    record (``outcome=succeeded`` on the clean path, ``outcome=failed``
-    with ``exc_type`` on exception). ``runbook_id`` is recommended.
+    The rollback overwrites those items in the workspace with the content
+    in ``repository_directory``, so it is destructive in the same class as
+    ``delete_workspace`` / ``delete_folder``. The ``@destructive_op`` gate
+    refuses unless ``force=True`` is passed as a keyword, and records the
+    call (``outcome=succeeded`` on the clean path, ``outcome=failed`` with
+    ``exc_type`` on an exception). ``runbook_id`` is recommended.
 
     Args:
         release_id: The DeployRecord.release_id to roll back to.
         workspace: Target Fabric workspace GUID (must match
             DeployRecord.workspace; cross-workspace rollback is rejected).
-        repository_directory: Source tree containing the .platform items.
-            Must contain at least the items recorded in the DeployRecord.
+        repository_directory: Source tree containing the .platform items;
+            the content published is read from here. It should hold every
+            item the DeployRecord names.
         environment: Parameter-file environment key.
-        item_type_in_scope: fabric-cicd selective-deploy scope.
+        item_type_in_scope: fabric-cicd's item types in scope. A named
+            item of another type is not published.
         parameters_path: Override path to parameters.yml.
         dry_run: If True, log the planned rollback and return a zero-count
             DeployResult without touching the workspace.

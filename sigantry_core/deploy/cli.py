@@ -30,6 +30,7 @@ from xml.sax.saxutils import escape
 
 import typer
 from rich.console import Console
+from rich.text import Text
 
 from sigantry_core.client import FabricRestClient
 from sigantry_core.deploy.core import deploy_workspace
@@ -95,8 +96,9 @@ def deploy_cmd(
         False,
         "--rollback",
         help=(
-            "Re-deploy a previously-recorded release set instead of "
-            "forward-deploying. Requires --to-release AND --rollback-force."
+            "Instead of a forward deploy, publish again the items a recorded "
+            "release names whose type is in --item-types, with their content "
+            "from --source. Requires --to-release and --rollback-force."
         ),
     ),
     to_release: str | None = typer.Option(
@@ -108,9 +110,8 @@ def deploy_cmd(
         False,
         "--rollback-force",
         help=(
-            "REQUIRED with --rollback: acknowledges that rollback supplants "
-            "live workspace state with the recorded item set. Audit-2026-05-07 "
-            "W1 follow-up: rollback now goes through @destructive_op."
+            "Required with --rollback: acknowledges that the rollback "
+            "overwrites workspace items with the content in --source."
         ),
     ),
     rollback_runbook_id: str | None = typer.Option(
@@ -178,8 +179,8 @@ def deploy_cmd(
         if unpublish_orphans:
             raise typer.BadParameter(
                 "--rollback cannot be combined with --unpublish-orphans. "
-                "Rollback re-applies a known-good recorded state; orphan "
-                "unpublish is the destructive forward-deploy path."
+                "A rollback publishes the items a recorded release names; "
+                "deleting orphan items belongs to a forward deploy."
             )
         # Lazy import keeps the forward-deploy path untouched by the
         # module-import-time append_feature_flag side effects (Pitfall 1).
@@ -209,7 +210,7 @@ def deploy_cmd(
                 runbook_id=rollback_runbook_id,
             )
         except ValueError as exc:
-            _console.print(f"[red]rollback failed[/red]: {exc}")
+            _console.print(Text.assemble(("rollback failed", "red"), f": {exc}"))
             raise typer.Exit(code=1) from exc
 
         # Open Q3 / PATTERNS.md: emit a NEW DeployRecord for the rollback
@@ -357,15 +358,15 @@ def validate_cmd(
     # $ENV: RuntimeError land in `errors` (exit 1).
     try:
         load_and_validate(params)
-        _console.print(f"[green]OK[/green]  parameters: {params}")
+        _console.print(Text.assemble(("OK", "green"), f"  parameters: {params}"))
     except FileNotFoundError as e:
-        _console.print(f"[red]FAIL[/red] parameters missing: {e}")
+        _console.print(Text.assemble(("FAIL", "red"), f" parameters missing: {e}"))
         if junit_xml:
             _emit_junit(junit_xml, [("parameters", str(e))])
         raise typer.Exit(code=2) from e
     except (HardcodedGuidError, ValueError, RuntimeError) as e:
         errors.append(("parameters", f"{type(e).__name__}: {e}"))
-        _console.print(f"[red]FAIL[/red] parameters: {e}")
+        _console.print(Text.assemble(("FAIL", "red"), f" parameters: {e}"))
 
     # (2) dependency graph - validate_order handles DOT emission itself.
     # Missing source is FAIL (T-5-10); cycle is FAIL.
@@ -378,13 +379,13 @@ def validate_cmd(
         if dot_output:
             dot_kwargs["dot_output_dir"] = dot_output
         dot_path = validate_order(**dot_kwargs)  # type: ignore[arg-type]
-        _console.print(f"[green]OK[/green]  dependency graph ({dot_path})")
+        _console.print(Text.assemble(("OK", "green"), f"  dependency graph ({dot_path})"))
     except FileNotFoundError as e:
         errors.append(("dependency", f"source missing: {e}"))
-        _console.print(f"[red]FAIL[/red] source: {e}")
+        _console.print(Text.assemble(("FAIL", "red"), f" source: {e}"))
     except DependencyCycleError as e:
         errors.append(("dependency", f"cycle: {e}"))
-        _console.print(f"[red]FAIL[/red] dependency cycle: {e}")
+        _console.print(Text.assemble(("FAIL", "red"), f" dependency cycle: {e}"))
 
     # (3) pre-commit hooks - A3 assumption mitigation: absence is WARN.
     if not skip_pre_commit:

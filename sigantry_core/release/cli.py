@@ -62,6 +62,7 @@ from typing import Any
 import typer
 from rich.console import Console
 from rich.table import Table
+from rich.text import Text
 
 from sigantry_core.governance.audit import emit_deploy_record
 from sigantry_core.governance.audit_io import _DEFAULT_AUDIT_DIR, verify_audit_chain
@@ -73,7 +74,9 @@ from sigantry_core.release.ledger import (
 from sigantry_core.release.record import DeployRecord
 
 release_app = typer.Typer(
-    help="Sigantry release records -- work-item links + immutable audit.",
+    help=(
+        "Sigantry release records: work-item links and an integrity-checked, unkeyed deploy ledger."
+    ),
     no_args_is_help=True,
 )
 _console = Console()
@@ -412,7 +415,11 @@ def show_cmd(
     audit_dir_path = Path(audit_dir) if audit_dir else None
     record = find_by_release_id(release_id, audit_dir=audit_dir_path)
     if record is None:
-        _console.print(f"[red]No release [bold]{release_id}[/bold] found in ledger.[/red]")
+        _console.print(
+            Text.assemble(
+                ("No release ", "red"), (release_id, "bold red"), (" found in ledger.", "red")
+            )
+        )
         raise typer.Exit(code=1)
     payload = record.model_dump(mode="json")
     if html:
@@ -421,7 +428,9 @@ def show_cmd(
         html_content = render_release_html_report(payload)
         if html_out:
             Path(html_out).write_text(html_content, encoding="utf-8")
-            _console.print(f"[green]HTML release report written to:[/green] {html_out}")
+            _console.print(
+                Text.assemble(("HTML release report written to:", "green"), " ", html_out)
+            )
         else:
             typer.echo(html_content)
         return
@@ -470,10 +479,18 @@ def diff_cmd(
     a = find_by_release_id(release_id_1, audit_dir=audit_dir_path)
     b = find_by_release_id(release_id_2, audit_dir=audit_dir_path)
     if a is None:
-        _console.print(f"[red]No release [bold]{release_id_1}[/bold] in ledger.[/red]")
+        _console.print(
+            Text.assemble(
+                ("No release ", "red"), (release_id_1, "bold red"), (" in ledger.", "red")
+            )
+        )
         raise typer.Exit(code=1)
     if b is None:
-        _console.print(f"[red]No release [bold]{release_id_2}[/bold] in ledger.[/red]")
+        _console.print(
+            Text.assemble(
+                ("No release ", "red"), (release_id_2, "bold red"), (" in ledger.", "red")
+            )
+        )
         raise typer.Exit(code=1)
     diff = diff_records(a, b)
     if html:
@@ -487,7 +504,9 @@ def diff_cmd(
         html_content = render_release_diff_html_report(payload)
         if html_out:
             Path(html_out).write_text(html_content, encoding="utf-8")
-            _console.print(f"[green]HTML release diff report written to:[/green] {html_out}")
+            _console.print(
+                Text.assemble(("HTML release diff report written to:", "green"), " ", html_out)
+            )
         else:
             typer.echo(html_content)
         return
@@ -505,9 +524,9 @@ def diff_cmd(
         f"[dim]= {len(diff['unchanged'])}[/dim]"
     )
     for entry in diff["added"]:
-        _console.print(f"[green]  + {entry['fabric_item_id']}[/green]")
+        _console.print(Text(f"  + {entry['fabric_item_id']}", style="green"))
     for entry in diff["removed"]:
-        _console.print(f"[red]  - {entry['fabric_item_id']}[/red]")
+        _console.print(Text(f"  - {entry['fabric_item_id']}", style="red"))
     # WR-02 (review fix): human-mode previously emitted only `added`
     # (green +) and `removed` (red -) detail lines, leaving operators
     # who asked "which items did NOT change?" with the count header but
@@ -515,7 +534,7 @@ def diff_cmd(
     # the human / JSON shapes are now symmetric. Use [dim] to keep the
     # delta entries visually dominant.
     for entry in diff["unchanged"]:
-        _console.print(f"[dim]  = {entry['fabric_item_id']}[/dim]")
+        _console.print(Text(f"  = {entry['fabric_item_id']}", style="dim"))
 
 
 def _read_ledger_lines_strict(path: Path) -> tuple[list[DeployRecord], list[str]]:
@@ -612,7 +631,7 @@ def verify_cmd(
         if json_output:
             _console.print_json(data=verdict)
         else:
-            _console.print(f"[yellow]NOTHING TO VERIFY[/yellow] no ledger at {path}")
+            _console.print(Text.assemble(("NOTHING TO VERIFY", "yellow"), f" no ledger at {path}"))
         raise typer.Exit(0)
 
     records, problems = _read_ledger_lines_strict(path)
@@ -629,9 +648,9 @@ def verify_cmd(
         if json_output:
             _console.print_json(data=verdict)
         else:
-            _console.print(f"[red]CHAIN UNVERIFIABLE[/red] {path}")
+            _console.print(Text.assemble(("CHAIN UNVERIFIABLE", "red"), f" {path}"))
             for problem in problems:
-                _console.print(f"[red]  - {problem}[/red]")
+                _console.print(Text(f"  - {problem}", style="red"))
         raise typer.Exit(1)
 
     is_valid, bad_index, reason = verify_audit_chain(records)
@@ -649,19 +668,25 @@ def verify_cmd(
         raise typer.Exit(0 if is_valid else 1)
 
     if not is_valid:
-        _console.print(f"[red]CHAIN BROKEN[/red] {path}")
-        _console.print(f"[red]  first bad record index: {bad_index}[/red]")
-        _console.print(f"[red]  reason: {reason}[/red]")
+        _console.print(Text.assemble(("CHAIN BROKEN", "red"), f" {path}"))
+        _console.print(Text(f"  first bad record index: {bad_index}", style="red"))
+        _console.print(Text(f"  reason: {reason}", style="red"))
         raise typer.Exit(1)
 
     if not records:
         _console.print(
-            f"[yellow]NOTHING TO VERIFY[/yellow] {path} holds 0 records (chain is vacuously valid)"
+            Text.assemble(
+                ("NOTHING TO VERIFY", "yellow"),
+                f" {path} holds 0 records (chain is vacuously valid)",
+            )
         )
         raise typer.Exit(0)
 
     _console.print(
-        f"[green]CHAIN VALID[/green] {len(records)} record(s) verified in append order from {path}"
+        Text.assemble(
+            ("CHAIN VALID", "green"),
+            f" {len(records)} record(s) verified in append order from {path}",
+        )
     )
 
 
