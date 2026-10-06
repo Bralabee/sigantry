@@ -184,11 +184,10 @@ def deploy_cmd(
             )
         # Lazy import keeps the forward-deploy path untouched by the
         # module-import-time append_feature_flag side effects (Pitfall 1).
-        from pathlib import Path as _Path
-
         from sigantry_core.deploy.rollback import rollback_to_release
+        from sigantry_core.governance.audit_io import resolve_audit_dir
 
-        audit_dir_path = _Path(audit_dir) if audit_dir else None
+        audit_dir_path = resolve_audit_dir(audit_dir)
 
         types = [t.strip() for t in item_types.split(",") if t.strip()]
         if not rollback_force:

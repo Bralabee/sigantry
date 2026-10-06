@@ -65,7 +65,11 @@ from rich.table import Table
 from rich.text import Text
 
 from sigantry_core.governance.audit import emit_deploy_record
-from sigantry_core.governance.audit_io import _DEFAULT_AUDIT_DIR, verify_audit_chain
+from sigantry_core.governance.audit_io import (
+    _DEFAULT_AUDIT_DIR,
+    resolve_audit_dir,
+    verify_audit_chain,
+)
 from sigantry_core.release.ledger import (
     diff_records,
     find_by_release_id,
@@ -265,7 +269,7 @@ def record_cmd(
         raise typer.BadParameter("--work-items must contain at least one id.")
     items_changed = _split_csv(fabric_items)
     evidence = _parse_test_evidence(test_evidence)
-    audit_dir_path = Path(audit_dir) if audit_dir else None
+    audit_dir_path = resolve_audit_dir(audit_dir)
 
     provider_obj = _build_provider(
         provider,
@@ -357,7 +361,7 @@ def list_cmd(
     real env-aware filter requires adding an ``environment`` field to
     ``DeployRecord`` (a SemVer-minor schema change), and is deferred.
     """
-    audit_dir_path = Path(audit_dir) if audit_dir else None
+    audit_dir_path = resolve_audit_dir(audit_dir)
     records = list(iter_records(audit_dir=audit_dir_path))
     records.sort(key=lambda r: r.created_at, reverse=True)
     if workspace:
@@ -418,7 +422,7 @@ def show_cmd(
     Output: pretty-printed JSON via ``rich.console.Console.print_json``, or
     standalone interactive HTML when ``--html`` is specified.
     """
-    audit_dir_path = Path(audit_dir) if audit_dir else None
+    audit_dir_path = resolve_audit_dir(audit_dir)
     record = find_by_release_id(release_id, audit_dir=audit_dir_path)
     if record is None:
         _console.print(
@@ -481,7 +485,7 @@ def diff_cmd(
           "unchanged": [...]
         }
     """
-    audit_dir_path = Path(audit_dir) if audit_dir else None
+    audit_dir_path = resolve_audit_dir(audit_dir)
     a = find_by_release_id(release_id_1, audit_dir=audit_dir_path)
     b = find_by_release_id(release_id_2, audit_dir=audit_dir_path)
     if a is None:
@@ -623,7 +627,7 @@ def verify_cmd(
     1
         Chain invalid, a line failed to parse, or the ledger is unreadable.
     """
-    audit_dir_path = Path(audit_dir) if audit_dir else _DEFAULT_AUDIT_DIR
+    audit_dir_path = resolve_audit_dir(audit_dir, default_dir=_DEFAULT_AUDIT_DIR)
     path = audit_dir_path / "deploys.jsonl"
 
     if not path.exists():

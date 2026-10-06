@@ -31,7 +31,7 @@ import json  # noqa: E402
 
 from sigantry_core.deploy.core import DeployResult, deploy_workspace  # noqa: E402
 from sigantry_core.governance.audit import destructive_op  # noqa: E402
-from sigantry_core.governance.audit_io import _DEFAULT_AUDIT_DIR  # noqa: E402
+from sigantry_core.governance.audit_io import _DEFAULT_AUDIT_DIR, resolve_audit_dir  # noqa: E402
 from sigantry_core.release.ledger import find_by_release_id  # noqa: E402
 from sigantry_core.release.record import DeployRecord  # noqa: E402
 
@@ -49,7 +49,7 @@ def _raise_missing_or_tampered(release_id: str, *, audit_dir: Path | None) -> No
     condition ``sigantry release verify`` would name -- rather than sending the
     operator to hunt a mistyped release id.
     """
-    base = audit_dir if audit_dir is not None else _DEFAULT_AUDIT_DIR
+    base = resolve_audit_dir(audit_dir, default_dir=_DEFAULT_AUDIT_DIR)
     path = Path(base) / "deploys.jsonl"
     tampered = False
     unparseable = 0

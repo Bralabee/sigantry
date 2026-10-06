@@ -100,9 +100,9 @@ def destructive_op(
     """
 
     def decorator(fn: F) -> F:
-        # Cache the wrapped function's signature so resource-arg lookup
-        # at call time is a dict access, not a re-parse on every call.
-        sig: inspect.Signature | None = inspect.signature(fn) if resource_arg is not None else None
+        # Cache the wrapped function's signature so resource-arg and
+        # audit-dir lookups at call time are dict accesses, not re-parses.
+        sig: inspect.Signature | None = inspect.signature(fn)
 
         @functools.wraps(fn)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -111,6 +111,13 @@ def destructive_op(
             resource_id = kwargs.get("resource_id")
             if resource_id is None and sig is not None and resource_arg is not None:
                 resource_id = _resolve_resource_id_from_args(sig, resource_arg, args, kwargs)
+            audit_dir: Any = kwargs.get("audit_dir")
+            if audit_dir is None and sig is not None and "audit_dir" in sig.parameters:
+                try:
+                    bound = sig.bind_partial(*args, **kwargs)
+                    audit_dir = bound.arguments.get("audit_dir")
+                except TypeError:
+                    pass
             principal = kwargs.get("principal") or _infer_principal(kwargs)
 
             if force is not True:
@@ -165,7 +172,8 @@ def destructive_op(
                             exc_type=type(exc).__name__,
                             correlation_id=get_correlation_id(),
                             timestamp=datetime.now(tz=UTC),
-                        )
+                        ),
+                        audit_dir=audit_dir,
                     )
                 except OSError:
                     # Audit-plane disk failure on the failure path: log
@@ -211,7 +219,8 @@ def destructive_op(
                         outcome="succeeded",
                         correlation_id=get_correlation_id(),
                         timestamp=datetime.now(tz=UTC),
-                    )
+                    ),
+                    audit_dir=audit_dir,
                 )
             except OSError:
                 # Audit-plane disk failure on the success path: log and
