@@ -46,6 +46,7 @@ import typer
 from pydantic import TypeAdapter, ValidationError
 from pydantic_settings import SettingsError
 from rich.console import Console
+from rich.text import Text
 
 from sigantry_core._cli_settings import load_settings_for_cli, settings_warnings_dropped
 from sigantry_core.config import ToolkitSettings
@@ -139,7 +140,7 @@ def _emit_preview_warning_once(settings: ToolkitSettings | None = None) -> None:
         "and suppress this warning."
     )
     logger.warning(msg)
-    _console.print(f"[yellow]preview-API warning:[/yellow] {msg}")
+    _console.print(Text.assemble(("preview-API warning:", "yellow"), " ", msg))
 
 
 def _env_only_settings() -> ToolkitSettings:
@@ -559,16 +560,18 @@ def pull_cmd(
             force=force,
         )
     except PullTargetNotEmptyError as exc:
-        _console.print(f"[red]sync pull refused:[/red] {exc}")
+        # Messages quote workspace item names and paths; Text is not read as markup.
+        _console.print(Text.assemble(("sync pull refused:", "red"), f" {exc}"))
         raise typer.Exit(code=1) from exc
     except SyncEngineError as exc:
-        _console.print(f"[red]sync pull failed:[/red] {exc}")
+        _console.print(Text.assemble(("sync pull failed:", "red"), f" {exc}"))
         raise typer.Exit(code=1) from exc
 
     _console.print(
-        f"[green]sync pull succeeded[/green] "
-        f"items_pulled={report.items_pulled} "
-        f"sync_yml={report.sync_yml_path}"
+        Text.assemble(
+            ("sync pull succeeded", "green"),
+            f" items_pulled={report.items_pulled} sync_yml={report.sync_yml_path}",
+        )
     )
     # D-19-04: surface the commit reminder when items were actually
     # pulled. On a no-op pull (items_pulled == 0) the reminder would
@@ -577,10 +580,13 @@ def pull_cmd(
     # section 1.2.
     if not no_hint and report.items_pulled > 0:
         _console.print(
-            f"[yellow]note:[/yellow] {report.items_pulled} item(s) pulled. "
-            f"Remember to commit `sync.yml` + sources before next session "
-            f"to preserve `logical_id` idempotency. See "
-            f"docs/runbooks/sync/pull.md section 1.2."
+            Text.assemble(
+                ("note:", "yellow"),
+                f" {report.items_pulled} item(s) pulled. "
+                "Remember to commit `sync.yml` + sources before next session "
+                "to preserve `logical_id` idempotency. See "
+                "docs/runbooks/sync/pull.md section 1.2.",
+            )
         )
 
 
