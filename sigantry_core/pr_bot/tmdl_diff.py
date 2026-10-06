@@ -33,6 +33,10 @@ TMDL spec edge cases (Microsoft Learn TMDL syntax doc):
   TMDL overview, Indentation); hand-written files commonly use four
   spaces. A tab is measured as :data:`_TAB_WIDTH` columns so both forms,
   and a file mixing them at four columns per level, nest the same way.
+- Inside a ``` expression fence the indentation rules are off: lines are
+  taken verbatim until the closing fence, flush-left or not.
+- A bare (unquoted) name runs to whitespace or a character that would
+  force quoting (``. = : '``); relationships are named by bare GUID.
 """
 
 from __future__ import annotations
@@ -60,8 +64,11 @@ _BLOCK_KEYWORDS: Final[frozenset[str]] = frozenset(
 )
 """Block-decl keywords (RESEARCH §Pattern 1; trimmed per plan to STARTER-05 surface)."""
 
-# Name token: single-quoted with `''` escape, OR bare identifier.
-_NAME_RE: Final[str] = r"(?:'(?:[^']|'')*'|[A-Za-z_][\w]*)"
+# Name token: single-quoted with `''` escape, OR bare. The spec quotes a name
+# only when it holds a dot, equals, colon, quote or whitespace, so a bare name
+# is any run free of those: exports name relationships by bare GUID
+# (`8f3c0a2e-5b1d-...`), which may start with a digit and holds hyphens.
+_NAME_RE: Final[str] = r"(?:'(?:[^']|'')*'|[^\s=:'.]+)"
 _BLOCK_DECL_RE: Final[re.Pattern[str]] = re.compile(
     r"^(?P<kind>"
     + "|".join(sorted(_BLOCK_KEYWORDS))
@@ -113,6 +120,21 @@ class TmdlBlock:
 _TAB_WIDTH: Final[int] = 4
 """Columns one tab advances to when measuring indentation (see module docstring)."""
 
+_FENCE: Final[str] = "```"
+"""Expression fence: opened at the end of a decl or property line, closed on a line of its own."""
+
+
+def _opens_fence(content: str) -> bool:
+    """True when an (un-indented) line ends by opening a ``` expression fence.
+
+    Per the spec (TMDL overview, Expressions) the fence follows the ``=``
+    on the same line and the closing fence stands alone; inside it the
+    indentation rules do not apply, so the parser must not let a flush-left
+    expression line close the open block.
+    """
+    body = content.rstrip()
+    return body.endswith(_FENCE) and body != _FENCE
+
 
 def _split_indent(line: str) -> tuple[int, str]:
     """Return ``(width, rest)``: the indentation width in columns and the line after it.
@@ -121,10 +143,8 @@ def _split_indent(line: str) -> tuple[int, str]:
     multiple of :data:`_TAB_WIDTH`. Only relative width matters to the
     parser: a child is any line wider than its parent's declaration.
     """
-    n = 0
-    while n < len(line) and line[n] in " \t":
-        n += 1
-    return len(line[:n].expandtabs(_TAB_WIDTH)), line[n:]
+    rest = line.lstrip(" \t")
+    return len(line[: len(line) - len(rest)].expandtabs(_TAB_WIDTH)), rest
 
 
 def parse(text: str, source: str = "<string>") -> list[TmdlBlock]:
@@ -144,6 +164,7 @@ def parse(text: str, source: str = "<string>") -> list[TmdlBlock]:
     stack: list[tuple[int, int, list[str]]] = []
     pending_desc: list[str] = []
     table_stack: list[str] = []  # parent_table tracking
+    in_fence = False  # inside a ``` expression: indentation rules are off
 
     def _close_to(indent: int) -> None:
         """Close every open block whose decl-indent >= ``indent``."""
@@ -166,6 +187,14 @@ def parse(text: str, source: str = "<string>") -> list[TmdlBlock]:
                 table_stack.pop()
 
     for lineno, raw in enumerate(text.splitlines(), start=1):
+        if in_fence:
+            # Verbatim until the closing delimiter, whatever the indentation.
+            if stack:
+                stack[-1][2].append(raw)
+            if raw.strip() == _FENCE:
+                in_fence = False
+            continue
+
         if not raw.strip():
             if stack:
                 stack[-1][2].append(raw)
@@ -204,11 +233,13 @@ def parse(text: str, source: str = "<string>") -> list[TmdlBlock]:
             stack.append((indent, len(blocks) - 1, body_lines))
             if kind == "table":
                 table_stack.append(name)
+            in_fence = _opens_fence(stripped)
             continue
 
         # Non-decl line: append to innermost open block's body if any.
         if stack:
             stack[-1][2].append(raw)
+        in_fence = _opens_fence(stripped)
 
     _close_to(-1)
     return blocks

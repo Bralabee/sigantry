@@ -10,12 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
-- **PR review bot: tab-indented TMDL.** The TMDL parser counted only spaces as
-  indentation, so a model exported by Power BI Desktop or Fabric (one tab per
-  level, the serializer's default) parsed as top-level shells with nothing
-  inside them, and a dropped measure diffed as "no changes". A tab now counts
-  as one level (four columns); 4-space files parse exactly as before. Tutorial
-  09 and the PR-bot runbook no longer call tabs a mistake. (#82)
+- **PR review bot: serializer-shaped TMDL.** Three parser gaps made a real
+  Power BI Desktop or Fabric export diff as "no changes". Indentation counted
+  spaces only, so a tab-indented model (one tab per level, the serializer's
+  default) parsed as top-level shells with nothing inside them. A bare name
+  had to start with a letter and stopped at a hyphen, so a relationship named
+  by GUID was dropped or cut to its first eight characters, and two could
+  share one key. A ``` expression fence with flush-left lines closed its
+  block. A tab now counts as one level (four columns) and 4-space files parse
+  exactly as before; a bare name runs to whitespace or a quoting character;
+  a fence is read verbatim to its closing delimiter. Tutorial 09 and the
+  PR-bot runbook no longer call tabs a mistake. (#82)
 
 ## [1.0.1] - 2026-10-06
 

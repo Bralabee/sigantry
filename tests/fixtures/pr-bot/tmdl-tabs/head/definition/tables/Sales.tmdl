@@ -35,6 +35,13 @@ table Sales
 		summarizeBy: none
 		sourceColumn: OrderDate
 
+	column 'Ship Date'
+		dataType: dateTime
+		formatString: General Date
+		lineageTag: 1b2c3d4e-0008-4a5b-8c6d-7e8f9a0b1c2d
+		summarizeBy: none
+		sourceColumn: ShipDate
+
 	partition Sales = m
 		mode: import
 		source =

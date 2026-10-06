@@ -137,7 +137,7 @@ reviewers learn to trust its silence as a signal too.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| diff reports no changes on a file you edited | the edit is inside an object kind the parser does not track (role, perspective, hierarchy, calculation item), or the file is indented at a width other than one tab or four spaces per level | see the runbook, "TMDL parser semantics are shallow"; re-indent at one tab or four spaces per level |
+| diff reports no changes on a file you edited | the object lives in a file the parser does not read: a role, perspective, culture, shared expression or function, or the unnamed `database` file | these are outside the diff today (runbook, "TMDL parser semantics are shallow"); an edit inside a table's hierarchy or calculation group surfaces as that table modified, not by name |
 | `GitHub provider requires --token or GITHUB_TOKEN` | no token, even on dry-run | export `GITHUB_TOKEN` (dry-run still reads PR metadata) |
 | `GITHUB_REPOSITORY env var must be 'owner/repo'` | running outside GHA | export it manually; CI sets it automatically |
 | `HTTP 401` on dry-run | dummy/expired token | dry-run needs a REAL token; use the Python loop for credential-free testing |
