@@ -42,9 +42,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SIGANTRY_CORE = REPO_ROOT / "sigantry_core"
 
 DESTRUCTIVE_PREFIX_PATTERN = re.compile(
-    # ``rollback_`` added in the W1 security re-audit follow-up: rollback
-    # supplants live workspace state with a previously-recorded item set,
-    # which is destructive in the same class as ``delete_workspace``.
+    # ``rollback_`` is included because a rollback overwrites workspace items
+    # with the content in its source tree, which is destructive in the same
+    # class as ``delete_workspace``.
     r"^(delete|pause|remove|unpublish|drop|purge|suspend|rollback)_[a-z0-9_]+$"
 )
 
