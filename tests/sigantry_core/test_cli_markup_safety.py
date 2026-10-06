@@ -1,4 +1,4 @@
-"""CLI print sites in the modules below hand Rich no data as markup.
+"""CLI print sites in the modules and functions SCOPE lists hand Rich no data as markup.
 
 Rich reads ``[...]`` in a ``str`` it prints (or puts in a table cell, a
 title or a column header) as markup and ``:name:`` as an emoji code. Data
