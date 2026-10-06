@@ -115,9 +115,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sets the field, with its replacement, `SIGANTRY_<SECTION>__<KEY>`:
   `TENANT_ID`, `PROVIDER`, `SINK`, `PROFILE`, `GATE`, `REGISTRY`, `POLICY`,
   `STORE`, `BOT`, `AUDIT_DIR` and `PREVIEW_APIS_ACKNOWLEDGED`. `STATIC_MAP`,
-  `ADO` or `GITHUB` holding a JSON object is named the same way; its
+  `ADO` or `GITHUB` holding a JSON object is named the same way. Its
   replacement is one `SIGANTRY_<SECTION>__<TABLE>__<KEY>` variable per key of
-  the object, such as `SIGANTRY_RELEASE__GITHUB__REPO`. A JSON object in
+  the object, such as `SIGANTRY_RELEASE__GITHUB__REPO`, where every key is in
+  lower case without `__` and every value is a string; otherwise it is the
+  table in `.sigantry.toml`, such as `[runbooks.static_map]`, because a key in
+  a variable name is read in lower case and split at `__`, and a variable
+  holds only a string. A JSON object in
   `SIGANTRY_RELEASE__GITHUB`, `SIGANTRY_RELEASE__ADO` or
   `SIGANTRY_RUNBOOKS__STATIC_MAP` itself is ignored with a `UserWarning` by
   `load_settings()`, and by `ToolkitSettings()` built without a prefix of its
@@ -126,9 +130,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   names such a JSON object and its keys are missing from the result: 1.0.0
   merged them into that table when it read the file (the legacy config file,
   or a file passed by path), and used them alone where the file was a
-  `.sigantry.toml` it did not read. Set those keys in the file, or as
-  `SIGANTRY_<SECTION>__<TABLE>__<KEY>` variables, which fill the keys the
-  table leaves unset. `sigantry sync apply` and `sigantry sync
+  `.sigantry.toml` it did not read. Set those keys in the file, or, for keys
+  in lower case, as `SIGANTRY_<SECTION>__<TABLE>__<KEY>` variables, which
+  fill the keys the table leaves unset. `sigantry sync apply` and `sigantry sync
   pull` still honour an unprefixed `PREVIEW_APIS_ACKNOWLEDGED`, which only
   silences the Preview-API notice, where no file or prefixed variable sets it.
 - **Settings classes.** The section models (`CoreSettings`, `AuthSettings` and
