@@ -177,7 +177,7 @@ The bot raised an unhandled exception during diff computation. Check
 the workflow log for the full traceback. Most often this is:
 
 - A malformed `*.tmdl` file (the parser is line-based, indentation-
-  aware; tabs vs. spaces mixed within a single block trips it).
+  aware).
 - A symlink loop inside `**/*.Lakehouse/**`.
 
 Open an issue at <https://github.com/Bralabee/sigantry/issues>
@@ -216,6 +216,16 @@ recognising `table`, `measure`, `column`, `relationship`, `partition`,
 `model` blocks. Heavy semantics (DAX expression equivalence, partition
 source identity) are out of scope -- the bot surfaces "modified" when
 text changes; downstream reviewer adjudicates significance.
+
+Indentation is read as tabs or spaces, a tab counting as four columns, so
+a tab-indented export and a four-space hand-written file parse the same
+way. A file that mixes tabs with a space width other than four can
+misnest, and misnesting never raises: it shows as a wrong or empty diff,
+not as an error. Inside a ``` expression fence indentation is ignored up
+to the closing fence. Objects outside the recognised kinds (roles,
+perspectives, cultures, shared expressions, functions, the unnamed
+`database` file) are not read at all; a hierarchy or calculation group
+inside a table surfaces as that table modified.
 
 ### No live REST queries during PR review
 

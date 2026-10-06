@@ -1,0 +1,10 @@
+// tests/fixtures/pr-bot/tmdl-tabs/head/definition/model.tmdl
+model Model
+	culture: en-GB
+	defaultPowerBIDataSourceVersion: powerBI_V3
+	sourceQueryCulture: en-GB
+
+annotation PBI_QueryOrder = ["Sales","Calendar"]
+
+ref table Sales
+ref table Calendar

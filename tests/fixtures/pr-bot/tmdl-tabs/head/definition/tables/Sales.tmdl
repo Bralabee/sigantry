@@ -1,0 +1,54 @@
+// tests/fixtures/pr-bot/tmdl-tabs/head/definition/tables/Sales.tmdl
+// vs base: 'Order Count' measure DROPPED, 'Total Sales' DAX changed, 'Discount Amount' column added.
+/// Fact rows, one per order line.
+table Sales
+	lineageTag: 1b2c3d4e-0001-4a5b-8c6d-7e8f9a0b1c2d
+
+	measure 'Total Sales' = SUM('Sales'[Sales Amount]) - SUM('Sales'[Discount Amount])
+		formatString: #,##0.00
+		lineageTag: 1b2c3d4e-0002-4a5b-8c6d-7e8f9a0b1c2d
+
+	measure 'Avg Order Value' =
+			VAR total = [Total Sales]
+			RETURN DIVIDE(total, [Order Count])
+		formatString: #,##0.00
+		lineageTag: 1b2c3d4e-0004-4a5b-8c6d-7e8f9a0b1c2d
+
+	column 'Sales Amount'
+		dataType: decimal
+		lineageTag: 1b2c3d4e-0005-4a5b-8c6d-7e8f9a0b1c2d
+		summarizeBy: sum
+		sourceColumn: SalesAmount
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Discount Amount'
+		dataType: decimal
+		lineageTag: 1b2c3d4e-0007-4a5b-8c6d-7e8f9a0b1c2d
+		summarizeBy: sum
+		sourceColumn: DiscountAmount
+
+	column 'Order Date'
+		dataType: dateTime
+		formatString: General Date
+		lineageTag: 1b2c3d4e-0006-4a5b-8c6d-7e8f9a0b1c2d
+		summarizeBy: none
+		sourceColumn: OrderDate
+
+	column 'Ship Date'
+		dataType: dateTime
+		formatString: General Date
+		lineageTag: 1b2c3d4e-0008-4a5b-8c6d-7e8f9a0b1c2d
+		summarizeBy: none
+		sourceColumn: ShipDate
+
+	partition Sales = m
+		mode: import
+		source =
+				let
+					Source = Lakehouse.Contents(null),
+					Rows = Source{[Name = "sales_gold"]}[Data]
+				in
+					Rows
+
+	annotation PBI_ResultType = Table

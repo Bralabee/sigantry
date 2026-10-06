@@ -28,6 +28,16 @@ TMDL spec edge cases (Microsoft Learn TMDL syntax doc):
   :attr:`TmdlBlock.name`.
 - Indentation drives nesting: a decl at indent N opens a block whose
   body absorbs subsequent lines at indent > N until indent drops to <= N.
+- Indentation is tabs or spaces. The serializer emits one tab per level
+  ("A TMDL document uses a default single tab indentation rule", Learn,
+  TMDL overview, Indentation); hand-written files commonly use four
+  spaces. A tab is measured as :data:`_TAB_WIDTH` columns so both forms,
+  and a file mixing them at four columns per level, nest the same way.
+- Inside a ``` expression fence (opened only by ``= ```` ending a line) the
+  indentation rules are off: lines are taken verbatim until the closing
+  fence, flush-left or not. A fence that never closes raises.
+- A bare (unquoted) name is identifier- or GUID-shaped (word characters and
+  hyphens); relationships are named by bare, often digit-led, GUID.
 """
 
 from __future__ import annotations
@@ -55,8 +65,12 @@ _BLOCK_KEYWORDS: Final[frozenset[str]] = frozenset(
 )
 """Block-decl keywords (RESEARCH §Pattern 1; trimmed per plan to STARTER-05 surface)."""
 
-# Name token: single-quoted with `''` escape, OR bare identifier.
-_NAME_RE: Final[str] = r"(?:'(?:[^']|'')*'|[A-Za-z_][\w]*)"
+# Name token: single-quoted with `''` escape, OR bare and identifier- or
+# GUID-shaped: word characters and hyphens. Exports name relationships by bare
+# GUID (`8f3c0a2e-5b1d-...`), digit-led and hyphenated. The spec allows any bare
+# name free of `. = : '` and whitespace, but that wide a pattern turned M steps
+# inside a partition source (`column #"x" = 1`) into declarations.
+_NAME_RE: Final[str] = r"(?:'(?:[^']|'')*'|\w[\w-]*)"
 _BLOCK_DECL_RE: Final[re.Pattern[str]] = re.compile(
     r"^(?P<kind>"
     + "|".join(sorted(_BLOCK_KEYWORDS))
@@ -105,15 +119,37 @@ class TmdlBlock:
     line_start: int
 
 
-def _indent_of(line: str) -> int:
-    """Count leading spaces (TMDL spec uses spaces, not tabs)."""
-    n = 0
-    for ch in line:
-        if ch == " ":
-            n += 1
-        else:
-            break
-    return n
+_TAB_WIDTH: Final[int] = 4
+"""Columns one tab advances to when measuring indentation (see module docstring)."""
+
+_FENCE: Final[str] = "```"
+"""Expression fence delimiter; the closing one stands on a line of its own."""
+
+_FENCE_OPEN_RE: Final[re.Pattern[str]] = re.compile(r"=\s*```\s*$")
+"""A fence opens only as ``= ```` ending a decl or property line (spec, Expressions)."""
+
+
+def _opens_fence(content: str) -> bool:
+    """True when an (un-indented) line opens a ``` expression fence.
+
+    Per the spec (TMDL overview, Expressions) the fence follows the ``=``
+    on the same line and the closing fence stands alone; inside it the
+    indentation rules do not apply, so the parser must not let a flush-left
+    expression line close the open block. A value that merely ends in
+    ``` (a one-line ```` ```1``` ````, or ``description: see ````) opens nothing.
+    """
+    return _FENCE_OPEN_RE.search(content) is not None
+
+
+def _split_indent(line: str) -> tuple[int, str]:
+    """Return ``(width, rest)``: the indentation width in columns and the line after it.
+
+    Width counts leading spaces and tabs, a tab advancing to the next
+    multiple of :data:`_TAB_WIDTH`. Only relative width matters to the
+    parser: a child is any line wider than its parent's declaration.
+    """
+    rest = line.lstrip(" \t")
+    return len(line[: len(line) - len(rest)].expandtabs(_TAB_WIDTH)), rest
 
 
 def parse(text: str, source: str = "<string>") -> list[TmdlBlock]:
@@ -133,6 +169,8 @@ def parse(text: str, source: str = "<string>") -> list[TmdlBlock]:
     stack: list[tuple[int, int, list[str]]] = []
     pending_desc: list[str] = []
     table_stack: list[str] = []  # parent_table tracking
+    in_fence = False  # inside a ``` expression: indentation rules are off
+    fence_line = 0
 
     def _close_to(indent: int) -> None:
         """Close every open block whose decl-indent >= ``indent``."""
@@ -155,13 +193,20 @@ def parse(text: str, source: str = "<string>") -> list[TmdlBlock]:
                 table_stack.pop()
 
     for lineno, raw in enumerate(text.splitlines(), start=1):
+        if in_fence:
+            # Verbatim until the closing delimiter, whatever the indentation.
+            if stack:
+                stack[-1][2].append(raw)
+            if raw.strip() == _FENCE:
+                in_fence = False
+            continue
+
         if not raw.strip():
             if stack:
                 stack[-1][2].append(raw)
             continue
 
-        indent = _indent_of(raw)
-        stripped = raw[indent:]
+        indent, stripped = _split_indent(raw)
 
         # `///` binds to the next block; never appended to an open block.
         if stripped.startswith("///"):
@@ -194,12 +239,15 @@ def parse(text: str, source: str = "<string>") -> list[TmdlBlock]:
             stack.append((indent, len(blocks) - 1, body_lines))
             if kind == "table":
                 table_stack.append(name)
-            continue
-
-        # Non-decl line: append to innermost open block's body if any.
-        if stack:
+        elif stack:
+            # Non-decl line: append to innermost open block's body if any.
             stack[-1][2].append(raw)
+        if _opens_fence(stripped):
+            in_fence = True
+            fence_line = lineno
 
+    if in_fence:
+        raise TmdlParseError(f"{source}: expression fence opened at line {fence_line} never closes")
     _close_to(-1)
     return blocks
 

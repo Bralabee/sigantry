@@ -1,0 +1,6 @@
+// tests/fixtures/pr-bot/tmdl-tabs/head/definition/database.tmdl
+// Tab-indented, in the layout and style the TMDL serializer emits (Power BI Desktop / Fabric).
+// [VERIFIED: learn.microsoft.com/analysis-services/tmdl/tmdl-overview "Indentation", fetched 2026-10-06:
+//  "A TMDL document uses a default single tab indentation rule."]
+database
+	compatibilityLevel: 1604

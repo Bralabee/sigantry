@@ -1,0 +1,38 @@
+// tests/fixtures/pr-bot/tmdl-tabs/head/definition/tables/Calendar.tmdl
+table Calendar
+	lineageTag: 5d0e7c1a-0002-4b6c-9d7e-8f9a0b1c2d3e
+	dataCategory: Time
+
+	column Date
+		isKey
+		dataType: dateTime
+		formatString: Short Date
+		lineageTag: 5d0e7c1a-0003-4b6c-9d7e-8f9a0b1c2d3e
+		summarizeBy: none
+		sourceColumn: Date
+
+		annotation SummarizationSetBy = Automatic
+
+	column Year
+		dataType: int64
+		lineageTag: 5d0e7c1a-0004-4b6c-9d7e-8f9a0b1c2d3e
+		summarizeBy: none
+		sourceColumn: Year
+
+	hierarchy 'Calendar Hierarchy'
+		lineageTag: 5d0e7c1a-0005-4b6c-9d7e-8f9a0b1c2d3e
+
+		level Year
+			lineageTag: 5d0e7c1a-0006-4b6c-9d7e-8f9a0b1c2d3e
+			column: Year
+
+	partition Calendar = m
+		mode: import
+		source =
+				let
+					Source = Lakehouse.Contents(null),
+					Rows = Source{[Name = "calendar_gold"]}[Data]
+				in
+					Rows
+
+	annotation PBI_ResultType = Table
