@@ -120,9 +120,7 @@ def test_deploy_run_failure_message_printed_as_written(monkeypatch: pytest.Monke
 def test_fabric_item_copy_failure_prints_path_as_written() -> None:
     Path("s[").mkdir()
     Path("s[/x]").mkdir()
-    result = runner.invoke(
-        app, ["fabric-item", "copy", "s[/x]", "d", "--new-display-name", "n"]
-    )
+    result = runner.invoke(app, ["fabric-item", "copy", "s[/x]", "d", "--new-display-name", "n"])
     assert result.exit_code == 1, repr(result.exception)
     flat = _flat(result.stdout)
     assert f"fabric-item copy failed: {Path('s[/x]')} does not contain a .platform file" in flat
@@ -202,5 +200,8 @@ def test_env_sync_all_manifest_failure_printed_as_written() -> None:
     result = runner.invoke(app, ["env", "sync-all", "--manifest", "m[/x].yml", "--dry-run"])
     assert result.exit_code == 1, repr(result.exception)
     flat = _flat(result.stdout)
-    assert f"environments manifest validation failed: environments manifest at {Path('m[/x].yml')}" in flat
+    assert (
+        f"environments manifest validation failed: environments manifest at {Path('m[/x].yml')}"
+        in flat
+    )
     assert "- {'field':" in flat

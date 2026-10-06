@@ -175,9 +175,7 @@ class _Checker:
             return self.is_int(node.operand, func, seen)
         if isinstance(node, ast.Name) and node.id not in seen:
             values = self._values_of(node.id, func)
-            return all(
-                v is not None and self.is_int(v, func, seen | {node.id}) for v in values
-            )
+            return all(v is not None and self.is_int(v, func, seen | {node.id}) for v in values)
         return False
 
     def _is_escaped(self, node: ast.expr) -> bool:
@@ -240,7 +238,9 @@ class _Checker:
 
     # -- sinks -----------------------------------------------------------
 
-    def _is_console(self, node: ast.expr, func: ast.FunctionDef | None, seen: frozenset[str]) -> bool:
+    def _is_console(
+        self, node: ast.expr, func: ast.FunctionDef | None, seen: frozenset[str]
+    ) -> bool:
         if isinstance(node, ast.Call):
             return _call_name(node.func) == "Console"
         if isinstance(node, ast.IfExp):
@@ -312,7 +312,9 @@ class _Checker:
         return sorted(set(out), key=lambda f: (f.path, f.line, f.source))
 
 
-def check_source(source: str, path: str = "<src>", functions: frozenset[str] | None = None) -> list[Finding]:
+def check_source(
+    source: str, path: str = "<src>", functions: frozenset[str] | None = None
+) -> list[Finding]:
     return _Checker(ast.parse(source), path, functions).findings()
 
 
