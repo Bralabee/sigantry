@@ -44,6 +44,7 @@ from typing import Any
 import typer
 from rich.console import Console
 from rich.table import Table
+from rich.text import Text
 
 from sigantry_core.sync.diff import (
     DriftReport,
@@ -55,16 +56,26 @@ from sigantry_core.sync.errors import (
 )
 
 diff_app = typer.Typer(
-    help=(
-        "Drift detection between local sync.yml manifest and live Fabric workspace (DRIFT-01..02)."
-    ),
+    help="Drift detection between local sync.yml manifest and live Fabric workspace.",
     no_args_is_help=False,
     invoke_without_command=True,
 )
 _console = Console()
-# Errors go to stderr: `--output json` stdout is captured into drift.json by the
-# scheduled drift pipelines, and an error line there is not JSON.
+# Under `--output json` and `--output html` stdout carries the report (the
+# scheduled drift pipelines capture `--output json` into drift.json), so errors
+# go to stderr there. In human mode, and for an invalid `--output` value, errors
+# stay on stdout, where 1.0.0 printed them.
 _err_console = Console(stderr=True)
+
+
+def _data(value: object) -> Text:
+    """Wrap manifest, workspace or error text so Rich prints it as it is.
+
+    Rich parses ``[...]`` in a printed ``str`` as markup and ``:name:`` as an
+    emoji code. A :class:`~rich.text.Text` is not parsed, so a closing tag
+    such as ``[/old]`` cannot raise ``MarkupError`` and ``[draft]`` is kept.
+    """
+    return Text(str(value))
 
 
 def _render_human_table(report: DriftReport, *, environment: str) -> None:
@@ -76,7 +87,7 @@ def _render_human_table(report: DriftReport, *, environment: str) -> None:
     surfaces ``logical_id`` for added / removed / unchanged, and
     ``fields_changed`` for modified.
     """
-    title = f"Sigantry drift report -- environment={environment!r}"
+    title = Text(f"Sigantry drift report -- environment={environment!r}", style="table.title")
     table = Table(title=title)
     table.add_column("Status")
     table.add_column("Type")
@@ -87,18 +98,18 @@ def _render_human_table(report: DriftReport, *, environment: str) -> None:
     for add_entry in report.added:
         table.add_row(
             "[cyan]+[/cyan] added",
-            str(add_entry.get("type", "")),
-            str(add_entry.get("display_name", "")),
-            str(add_entry.get("folder_path", "")),
-            str(add_entry.get("logical_id", "")),
+            _data(add_entry.get("type", "")),
+            _data(add_entry.get("display_name", "")),
+            _data(add_entry.get("folder_path", "")),
+            _data(add_entry.get("logical_id", "")),
         )
     for rem_entry in report.removed:
         table.add_row(
             "[red]-[/red] removed",
-            str(rem_entry.get("type", "")),
-            str(rem_entry.get("display_name", "")),
-            str(rem_entry.get("folder_path", "")),
-            str(rem_entry.get("logical_id", "")),
+            _data(rem_entry.get("type", "")),
+            _data(rem_entry.get("display_name", "")),
+            _data(rem_entry.get("folder_path", "")),
+            _data(rem_entry.get("logical_id", "")),
         )
     for mod_entry in report.modified:
         fields_changed: Any = mod_entry.get("fields_changed", [])
@@ -111,7 +122,7 @@ def _render_human_table(report: DriftReport, *, environment: str) -> None:
             "",
             "",
             "",
-            f"{mod_entry.get('logical_id', '')}: {detail}",
+            _data(f"{mod_entry.get('logical_id', '')}: {detail}"),
         )
     for unch_entry in report.unchanged:
         table.add_row(
@@ -119,7 +130,7 @@ def _render_human_table(report: DriftReport, *, environment: str) -> None:
             "",
             "",
             "",
-            str(unch_entry.get("logical_id", "")),
+            _data(unch_entry.get("logical_id", "")),
         )
 
     _console.print(table)
@@ -167,7 +178,7 @@ def diff_cmd(
     fail_on_drift: bool = typer.Option(
         False,
         "--fail-on-drift",
-        help="Exit 1 on any detected drift (D-26).",
+        help="Exit 1 on any detected drift.",
     ),
     no_hint: bool = typer.Option(
         False,
@@ -188,30 +199,33 @@ def diff_cmd(
 
     On operational error (manifest validation,
     :class:`WorkspacePendingGitUpdateError`, REST / auth failure):
-    exit 2 with a red error message.
+    exit 2 with a red error message, on stdout in human mode and on stderr
+    under ``--output json`` or ``--output html``.
     """
     if output not in {"human", "json", "html"}:
-        _err_console.print(
-            f"[red]Invalid --output {output!r}; must be 'human', 'json', or 'html'.[/red]"
+        _console.print(
+            Text(f"Invalid --output {output!r}; must be 'human', 'json', or 'html'.", style="red")
         )
         raise typer.Exit(code=2)
+
+    errors = _console if output == "human" else _err_console
 
     try:
         report = diff_workspace_against_manifest(manifest, workspace_id)
     except ManifestValidationError as exc:
-        _err_console.print(f"[red]Manifest validation failed:[/red] {exc}")
+        errors.print(Text.assemble(("Manifest validation failed:", "red"), " ", _data(exc)))
         for v in exc.violations:
-            _err_console.print(f"  [yellow]-[/yellow] {v}")
+            errors.print(Text.assemble("  ", ("-", "yellow"), " ", _data(v)))
         raise typer.Exit(code=2) from exc
     except WorkspacePendingGitUpdateError as exc:
-        _err_console.print(f"[red]{exc}[/red]")
+        errors.print(Text(str(exc), style="red"))
         raise typer.Exit(code=2) from exc
     except Exception as exc:
         # Operational error -- workspace not found, auth chain failure,
         # network issue, or any unexpected SyncEngineError subclass. Exit
         # 2 (D-26) so CI runners can branch the same way they do for
         # WorkspacePendingGitUpdateError.
-        _err_console.print(f"[red]sigantry diff failed:[/red] {exc}")
+        errors.print(Text.assemble(("sigantry diff failed:", "red"), " ", _data(exc)))
         raise typer.Exit(code=2) from exc
 
     if output == "json":
@@ -228,7 +242,9 @@ def diff_cmd(
         )
         if html_out:
             Path(html_out).write_text(html_content, encoding="utf-8")
-            _console.print(f"[green]HTML drift report written to:[/green] {html_out}")
+            _console.print(
+                Text.assemble(("HTML drift report written to:", "green"), " ", _data(html_out))
+            )
         else:
             typer.echo(html_content)
     else:
