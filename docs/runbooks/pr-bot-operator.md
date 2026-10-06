@@ -176,8 +176,9 @@ posts when a workflow runs.
 The bot raised an unhandled exception during diff computation. Check
 the workflow log for the full traceback. Most often this is:
 
-- A malformed `*.tmdl` file (the parser is line-based, indentation-
-  aware; tabs vs. spaces mixed within a single block trips it).
+- A malformed `*.tmdl` file (the parser is line-based and indentation-
+  aware; a tab counts as four columns, so a file that mixes tabs with a
+  two-space indent misnests).
 - A symlink loop inside `**/*.Lakehouse/**`.
 
 Open an issue at <https://github.com/Bralabee/sigantry/issues>

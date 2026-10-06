@@ -28,6 +28,11 @@ TMDL spec edge cases (Microsoft Learn TMDL syntax doc):
   :attr:`TmdlBlock.name`.
 - Indentation drives nesting: a decl at indent N opens a block whose
   body absorbs subsequent lines at indent > N until indent drops to <= N.
+- Indentation is tabs or spaces. The serializer emits one tab per level
+  ("A TMDL document uses a default single tab indentation rule", Learn,
+  TMDL overview, Indentation); hand-written files commonly use four
+  spaces. A tab is measured as :data:`_TAB_WIDTH` columns so both forms,
+  and a file mixing them at four columns per level, nest the same way.
 """
 
 from __future__ import annotations
@@ -105,15 +110,21 @@ class TmdlBlock:
     line_start: int
 
 
-def _indent_of(line: str) -> int:
-    """Count leading spaces (TMDL spec uses spaces, not tabs)."""
+_TAB_WIDTH: Final[int] = 4
+"""Columns one tab advances to when measuring indentation (see module docstring)."""
+
+
+def _split_indent(line: str) -> tuple[int, str]:
+    """Return ``(width, rest)``: the indentation width in columns and the line after it.
+
+    Width counts leading spaces and tabs, a tab advancing to the next
+    multiple of :data:`_TAB_WIDTH`. Only relative width matters to the
+    parser: a child is any line wider than its parent's declaration.
+    """
     n = 0
-    for ch in line:
-        if ch == " ":
-            n += 1
-        else:
-            break
-    return n
+    while n < len(line) and line[n] in " \t":
+        n += 1
+    return len(line[:n].expandtabs(_TAB_WIDTH)), line[n:]
 
 
 def parse(text: str, source: str = "<string>") -> list[TmdlBlock]:
@@ -160,8 +171,7 @@ def parse(text: str, source: str = "<string>") -> list[TmdlBlock]:
                 stack[-1][2].append(raw)
             continue
 
-        indent = _indent_of(raw)
-        stripped = raw[indent:]
+        indent, stripped = _split_indent(raw)
 
         # `///` binds to the next block; never appended to an open block.
         if stripped.startswith("///"):

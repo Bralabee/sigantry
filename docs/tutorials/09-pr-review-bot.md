@@ -33,8 +33,9 @@ sequenceDiagram
 ## Step 1 — Diff locally with a synthetic change (zero credentials)
 
 The diff engine is importable on its own — simulate a PR in two minutes.
-**Indentation matters: TMDL uses spaces, not tabs.** A tab-indented file parses as
-one opaque block and diffs as "no changes" — the most common first-run mistake.
+Indentation drives nesting. The TMDL serializer emits one tab per level and the parser
+reads tabs or four spaces alike, so a Power BI Desktop or Fabric export works as exported.
+The example below uses spaces only so it survives copy-paste.
 
 ```bash
 mkdir -p ~/sigantry-tut09/{base,head}/model.SemanticModel/definition && cd ~/sigantry-tut09
@@ -136,7 +137,7 @@ reviewers learn to trust its silence as a signal too.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| diff reports no changes on a file you edited | tab-indented TMDL | re-indent with spaces (TMDL spec) |
+| diff reports no changes on a file you edited | the edit is inside an object kind the parser does not track (role, perspective, hierarchy, calculation item), or the file is indented at a width other than one tab or four spaces per level | see the runbook, "TMDL parser semantics are shallow"; re-indent at one tab or four spaces per level |
 | `GitHub provider requires --token or GITHUB_TOKEN` | no token, even on dry-run | export `GITHUB_TOKEN` (dry-run still reads PR metadata) |
 | `GITHUB_REPOSITORY env var must be 'owner/repo'` | running outside GHA | export it manually; CI sets it automatically |
 | `HTTP 401` on dry-run | dummy/expired token | dry-run needs a REAL token; use the Python loop for credential-free testing |
