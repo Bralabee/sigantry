@@ -49,6 +49,8 @@ on:
       releaseId:             { type: string,  required: false, default: '' }
       workItems:             { type: string,  required: false, default: '' }
       approver:              { type: string,  required: false, default: '' }
+      fabricItems:           { type: string,  required: false, default: '' }
+      auditDir:              { type: string,  required: false, default: '.sigantry/audit' }
   workflow_call:
     inputs:
       workspaceId:           { type: string,  required: true }
@@ -62,6 +64,8 @@ on:
       releaseId:             { type: string,  required: false, default: '' }
       workItems:             { type: string,  required: false, default: '' }
       approver:              { type: string,  required: false, default: '' }
+      fabricItems:           { type: string,  required: false, default: '' }
+      auditDir:              { type: string,  required: false, default: '.sigantry/audit' }
 
 jobs:
   deploy:
@@ -144,14 +148,33 @@ jobs:
           SIGANTRY_WORKSPACE_ID: ${{ inputs.workspaceId }}
           SIGANTRY_WORK_ITEMS: ${{ inputs.workItems }}
           SIGANTRY_APPROVER: ${{ inputs.approver != '' && inputs.approver || format('{0}@users.noreply.github.com', github.actor) }}
+          SIGANTRY_FABRIC_ITEMS: ${{ inputs.fabricItems }}
+          SIGANTRY_SOURCE_DIR: ${{ inputs.sourceDir }}
+          SIGANTRY_AUDIT_DIR: ${{ inputs.auditDir != '' && inputs.auditDir || '.sigantry/audit' }}
           SIGANTRY_GITHUB_OWNER: ${{ github.repository_owner }}
           SIGANTRY_GITHUB_REPO: ${{ github.event.repository.name }}
         run: |
+          if [ -z "$SIGANTRY_FABRIC_ITEMS" ] && [ -d "$SIGANTRY_SOURCE_DIR" ]; then
+            SIGANTRY_FABRIC_ITEMS=$(python -c 'import sys, pathlib; p = pathlib.Path(sys.argv[1]); print(",".join(sorted(f.parent.name for f in p.rglob(".platform") if "." in f.parent.name)))' "$SIGANTRY_SOURCE_DIR")
+          fi
           sigantry release record \
             --release-id "$SIGANTRY_RELEASE_ID" \
             --workspace "$SIGANTRY_WORKSPACE_ID" \
             --work-items "$SIGANTRY_WORK_ITEMS" \
             --approver "$SIGANTRY_APPROVER" \
+            --fabric-items "$SIGANTRY_FABRIC_ITEMS" \
+            --audit-dir "$SIGANTRY_AUDIT_DIR" \
             --provider github \
             --github-owner "$SIGANTRY_GITHUB_OWNER" \
             --github-repo "$SIGANTRY_GITHUB_REPO"
+      - name: sigantry release verify
+        env:
+          SIGANTRY_AUDIT_DIR: ${{ inputs.auditDir != '' && inputs.auditDir || '.sigantry/audit' }}
+        run: |
+          sigantry release verify --audit-dir "$SIGANTRY_AUDIT_DIR"
+      - name: Upload audit ledger artifact
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sigantry-audit-ledger
+          path: ${{ inputs.auditDir != '' && inputs.auditDir || '.sigantry/audit' }}

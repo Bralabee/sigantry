@@ -184,8 +184,10 @@ def deploy_cmd(
             )
         # Lazy import keeps the forward-deploy path untouched by the
         # module-import-time append_feature_flag side effects (Pitfall 1).
+        from sigantry_core.auth import TokenProvider
         from sigantry_core.deploy.rollback import rollback_to_release
         from sigantry_core.governance.audit_io import resolve_audit_dir
+        from sigantry_core.release.ledger import find_by_release_id
 
         audit_dir_path = resolve_audit_dir(audit_dir)
 
@@ -196,6 +198,30 @@ def deploy_cmd(
                 "(acknowledges the destructive replay)."
             )
             raise typer.Exit(code=2)
+
+        tp = (
+            TokenProvider.from_defaults()
+            if tenant_id is None
+            else TokenProvider.from_defaults(tenant_id=tenant_id)
+        )
+
+        original = find_by_release_id(to_release, audit_dir=audit_dir_path)
+        in_scope_items: list[str] = []
+        if original is not None:
+            in_scope_items = [
+                item
+                for item in original.fabric_items_changed
+                if "." in item and item.rsplit(".", 1)[-1] in types
+            ]
+            skipped_items = [
+                item for item in original.fabric_items_changed if item not in in_scope_items
+            ]
+            if skipped_items:
+                _console.print(
+                    f"[yellow]Skipping {len(skipped_items)} item(s) outside --item-types ({item_types}):[/yellow] "
+                    f"{', '.join(skipped_items)}"
+                )
+
         try:
             result = rollback_to_release(
                 release_id=to_release,
@@ -207,8 +233,9 @@ def deploy_cmd(
                 audit_dir=audit_dir_path,
                 force=rollback_force,
                 runbook_id=rollback_runbook_id,
+                token_provider=tp,
             )
-        except ValueError as exc:
+        except Exception as exc:
             _console.print(Text.assemble(("rollback failed", "red"), f": {exc}"))
             raise typer.Exit(code=1) from exc
 
@@ -220,10 +247,8 @@ def deploy_cmd(
         from datetime import UTC, datetime
 
         from sigantry_core.governance.audit import emit_deploy_record
-        from sigantry_core.release.ledger import find_by_release_id
         from sigantry_core.release.record import DeployRecord
 
-        original = find_by_release_id(to_release, audit_dir=audit_dir_path)
         if original is not None:
             # CR-01 (review fix): capture the timestamp ONCE so the
             # release_id suffix and the persisted created_at agree. The
@@ -238,7 +263,7 @@ def deploy_cmd(
                 workspace=workspace_id,
                 release_id=(f"rollback-of-{to_release}-{now.isoformat(timespec='seconds')}"),
                 work_items=[],
-                fabric_items_changed=list(original.fabric_items_changed),
+                fabric_items_changed=in_scope_items,
                 test_evidence={"rollback_of": to_release},
                 approver="cli@sigantry",
                 audit_hash="",

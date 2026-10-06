@@ -57,7 +57,7 @@ sigantry deploy run --rollback --to-release <release-id> --rollback-force \
 The rollback publishes items only when the release record names them.
 `sigantry release record` names items only when it is given
 `--fabric-items`, so record each release with `--fabric-items` listing
-the items you deployed. The Sigantry pipeline templates record without
+the items you deployed. The Sigantry pipeline templates now pass
 `--fabric-items`.
 
 `PROD` is the tightest gate: promote the same tagged commit that

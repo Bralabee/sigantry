@@ -39,18 +39,16 @@ The five named stages, the parameter set, the approval-gate
 mechanism, and the `sigantry release record` invocation all match by basename.
 
 The `promote` stage runs `sigantry release record`, which appends a
-`DeployRecord` to `~/.sigantry/audit/deploys.jsonl` on the runner and
-comments on the linked work items (the audit jsonl is the
-deploy ledger). The templates pass no `--audit-dir`
-and upload nothing, so on a hosted runner that ledger file is discarded
-with the runner unless your pipeline keeps it (see the
-[audit ledger threat model](../../reference/audit-ledger-threat-model.md)).
-They also pass no `--fabric-items`, so their records name no items, and a
-rollback to one of them publishes nothing. `sigantry release list / show / diff`
-read the ledger; `sigantry deploy run --rollback --to-release <id>` publishes
-the items a record names whose type is in `--item-types`, through
-`fabric-cicd`'s `items_to_include` selective publish, with their content
-read from `--source`.
+`DeployRecord` to the configured `--audit-dir` (default `.sigantry/audit/`)
+on the runner, verifies the integrity chain with `sigantry release verify`,
+uploads the audit ledger artifact, and comments on the linked work items
+(the audit jsonl is the deploy ledger).
+The templates pass `--fabric-items` (from input or discovered from `--source`),
+recording the items deployed so that a rollback can restore them.
+`sigantry release list / show / diff` read the ledger;
+`sigantry deploy run --rollback --to-release <id>` publishes the items a record
+names whose type is in `--item-types`, through `fabric-cicd`'s `items_to_include`
+selective publish, with their content read from `--source`.
 
 ### 1.1. What `deploy run` (and the dual-CI pipeline templates) does NOT do
 
@@ -162,9 +160,9 @@ Rollback publishes again, through fabric-cicd, the item names a recorded
 release lists whose type is in `--item-types`. The record holds no item
 content and no commit:
 the content comes from `--source`, so check out the source of the release
-you are restoring before step 3. A record that names no items (such as
-one the pipeline templates write, which pass no `--fabric-items`) makes
-the rollback publish nothing.
+you are restoring before step 3. A record that names no items makes
+the rollback refuse to proceed (exiting 1). The pipeline templates
+pass `--fabric-items`, recording the items deployed.
 
 ```bash
 # 1. Inspect what's in the ledger.

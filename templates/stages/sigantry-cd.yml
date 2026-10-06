@@ -59,6 +59,12 @@ parameters:
   - name: approver
     type: string
     default: '$(Build.RequestedForEmail)'
+  - name: fabricItems
+    type: string
+    default: ''
+  - name: auditDir
+    type: string
+    default: '.sigantry/audit'
 
 stages:
   - stage: deploy
@@ -127,6 +133,7 @@ stages:
           runOnce:
             deploy:
               steps:
+                - checkout: self
                 - task: AzureCLI@2
                   displayName: 'sigantry release record'
                   # WR-05 review fix: operator inputs are passed via the
@@ -142,17 +149,35 @@ stages:
                     SIGANTRY_WORKSPACE_ID: ${{ parameters.workspaceId }}
                     SIGANTRY_WORK_ITEMS: ${{ parameters.workItems }}
                     SIGANTRY_APPROVER: ${{ parameters.approver }}
+                    SIGANTRY_FABRIC_ITEMS: ${{ parameters.fabricItems }}
+                    SIGANTRY_SOURCE_DIR: ${{ parameters.sourceDir }}
+                    SIGANTRY_AUDIT_DIR: ${{ parameters.auditDir }}
                   inputs:
                     azureSubscription: ${{ parameters.serviceConnection }}
                     scriptType: bash
                     scriptLocation: inlineScript
                     inlineScript: |
                       set -e
+                      if [ -z "$SIGANTRY_FABRIC_ITEMS" ] && [ -d "$SIGANTRY_SOURCE_DIR" ]; then
+                        SIGANTRY_FABRIC_ITEMS=$(python -c 'import sys, pathlib; p = pathlib.Path(sys.argv[1]); print(",".join(sorted(f.parent.name for f in p.rglob(".platform") if "." in f.parent.name)))' "$SIGANTRY_SOURCE_DIR")
+                      fi
                       sigantry release record \
                         --release-id "$SIGANTRY_RELEASE_ID" \
                         --workspace "$SIGANTRY_WORKSPACE_ID" \
                         --work-items "$SIGANTRY_WORK_ITEMS" \
                         --approver "$SIGANTRY_APPROVER" \
+                        --fabric-items "$SIGANTRY_FABRIC_ITEMS" \
+                        --audit-dir "$SIGANTRY_AUDIT_DIR" \
                         --provider ado \
                         --ado-organization "$(System.CollectionUri)" \
                         --ado-project "$(System.TeamProject)"
+                - script: |
+                    set -e
+                    sigantry release verify --audit-dir "$SIGANTRY_AUDIT_DIR"
+                  displayName: 'sigantry release verify'
+                  env:
+                    SIGANTRY_AUDIT_DIR: ${{ parameters.auditDir }}
+                - publish: ${{ parameters.auditDir }}
+                  artifact: sigantry-audit-ledger
+                  displayName: 'Upload audit ledger artifact'
+                  condition: always()
