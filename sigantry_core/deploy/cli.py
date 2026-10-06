@@ -218,8 +218,13 @@ def deploy_cmd(
             ]
             if skipped_items:
                 _console.print(
-                    f"[yellow]Skipping {len(skipped_items)} item(s) outside --item-types ({item_types}):[/yellow] "
-                    f"{', '.join(skipped_items)}"
+                    Text.assemble(
+                        (
+                            f"Skipping {len(skipped_items)} item(s) outside --item-types ({item_types}): ",
+                            "yellow",
+                        ),
+                        ", ".join(skipped_items),
+                    )
                 )
 
         try:
