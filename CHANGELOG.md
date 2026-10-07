@@ -44,6 +44,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `not checked:`, the summary names every skipped probe, and under
   `--strict` a skip exits 1. Probe messages are rendered as text, so a path
   holding `[...]` is printed, not read as markup.
+- **Preflight review fixes (round 1 on the change above).** One probe raising
+  no longer loses the report: the engine records it as that probe's `FAIL`
+  and runs the rest, so `--json` always carries a report (measured: a
+  malformed `--params` file ended the command in a `yaml` traceback with no
+  report at all; the schema probe now reports it as a `parameters:` problem,
+  and a manifest or parameters path that is a directory or not UTF-8 is a
+  `FAIL` too). `--tenant-id` and the workspace's capacity id compare to the
+  token's `tid` and to `/v1/capacities` without regard to case, so a GUID
+  pasted in uppercase no longer fails a correct tenant. With `--workspace-id`
+  but no credential able to acquire a token, the capacity probe is `SKIP`
+  (`FAIL` when a credential was configured), the same rule as the Entra
+  probe, instead of a `FAIL` that read nothing.
 - **PR review bot: serializer-shaped TMDL.** Three parser gaps made a real
   Power BI Desktop or Fabric export diff as "no changes". Indentation counted
   spaces only, so a tab-indented model (one tab per level, the serializer's

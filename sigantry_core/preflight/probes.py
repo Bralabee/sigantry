@@ -41,6 +41,11 @@ def _elapsed_ms(start: float) -> float:
     return (time.perf_counter() - start) * 1000
 
 
+def _same_guid(left: str, right: str) -> bool:
+    """Compare two GUIDs as Entra and Fabric do: case does not matter."""
+    return left.strip().casefold() == right.strip().casefold()
+
+
 class BaseProbe:
     """Base class for all preflight safety probes.
 
@@ -199,6 +204,9 @@ def _load_manifest(
         )
     except yaml.YAMLError as exc:
         errors["sync"] = f"sync.yml: YAML parse error: {exc}"
+    except (OSError, ValueError) as exc:
+        # A directory, an unreadable file, or bytes that are not UTF-8.
+        errors["sync"] = f"sync.yml: {type(exc).__name__}: {exc}"
     else:
         return "sync", [(item.display_name, str(item.local_path)) for item in manifest.items], {}
 
@@ -206,7 +214,7 @@ def _load_manifest(
 
     try:
         load_and_validate(manifest_path)
-    except (ValueError, yaml.YAMLError) as exc:
+    except (OSError, ValueError, yaml.YAMLError) as exc:
         # BootstrapValidationError subclasses ValueError.
         errors["workspace"] = f"workspace.yml: {exc}"
     else:
@@ -236,12 +244,15 @@ def _artifact_problem(artifact: Path) -> str | None:
 
 def _parameters_problem(params_path: Path) -> str | None:
     """Run ``parameters.yml`` through the deploy validator; return its error."""
+    import yaml
+
     from sigantry_core.deploy.parameters import load_and_validate
 
     try:
         load_and_validate(params_path)
-    except (FileNotFoundError, ValueError, RuntimeError) as exc:
-        # HardcodedGuidError subclasses ValueError.
+    except (OSError, ValueError, KeyError, RuntimeError, yaml.YAMLError) as exc:
+        # HardcodedGuidError subclasses ValueError; FileNotFoundError and a
+        # directory given as the path are OSErrors; a parse error is a YAMLError.
         return f"parameters: {exc}"
     return None
 
@@ -421,7 +432,7 @@ class EntraScopeProbe(BaseProbe):
                     details=details,
                     duration_ms=_elapsed_ms(start_time),
                 )
-            if token_tenant != tenant_id:
+            if not _same_guid(str(token_tenant), tenant_id):
                 return ProbeResult(
                     name=self.name,
                     status=ProbeStatus.FAIL,
@@ -450,6 +461,9 @@ class CapacityStateProbe(BaseProbe):
     workspace with no capacity, or one whose capacity is paused or otherwise
     down, fails. A capacity the principal cannot list is a ``WARN`` (assigned,
     state unknown). Without a client or a workspace id the probe is ``SKIP``.
+    When no credential in the chain can acquire a token the probe is ``SKIP``
+    as well, or ``FAIL`` when the operator configured one (the same rule as
+    the Entra probe): it read nothing, so it reports nothing as checked.
     """
 
     name = "capacity_state"
@@ -482,11 +496,40 @@ class CapacityStateProbe(BaseProbe):
                 duration_ms=_elapsed_ms(start_time),
             )
 
+        from sigantry_core.auth.errors import TokenAcquisitionError
         from sigantry_core.capacity.core import list_capacities
         from sigantry_core.workspace.core import get_workspace
 
         try:
             workspace = get_workspace(client, workspace_id)
+        except TokenAcquisitionError as ex:
+            configured = sorted(v for v in _EXPLICIT_CREDENTIAL_VARS if os.getenv(v))
+            cred_details: dict[str, Any] = {
+                "workspace_id": workspace_id,
+                "credential": ex.credential_used,
+                "configured_credential_vars": configured,
+            }
+            if configured:
+                return ProbeResult(
+                    name=self.name,
+                    status=ProbeStatus.FAIL,
+                    message=(
+                        f"the configured credential ({', '.join(configured)}) could not "
+                        f"acquire a Fabric token, so workspace {workspace_id} was not read: {ex}"
+                    ),
+                    details=cred_details,
+                    duration_ms=_elapsed_ms(start_time),
+                )
+            return ProbeResult(
+                name=self.name,
+                status=ProbeStatus.SKIP,
+                message=(
+                    f"not checked: no credential in the chain could acquire a Fabric token, "
+                    f"so workspace {workspace_id} was not read ({ex})"
+                ),
+                details=cred_details,
+                duration_ms=_elapsed_ms(start_time),
+            )
         except Exception as ex:
             return ProbeResult(
                 name=self.name,
@@ -512,7 +555,12 @@ class CapacityStateProbe(BaseProbe):
 
         try:
             capacity = next(
-                (c for c in list_capacities(client) if c.id == workspace.capacity_id), None
+                (
+                    c
+                    for c in list_capacities(client)
+                    if _same_guid(str(c.id), str(workspace.capacity_id))
+                ),
+                None,
             )
         except Exception as ex:
             return ProbeResult(

@@ -96,7 +96,7 @@ python -m sigantry_core --help
 
 | Subapp | Purpose |
 |---|---|
-| `preflight` | Pre-deployment safety probe engine — non-destructive simulations (Syntax, DAG, Entra Scope, Capacity) |
+| `preflight` | Pre-deployment safety probes (schema syntax, Entra scope, capacity state); reports only what it checked |
 | `workspace` | Fabric workspace CRUD + items + capacity assignment + greenfield `bootstrap` |
 | `capacity` | Fabric capacity inspection + lifecycle (pause/resume via ARM) |
 | `label-sync` | Apply a sensitivity label to every item in a workspace |
@@ -121,7 +121,7 @@ python -m sigantry_core --help
 
 ### 4.1 Pre-Deployment Safety Probes (`sigantry preflight`)
 
-Execute non-destructive pre-deployment simulations before triggering any live changes:
+Run the pre-deployment safety probes before triggering any live changes:
 
 ```bash
 # Run preflight against target environment
@@ -252,7 +252,7 @@ sigantry sync pull --workspace-id "<YOUR-WORKSPACE-GUID>" --into ./my-fabric-rep
 # 4. Check for out-of-band drift
 sigantry diff --manifest ./my-fabric-repo/sync.yml --workspace-id "<YOUR-WORKSPACE-GUID>"
 
-# 5. Run preflight simulation
+# 5. Run preflight safety probes
 sigantry preflight --manifest ./my-fabric-repo/sync.yml --environment prod
 ```
 

@@ -27,6 +27,7 @@ from sigantry_core.preflight import cli as preflight_cli
 from sigantry_core.preflight.engine import PreflightEngine
 from sigantry_core.preflight.models import ProbeStatus
 from sigantry_core.preflight.probes import (
+    BaseProbe,
     CapacityStateProbe,
     DependencyGraphProbe,
     EntraScopeProbe,
@@ -645,3 +646,128 @@ def test_cli_message_with_markup_brackets_is_rendered_verbatim(
     assert result.exit_code == 1
     assert "MarkupError" not in result.output
     assert "[bold]x.yml" in _flat(result.output)
+
+
+# ---------------------------------------------------------------------------
+# Review round 1 on PR #86: a probe never crashes the report, GUIDs compare
+# case-insensitively, and the capacity probe treats "no credential" as the
+# Entra probe does.
+# ---------------------------------------------------------------------------
+
+
+def _schema(manifest: Path, params: Path | None = None) -> Any:
+    return SchemaSyntaxProbe().run(manifest_path=manifest, environment="prod", params_path=params)
+
+
+def test_schema_malformed_parameters_yaml_is_a_fail_not_a_crash(
+    sync_tree: Path, tmp_path: Path
+) -> None:
+    """Reproduced in review: a YAML parse error in --params escaped as a traceback."""
+    params = tmp_path / "params.yml"
+    params.write_text("find_replace: [\n  - a: b\n", encoding="utf-8")
+    result = _schema(sync_tree, params)
+    assert result.status == ProbeStatus.FAIL
+    assert "parameters:" in result.message
+    assert result.details["params_checked"] is True
+
+
+def test_schema_parameters_path_that_is_a_directory_is_a_fail_not_a_crash(
+    sync_tree: Path, tmp_path: Path
+) -> None:
+    result = _schema(sync_tree, tmp_path)
+    assert result.status == ProbeStatus.FAIL
+    assert "parameters:" in result.message
+
+
+def test_schema_manifest_that_is_a_directory_is_a_fail_not_a_crash(tmp_path: Path) -> None:
+    result = _schema(tmp_path)
+    assert result.status == ProbeStatus.FAIL
+    assert "neither a sync.yml nor a workspace.yml" in result.message
+
+
+def test_schema_manifest_that_is_not_utf8_is_a_fail_not_a_crash(tmp_path: Path) -> None:
+    manifest = tmp_path / "sync.yml"
+    manifest.write_bytes(b"\xff\xfe items: []\n")
+    result = _schema(manifest)
+    assert result.status == ProbeStatus.FAIL
+
+
+def test_cli_malformed_parameters_still_emits_the_json_report(
+    sync_tree: Path, tmp_path: Path, no_token: FakeProvider
+) -> None:
+    """CI reads --json; a traceback in its place is not a report."""
+    params = tmp_path / "params.yml"
+    params.write_text("find_replace: [\n  - a: b\n", encoding="utf-8")
+    result = CliRunner().invoke(
+        app, ["preflight", "--manifest", str(sync_tree), "--params", str(params), "--json"]
+    )
+    assert result.exit_code == 1, result.output
+    report = json.loads(result.stdout)
+    by_name = {r["name"]: r for r in report["results"]}
+    assert by_name["schema_syntax"]["status"] == "FAIL"
+    assert "parameters:" in by_name["schema_syntax"]["message"]
+    assert len(report["results"]) == 3
+
+
+class _CrashingProbe(BaseProbe):
+    name = "crashing"
+
+    def run(self, **kwargs: Any) -> Any:
+        raise RuntimeError("boom")
+
+
+def test_engine_records_a_crashing_probe_as_fail_and_runs_the_rest(sync_tree: Path) -> None:
+    engine = PreflightEngine(probes=[_CrashingProbe(), SchemaSyntaxProbe()])
+    report = engine.run(manifest_path=sync_tree)
+    assert [r.name for r in report.results] == ["crashing", "schema_syntax"]
+    assert report.results[0].status == ProbeStatus.FAIL
+    assert "RuntimeError: boom" in report.results[0].message
+    assert report.results[0].details["exception"] == "RuntimeError"
+    assert report.results[1].status == ProbeStatus.PASS
+    assert report.passed is False
+    assert report.failed == ["crashing"]
+
+
+def test_entra_tenant_match_ignores_guid_case(tmp_path: Path) -> None:
+    """An uppercase --tenant-id pasted from the portal must match a lowercase tid."""
+    token = _jwt({"tid": _TENANT_A})
+    result = EntraScopeProbe().run(
+        manifest_path=tmp_path / "sync.yml",
+        environment="prod",
+        token_provider=FakeProvider(token=token),
+        tenant_id=_TENANT_A.upper(),
+    )
+    assert result.status == ProbeStatus.PASS, result.message
+
+
+def test_capacity_match_ignores_guid_case() -> None:
+    client = FakeClient(
+        workspace=_workspace_payload(capacity_id=_CAP_ID.upper()),
+        capacities=[_capacity_payload("Active")],
+    )
+    result = _capacity(client)
+    assert result.status == ProbeStatus.PASS, result.message
+
+
+def test_capacity_skips_when_no_credential_can_acquire_a_token() -> None:
+    """--workspace-id without a usable credential is "not checked", as for Entra."""
+    error = TokenAcquisitionError(
+        "chain failed to acquire token", scope=FABRIC_SCOPE, credential_used="FakeChainCredential"
+    )
+    result = _capacity(FakeClient(workspace_error=error))
+    assert result.status == ProbeStatus.SKIP, result.message
+    assert result.message.startswith("not checked:")
+    assert _WS_ID in result.message
+
+
+def test_capacity_fails_when_a_configured_credential_cannot_acquire_a_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AZURE_CLIENT_ID", "not-a-real-id")
+    error = TokenAcquisitionError(
+        "chain failed to acquire token", scope=FABRIC_SCOPE, credential_used="FakeChainCredential"
+    )
+    result = _capacity(FakeClient(workspace_error=error))
+    assert result.status == ProbeStatus.FAIL, result.message
+    assert "AZURE_CLIENT_ID" in result.message
+    assert result.details["configured_credential_vars"] == ["AZURE_CLIENT_ID"]

@@ -23,6 +23,10 @@ class PreflightEngine:
     ``DependencyGraphProbe`` is importable but not a default: the ``sync.yml``
     schema declares no item dependencies (``extra="forbid"``), so against a
     real manifest it ordered nothing and reported that as a pass.
+
+    A probe that raises instead of reporting is recorded as a ``FAIL`` for
+    that probe and the remaining probes still run: one crash never costs the
+    whole report, so a ``--json`` consumer always gets a report to read.
     """
 
     def __init__(self, probes: list[BaseProbe] | None = None) -> None:
@@ -61,15 +65,25 @@ class PreflightEngine:
         has_skips = False
 
         for probe in self.probes:
-            res = probe.run(
-                manifest_path=manifest_path,
-                environment=environment,
-                params_path=params_path,
-                client=client,
-                token_provider=token_provider,
-                workspace_id=workspace_id,
-                tenant_id=tenant_id,
-            )
+            probe_start = time.perf_counter()
+            try:
+                res = probe.run(
+                    manifest_path=manifest_path,
+                    environment=environment,
+                    params_path=params_path,
+                    client=client,
+                    token_provider=token_provider,
+                    workspace_id=workspace_id,
+                    tenant_id=tenant_id,
+                )
+            except Exception as exc:
+                res = ProbeResult(
+                    name=probe.name,
+                    status=ProbeStatus.FAIL,
+                    message=f"probe crashed before it could report: {type(exc).__name__}: {exc}",
+                    details={"exception": type(exc).__name__},
+                    duration_ms=(time.perf_counter() - probe_start) * 1000,
+                )
             results.append(res)
             if res.status == ProbeStatus.WARN:
                 has_warnings = True

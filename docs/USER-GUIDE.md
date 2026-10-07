@@ -1309,8 +1309,8 @@ Verbs (18 subcommands; run `sigantry <verb> --help` for the full flag set):
   env                                    -- Fabric Environment wheel upload
   dq                                     -- run a registered DQ gate plugin
   config validate <path>                 -- pre-flight check parameters.yml
-  preflight                              -- pre-deployment simulation + safety
-                                            probes (ADR-0015)
+  preflight                              -- pre-deployment safety probes
+                                            (ADR-0015)
     --manifest PATH / -m                 sync.yml or workspace.yml [default sync.yml]
     --params PATH / -p                   deployment parameters.yml (validated)
     --environment LABEL / -e             target environment [default dev]
