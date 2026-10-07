@@ -21,17 +21,17 @@ Exit-code conventions:
 * ``snapshot``:
     - ``0`` on success.
     - Bubbles SyncEngineError as exit ``1`` via Typer.
-
-All three take ``--tenant-id`` (default ``core.tenant_id`` in the settings;
-see :mod:`sigantry_core._cli_tenant`). A token from another tenant, a tenant
-that is not a GUID, or settings that cannot be loaded when no ``--tenant-id``
-is given end the command with exit ``1`` and one line on stderr.
 * ``pull``:
     - ``0`` on success.
     - ``1`` on :class:`PullTargetNotEmptyError` (non-empty ``--into``
       without ``--force`` -- D-21) and on any other
       :class:`SyncEngineError` subclass (e.g.
       :class:`PullDefinitionFetchError`).
+
+All three take ``--tenant-id`` (default ``core.tenant_id`` in the settings;
+see :mod:`sigantry_core._cli_tenant`). A token from another tenant, a tenant
+that is not a GUID, or settings that cannot be loaded when no ``--tenant-id``
+is given end the command with exit ``1`` and one line on stderr.
 
 The subapp registers as the 14th top-level subapp on the root
 ``sigantry`` Typer app via :data:`sigantry_core.cli.app.add_typer`.

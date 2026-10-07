@@ -197,9 +197,9 @@ sequenceDiagram
 
 | Verb | Purpose | Source |
 |---|---|---|
-| `sigantry capacity list` | `GET /v1/capacities`. | `sigantry_core/capacity/cli.py:38` |
-| `sigantry capacity pause` | ARM 202 LRO; requires `--force` and a non-empty `--runbook-id` (cost-control gate). | `cli.py:79` |
-| `sigantry capacity resume` | ARM 202 LRO; requires `--force` and a non-empty `--runbook-id`. | `cli.py:105` |
+| `sigantry capacity list` | `GET /v1/capacities`. | `sigantry_core/capacity/cli.py:41` |
+| `sigantry capacity pause` | ARM 202 LRO; requires `--force` and a non-empty `--runbook-id` (cost-control gate). | `cli.py:83` |
+| `sigantry capacity resume` | ARM 202 LRO; requires `--force` and a non-empty `--runbook-id`. | `cli.py:110` |
 
 ### 2.3 Folder-aware sync engine
 
@@ -441,9 +441,9 @@ Runbook: [`runbooks/work-item-traceability/comment-rendering.md`](runbooks/work-
 
 | Verb | Purpose | Source |
 |---|---|---|
-| `sigantry label-sync` | Apply a sensitivity label to every item in a workspace (GOV-02). | `sigantry_core/governance/cli.py:77` |
-| `sigantry rbac-audit [--output csv|json]` | Three-layer RBAC dump (GOV-04): every visible workspace + capacity + item placeholders, with `via-group:` membership expansion. Tenant-wide by default; `-w/--workspace-id` (repeatable) scopes the sweep; `--out` / `--out-dir` write the audit to a file. | `sigantry_core/governance/cli.py:139` |
-| `sigantry tenant-settings export` | Export Fabric admin tenant-settings baseline (GOV-05). | `sigantry_core/governance/cli.py:222` |
+| `sigantry label-sync` | Apply a sensitivity label to every item in a workspace (GOV-02). | `sigantry_core/governance/cli.py:80` |
+| `sigantry rbac-audit [--output csv|json]` | Three-layer RBAC dump (GOV-04): every visible workspace + capacity + item placeholders, with `via-group:` membership expansion. Tenant-wide by default; `-w/--workspace-id` (repeatable) scopes the sweep; `--out` / `--out-dir` write the audit to a file. | `sigantry_core/governance/cli.py:144` |
+| `sigantry tenant-settings export` | Export Fabric admin tenant-settings baseline (GOV-05). | `sigantry_core/governance/cli.py:231` |
 
 ### 2.10 PR-review bot
 
@@ -464,7 +464,7 @@ Runbook: [`runbooks/pr-bot-operator.md`](runbooks/pr-bot-operator.md).
 | `sigantry doctor` | List discovered plugins with a Trust column. `--strict` exits non-zero on any entry-point import failure; `--strict-trust` exits non-zero when any plugin's Trust is `untrusted`, meaning `SIGANTRY_TRUSTED_PLUGIN_DISTS` is non-empty and does not list that plugin's distribution; with the variable unset or empty every plugin shows `unknown` and the flag passes ([ADR-0014](decisions/ADR-0014-plugin-trust-model.md)). | `sigantry_core/doctor.py:249` |
 | `sigantry config validate [<parameters.yml>]` | Validate a `fabric-cicd` `parameters.yml` or `parameter.yml` (catches `HardcodedGuidError` + unset `$ENV:`); `-e <env>` scopes the `$ENV:` check to one declared environment, `--allow-raw-guids` (or `[deploy] allow_raw_guids`) accepts a stock file and lists each GUID let through. | `sigantry_core/config_cli.py:37` |
 | `sigantry preflight` | Three non-destructive probes against a `sync.yml` or `workspace.yml`: schema syntax (the manifest loads as one or the other, every sync item's `local_path` exists, `.platform`/`.ipynb` files parse, `--params` passes the `config validate` rules), Entra scope (a Fabric token is acquired through the credential chain; with `--tenant-id`, or `core.tenant_id` in the settings, the tenant is pinned and a token from another tenant fails the probe), capacity state (with `--workspace-id`, the workspace's capacity is Active). A probe that lacks a credential or a workspace id reports `SKIP` with a `not checked:` message. Exits 1 on any failed probe, and under `--strict` also on any warning or skip ([ADR-0015](decisions/ADR-0015-config-driven-preflight.md)). | `sigantry_core/preflight/cli.py:39` |
-| `diagnose-auth` | Standalone console script (not a `sigantry` subcommand): which credential resolved, and whether the tenant toggle is visible. Exit 0 healthy / 2 degraded / 3 no token, or none from the pinned tenant (`--tenant-id`, else `core.tenant_id`: a token from another tenant, or a tenant that is not a GUID) / 4 invalid `--output` value. | `sigantry_core/auth/cli.py` |
+| `diagnose-auth` | Standalone console script (not a `sigantry` subcommand): which credential resolved, and whether the tenant toggle is visible. Exit 0 healthy / 2 degraded / 3 no token, or none from the pinned tenant (`--tenant-id`, else `core.tenant_id`: a token from another tenant, a tenant that is not a GUID, or settings that cannot be loaded and no `--tenant-id`) / 4 invalid `--output` value. `--dry-run` resolves the tenant too: it prints the tenant it would pin, and exits 3 for a tenant that is not a GUID or for settings that cannot be loaded. | `sigantry_core/auth/cli.py` |
 
 On a base install, `sigantry doctor` reports **9 plugins discovered across 11 seam group(s)** -- see Section 6.
 
