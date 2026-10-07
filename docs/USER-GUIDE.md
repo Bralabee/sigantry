@@ -1309,12 +1309,17 @@ Verbs (18 subcommands; run `sigantry <verb> --help` for the full flag set):
   env                                    -- Fabric Environment wheel upload
   dq                                     -- run a registered DQ gate plugin
   config validate <path>                 -- pre-flight check parameters.yml
-  preflight                              -- pre-deployment simulation + safety
-                                            probes (ADR-0015)
+  preflight                              -- pre-deployment safety probes
+                                            (ADR-0015)
     --manifest PATH / -m                 sync.yml or workspace.yml [default sync.yml]
-    --params PATH / -p                   deployment parameters.yml
+    --params PATH / -p                   deployment parameters.yml (validated)
     --environment LABEL / -e             target environment [default dev]
-    --strict                             treat warnings as failures
+    --workspace-id GUID                  target workspace; the capacity probe
+                                            is not checked without it
+    --tenant-id GUID                     expected tenant; the Entra probe fails
+                                            when the token's tid differs
+    --strict                             fail on a warning and on a probe that
+                                            could not check (the CI gate)
     --json                               emit the report as JSON
 
 Standalone console script (not a sigantry subcommand):

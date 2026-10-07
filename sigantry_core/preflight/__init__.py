@@ -1,4 +1,4 @@
-"""Preflight safety simulation and verification engine."""
+"""Preflight safety probes: pre-deployment checks that report only what they checked."""
 
 from __future__ import annotations
 

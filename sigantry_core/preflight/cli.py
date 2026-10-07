@@ -9,16 +9,28 @@ from typing import Annotated
 import typer
 from rich.console import Console
 from rich.table import Table
+from rich.text import Text
 
+from sigantry_core.auth.token_provider import TokenProvider
+from sigantry_core.client import FabricRestClient
 from sigantry_core.preflight.engine import PreflightEngine
 from sigantry_core.preflight.models import ProbeStatus
 
 preflight_app = typer.Typer(
-    help="Run pre-deployment simulation and safety probes (ADR-0015).",
+    help="Run pre-deployment safety probes (ADR-0015).",
     no_args_is_help=False,
 )
 
 console = Console()
+
+
+def _make_token_provider(tenant_id: str | None) -> TokenProvider:
+    """Build the credential chain the probes acquire a token through.
+
+    A module-level seam so tests can substitute a provider that never
+    touches Azure. Construction is lazy: no token is requested here.
+    """
+    return TokenProvider.from_defaults(tenant_id=tenant_id)
 
 
 @preflight_app.callback(invoke_without_command=True)
@@ -36,26 +48,53 @@ def main(
         str,
         typer.Option("--environment", "-e", help="Target deployment environment"),
     ] = "dev",
+    workspace_id: Annotated[
+        str | None,
+        typer.Option(
+            "--workspace-id",
+            help="Target workspace; the capacity probe reads its capacity and is not checked without it",
+        ),
+    ] = None,
+    tenant_id: Annotated[
+        str | None,
+        typer.Option(
+            "--tenant-id",
+            help="Expected Entra tenant; the Entra probe fails when the token's tid differs",
+        ),
+    ] = None,
     strict: Annotated[
         bool,
-        typer.Option("--strict", help="Treat warnings as failures (strict mode)"),
+        typer.Option(
+            "--strict",
+            help="Fail on a warning and on a probe that could not check (the CI gate)",
+        ),
     ] = False,
     output_json: Annotated[
         bool,
         typer.Option("--json", help="Emit report in JSON format"),
     ] = False,
 ) -> None:
-    """Execute pre-deployment safety probes against configuration and artifacts."""
+    """Execute pre-deployment safety probes against configuration and artifacts.
+
+    Exit 1 on any failed probe. With --strict, also on any warning and on any
+    probe that checked nothing (no credential, no --workspace-id).
+    """
     if ctx.invoked_subcommand is not None:
         return
 
+    provider = _make_token_provider(tenant_id)
     engine = PreflightEngine()
-    report = engine.run(
-        manifest_path=manifest,
-        environment=environment,
-        params_path=params,
-        strict=strict,
-    )
+    with FabricRestClient(token_provider=provider) as client:
+        report = engine.run(
+            manifest_path=manifest,
+            environment=environment,
+            params_path=params,
+            client=client,
+            token_provider=provider,
+            workspace_id=workspace_id,
+            tenant_id=tenant_id,
+            strict=strict,
+        )
 
     if output_json:
         typer.echo(json.dumps(report.model_dump(), indent=2))
@@ -63,7 +102,8 @@ def main(
             raise typer.Exit(code=1)
         return
 
-    # Rich table output
+    # Rich table output. Cells are Text so a message holding ``[...]`` is
+    # rendered, not read as markup.
     table = Table(title=f"Sigantry Preflight Probe Report ({environment})")
     table.add_column("Probe", style="bold cyan")
     table.add_column("Status", justify="center")
@@ -71,35 +111,59 @@ def main(
     table.add_column("Message")
 
     status_styles = {
-        ProbeStatus.PASS: "[bold green]PASS[/bold green]",
-        ProbeStatus.WARN: "[bold yellow]WARN[/bold yellow]",
-        ProbeStatus.FAIL: "[bold red]FAIL[/bold red]",
-        ProbeStatus.SKIP: "[dim]SKIP[/dim]",
+        ProbeStatus.PASS: Text("PASS", style="bold green"),
+        ProbeStatus.WARN: Text("WARN", style="bold yellow"),
+        ProbeStatus.FAIL: Text("FAIL", style="bold red"),
+        ProbeStatus.SKIP: Text("SKIP", style="dim"),
     }
 
     for res in report.results:
         table.add_row(
-            res.name,
-            status_styles.get(res.status, str(res.status)),
-            f"{res.duration_ms:.1f}ms",
-            res.message,
+            Text(res.name),
+            status_styles.get(res.status, Text(str(res.status))),
+            Text(f"{res.duration_ms:.1f}ms"),
+            Text(res.message),
         )
 
     console.print()
     console.print(table)
     console.print()
 
+    skipped = report.skipped
+    failed = report.failed
+    checked = len(report.results) - len(skipped)
+    elapsed = f"{report.total_duration_ms:.1f}ms"
+
     if report.passed:
-        if report.has_warnings:
+        if skipped:
             console.print(
-                f"[bold yellow]⚠ Preflight passed with warnings ({report.total_duration_ms:.1f}ms)[/bold yellow]"
+                Text(
+                    f"⚠ Preflight passed on the {checked} probe(s) that checked; "
+                    f"{len(skipped)} did not check anything: {', '.join(skipped)} "
+                    f"(--strict fails on an unchecked probe) ({elapsed})",
+                    style="bold yellow",
+                )
+            )
+        elif report.has_warnings:
+            console.print(
+                Text(f"⚠ Preflight passed with warnings ({elapsed})", style="bold yellow")
             )
         else:
             console.print(
-                f"[bold green]✓ Preflight simulation successful ({report.total_duration_ms:.1f}ms)[/bold green]"
+                Text(
+                    f"✓ Preflight passed: all {checked} probes checked ({elapsed})",
+                    style="bold green",
+                )
             )
-    else:
-        console.print(
-            f"[bold red]✗ Preflight simulation failed ({report.total_duration_ms:.1f}ms)[/bold red]"
-        )
-        raise typer.Exit(code=1)
+        return
+
+    reasons: list[str] = []
+    if failed:
+        reasons.append(f"failed: {', '.join(failed)}")
+    if strict and report.has_warnings:
+        warned = [r.name for r in report.results if r.status == ProbeStatus.WARN]
+        reasons.append(f"warned under --strict: {', '.join(warned)}")
+    if strict and skipped:
+        reasons.append(f"not checked under --strict: {', '.join(skipped)}")
+    console.print(Text(f"✗ Preflight failed ({'; '.join(reasons)}) ({elapsed})", style="bold red"))
+    raise typer.Exit(code=1)

@@ -11,7 +11,7 @@ license = { text = "Apache-2.0" }
 authors = [{ name = "JToye Digital" }]
 dynamic = ["version"]
 classifiers = [
-    "Development Status :: 5 - Production/Stable",
+    "Development Status :: 4 - Beta",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
