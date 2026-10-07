@@ -23,6 +23,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   keyword arguments; a subclass must accept them.
 
 ### Fixed
+- **Contract canaries follow fabric-cicd 1.4.0.** CI resolves
+  `fabric-cicd>=1.0,<2.0` to 1.4.0, whose flag-gated `$ENV:` replacement
+  now reads the plain variable name (`$ENV:FOO` -> `os.environ["FOO"]`)
+  and ignores a variable literally named `$ENV:FOO`; two canaries pinned
+  the 1.1.0-1.3.0 behaviour and failed every test job on the first PR to
+  run after the release (measured 2026-10-07). They now assert per
+  installed version, and a new canary pins that 1.4.0 keeps an unset
+  name's token silently, the reason the toolkit's reachability check and
+  its own substitution stay. No behaviour changes.
 - **Preflight reports only what it checked, and `--strict` fails on what it
   could not.** Measured at 1.0.1: a manifest reading `foo: bar` passed the
   schema probe (it only parsed `.platform`/`.ipynb` files under the
