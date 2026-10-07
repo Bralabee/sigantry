@@ -64,6 +64,23 @@ def _one_line(text: str) -> str:
     return " ".join(str(text).split())
 
 
+def _describe_settings_error(exc: Exception) -> str:
+    """One line naming what is wrong with the settings, never a setting's value.
+
+    A pydantic ``ValidationError`` prints each failing input
+    (``input_value=...``), and the failing field may hold a secret (a token
+    under ``[release] github``, say). Only each error's location and message
+    are reported.
+    """
+    if isinstance(exc, ValidationError):
+        parts = [
+            f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
+            for error in exc.errors(include_input=False, include_url=False)
+        ]
+        return f"{type(exc).__name__}: {_one_line('; '.join(parts))}"
+    return f"{type(exc).__name__}: {_one_line(str(exc))}"
+
+
 def resolve_tenant_id(flag: str | None) -> str | None:
     """Return the tenant a command pins: the flag, else ``core.tenant_id``, else ``None``.
 
@@ -77,7 +94,7 @@ def resolve_tenant_id(flag: str | None) -> str | None:
         settings = load_settings_for_cli()
     except _SETTINGS_ERRORS as exc:
         raise TenantSettingsError(
-            f"the settings could not be loaded ({type(exc).__name__}: {_one_line(str(exc))}), "
+            f"the settings could not be loaded ({_describe_settings_error(exc)}), "
             "so the tenant to pin from core.tenant_id is unknown: pass --tenant-id, or fix "
             "the settings file"
         ) from exc

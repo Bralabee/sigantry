@@ -644,3 +644,15 @@ def test_preflight_capacity_probe_fails_on_a_refused_token(
     capacity = next(r for r in report["results"] if r["name"] == "capacity_state")
     assert capacity["status"] == "FAIL"
     assert TENANT_A in capacity["message"] and TENANT_B in capacity["message"]
+
+
+@pytest.mark.parametrize("command", _BOUND)
+def test_a_settings_error_names_the_field_but_never_prints_its_value(
+    command: str, authority: _Authority, tmp_path: Path
+) -> None:
+    sentinel = "SETTING-VALUE-SENTINEL-4242"
+    Path(".sigantry.toml").write_text(f'[release]\ngithub = "{sentinel}"\n', encoding="utf-8")
+    outcome = _run(command, tmp_path)
+    _assert_refused(outcome, command, "release.github", "--tenant-id")
+    assert sentinel not in outcome.output
+    assert authority.requested_tenants == []

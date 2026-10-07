@@ -264,6 +264,7 @@ def _reconcile_phase(
 
 def _emit_combined_publish_record_phase(
     *,
+    client_obj: FabricRestClient,
     workspace_id: str,
     manifest_path_p: Path,
     manifest,
@@ -320,9 +321,12 @@ def _emit_combined_publish_record_phase(
         "absent_items": items_to_publish,
         "item_type_in_scope": item_type_in_scope,
         "parameters_path": substituted_params_path,
+        # No token_provider: with a tenant_id, a provider pinned to it; without
+        # one, the provider of the client the reconcile ran on, so a caller's
+        # pinned client keeps its pin (and credential) through the publish.
         "token_provider": token_provider
         or (
-            TokenProvider.from_defaults()
+            client_obj.token_provider
             if tenant_id is None
             else TokenProvider.from_defaults(tenant_id=tenant_id)
         ),
@@ -904,6 +908,7 @@ def apply_sync(
         if with_publish and not dry_run:
             assert substituted_params_path is not None  # bound above
             return _emit_combined_publish_record_phase(
+                client_obj=client_obj,
                 workspace_id=workspace_id,
                 manifest_path_p=manifest_path_p,
                 manifest=manifest,

@@ -90,7 +90,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     settings cannot be loaded, because the settings may hold the tenant to
     pin. `sync apply` and `sync pull` logged that failure and carried on;
     `diagnose-auth --scope fabric` reported it as a group-check error
-    (exit 2) and now stops with exit 3.
+    (exit 2) and now stops with exit 3. The line names each failing setting
+    and its error, never the setting's value.
   - The `fdt_settings_toml` test fixture still writes
     `core.tenant_id = "test-tenant"` by default, so a test that runs one of
     these commands where that file is read now gets the GUID refusal.
@@ -124,6 +125,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `FabricRestClient.token_provider` property): the same credential, and the
   same tenant pin when that provider is pinned. A `graph_client` passed in
   is used as before; `sigantry rbac-audit` passes its own.
+- **`apply_sync(..., with_publish=True)` given a client and no `tenant_id`
+  publishes as that client's caller.** Measured at 1.0.1: with no
+  `token_provider`, the publish built `TokenProvider.from_defaults()`, a new
+  default credential chain, so a client pinned to a tenant ran the reconcile
+  under that pin and the publish without it. Now, with no `token_provider`
+  and no `tenant_id`, the publish uses the token provider of the client the
+  reconcile ran on; with a `tenant_id`, a provider pinned to it, as before.
 - **The Power BI retry of `delete_workspace(..., pbi_fallback=True)`
   authenticates as the caller.** This addresses the credential part of
   issue #62 only. Measured at 1.0.1: the retry built
