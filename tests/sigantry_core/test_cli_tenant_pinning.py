@@ -278,7 +278,9 @@ def _envs_yml(tmp: Path) -> str:
         "  - name: dev\n"
         f'    workspace_id: "{WS}"\n'
         f'    environment_id: "{ENV}"\n'
-        f'    wheels: ["{_wheel(tmp)}"]\n',
+        # JSON string = valid YAML double-quoted scalar with its backslashes
+        # escaped; a raw Windows path there ("C:\\Users...") is a YAML error.
+        f"    wheels: [{json.dumps(_wheel(tmp))}]\n",
         encoding="utf-8",
     )
     return str(path)
