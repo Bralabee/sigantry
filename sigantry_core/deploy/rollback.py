@@ -100,6 +100,7 @@ def rollback_to_release(
     runbook_id: str | None = None,
     principal: str | None = None,
     token_provider: TokenProvider | None = None,
+    allow_raw_guids: bool | None = None,
 ) -> DeployResult:
     """Publish again the items a recorded release names.
 
@@ -129,6 +130,9 @@ def rollback_to_release(
         runbook_id: Optional incident reference (``ROLL-INC-...``).
         principal: Optional best-effort identity of the operator.
         token_provider: Explicit TokenProvider with resolved tenant id.
+        allow_raw_guids: The raw-GUID opt-in for the parameters file, as
+            for :func:`deploy_workspace`: ``True`` / ``False`` from the CLI
+            flags, ``None`` to let the settings decide.
 
     Raises:
         ValueError: release not found / hash verification failed /
@@ -213,6 +217,7 @@ def rollback_to_release(
         parameters_path=parameters_path,
         token_provider=token_provider,
         items_to_include=in_scope_items,
+        allow_raw_guids=allow_raw_guids,
     )
 
 

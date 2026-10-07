@@ -28,7 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   change: the settings opt-in is resolved inside `load_and_validate` when a
   caller passes nothing, so `deploy run --rollback`, `sync apply
   --with-publish` and `preflight --params` honour it too (they fell back to
-  the strict default and refused a file `deploy run` accepted); a
+  the strict default and refused a file `deploy run` accepted), and the
+  rollback branch forwards the flags as the forward path does; a
   `--no-allow-raw-guids` flag refuses raw GUIDs for one run although CI
   sets the env var; `sync apply --with-publish --environment`
   scopes the `$ENV:` check and the substituted copy as `deploy run` does;

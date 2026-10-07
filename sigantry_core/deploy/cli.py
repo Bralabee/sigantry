@@ -258,6 +258,7 @@ def deploy_cmd(
                 force=rollback_force,
                 runbook_id=rollback_runbook_id,
                 token_provider=tp,
+                allow_raw_guids=opt_in_from_flags(allow_raw_guids, no_allow_raw_guids),
             )
         except Exception as exc:
             _console.print(Text.assemble(("rollback failed", "red"), f": {exc}"))
