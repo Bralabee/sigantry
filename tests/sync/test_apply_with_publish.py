@@ -1217,3 +1217,38 @@ def test_apply_sync_bulk_forwarded_to_publish_fn(
 
     fake_publish.assert_called_once()
     assert fake_publish.call_args.kwargs.get("bulk") is True
+
+
+def test_publish_phase_scopes_parameters_to_the_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review round 1 on PR #88: the copy handed to fabric-cicd carries only the
+    target environment's slots, and other environments' secrets need not be set."""
+    from sigantry_core.sync.apply import _snapshot_for_publish_phase
+
+    monkeypatch.setenv("ONLY_DEV_VAR", "dev")
+    monkeypatch.delenv("ONLY_PROD_VAR", raising=False)
+    params = tmp_path / "parameters.yml"
+    params.write_text(
+        "find_replace:\n"
+        "  - find_value: 'placeholder'\n"
+        "    replace_value:\n"
+        "      DEV: '$ENV:ONLY_DEV_VAR'\n"
+        "      PROD: '$ENV:ONLY_PROD_VAR'\n",
+        encoding="utf-8",
+    )
+    snapshot = MagicMock()
+    snapshot.items_by_id = {}
+    existing, substituted, tmpdir = _snapshot_for_publish_phase(
+        "ws-x",
+        MagicMock(),
+        params,
+        snapshot_workspace_fn=lambda ws, client: snapshot,
+        environment="DEV",
+    )
+    try:
+        text = substituted.read_text(encoding="utf-8")
+    finally:
+        tmpdir.cleanup()
+    assert existing == set()
+    assert "dev" in text and "PROD" not in text and "$ENV:" not in text

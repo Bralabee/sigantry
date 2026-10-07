@@ -13,13 +13,30 @@ fabric-cicd-native schema: ``find_replace``, ``key_value_replace``, ``spark_pool
     vars literally NAMED ``$ENV:VAR`` -- unusable for the plain-named
     operator contract; pinned by
     ``tests/sigantry_core/deploy/test_fabric_cicd_contract.py``)
-  - ``_ALL_`` environment wildcard
+  - ``_ALL_`` environment wildcard (matched in any case, as fabric-cicd does)
+
+The file may be spelled ``parameters.yml`` (sigantry's docs) or
+``parameter.yml`` (fabric-cicd's own default). :func:`resolve_parameters_path`
+accepts either spelling and falls back to the other when the named one is
+absent.
 
 The toolkit adds TWO validators on top of upstream's shape check:
   1. Reject raw GUIDs outside ``$items.`` / ``$workspace.`` / ``_ALL_`` prefixes
-     (HardcodedGuidError — DEPLOY-03 teeth, T-4-03 mitigation).
+     (HardcodedGuidError — DEPLOY-03 teeth, T-4-03 mitigation). A stock
+     fabric-cicd file carries raw GUIDs by design, so the rule can be switched
+     off with ``allow_raw_guids`` (CLI ``--allow-raw-guids``, settings
+     ``[deploy] allow_raw_guids``, env ``SIGANTRY_DEPLOY__ALLOW_RAW_GUIDS``);
+     every GUID so allowed is logged and listed on the result. The settings
+     value is resolved inside :func:`load_and_validate` when a caller passes
+     nothing, so it applies wherever the file is read (``deploy run`` and its
+     ``--rollback`` replay, ``sync apply --with-publish``, ``preflight
+     --params``); an explicit flag, ``--allow-raw-guids`` or
+     ``--no-allow-raw-guids``, wins for that run.
   2. ``$ENV:<VAR>`` references must resolve to a SET environment variable
      (RuntimeError; pre-flight catch rather than a cryptic deploy-time failure).
+     With a target ``environment`` only that environment's slots, ``_ALL_``
+     slots and slots outside the per-environment maps are checked, so a
+     DEV deploy does not demand PROD's secrets.
 
 Substitution is the toolkit's responsibility because fabric-cicd 1.x
 (verified through 1.1.0) emits ``Invalid replace_value variable format``
@@ -32,6 +49,7 @@ NOT re-implement upstream's shape check.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from dataclasses import dataclass, field
@@ -40,6 +58,8 @@ from typing import Any, cast
 
 import yaml
 
+logger = logging.getLogger(__name__)
+
 _GUID_RE = re.compile(
     r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b"
 )
@@ -47,6 +67,18 @@ _ENV_REF_RE = re.compile(r"\$ENV:([A-Z_][A-Z0-9_]*)")
 
 # GUIDs are allowed only inside upstream fabric-cicd reference forms.
 _ALLOWED_PREFIXES: tuple[str, ...] = ("$items.", "$workspace.", "_ALL_")
+
+#: The two spellings the file may carry; sigantry's docs use the first,
+#: fabric-cicd's own default is the second.
+PARAMETER_FILE_NAMES: tuple[str, ...] = ("parameters.yml", "parameter.yml")
+
+#: Keys whose value is a per-environment map (``{DEV: ..., PROD: ..., _ALL_: ...}``).
+_ENV_KEYED: frozenset[str] = frozenset({"replace_value", "connection_id"})
+
+#: The top-level blocks whose entries carry a ``replace_value`` map.
+_ENTRY_SECTIONS: tuple[str, ...] = ("find_replace", "key_value_replace", "spark_pool")
+
+ALL_ENVIRONMENTS = "_ALL_"
 
 
 class HardcodedGuidError(ValueError):
@@ -57,35 +89,132 @@ class HardcodedGuidError(ValueError):
     """
 
 
+class UnknownEnvironmentError(ValueError):
+    """Raised when the target environment is not declared anywhere in the file.
+
+    Catches a mistyped ``--environment`` (``PRDO`` for ``PROD``) before a
+    deploy that would silently apply no substitutions. A file whose every
+    per-environment map carries ``_ALL_``, or that declares no environments
+    at all, accepts any target.
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class ParametersConfig:
     """Validated parameters.yml payload.
 
-    ``environments_seen`` excludes the ``_ALL_`` wildcard.
+    ``environments_seen`` excludes the ``_ALL_`` wildcard. ``raw_guids``
+    lists the dotted path of every raw GUID that ``allow_raw_guids`` let
+    through, so a caller can say how many the deploy relies on.
     """
 
     raw: dict[str, Any]
     path: str
     environments_seen: frozenset[str] = field(default_factory=frozenset)
+    raw_guids: tuple[str, ...] = ()
 
 
-def load_and_validate(path: str | Path) -> ParametersConfig:
-    """Read ``parameters.yml``; run the toolkit's two validators.
+def resolve_parameters_path(path: str | Path) -> Path:
+    """Return the parameters file to read, accepting either spelling.
 
-    Args:
-        path: Path to parameters.yml.
-
-    Raises:
-        FileNotFoundError: missing file.
-        HardcodedGuidError: raw GUID outside allowed prefix.
-        RuntimeError: unresolved ``$ENV:<VAR>`` reference.
-
-    Returns:
-        ``ParametersConfig`` with the raw dict + environments-seen set.
+    ``path`` is used as given when it exists. When it does not, a sibling
+    with the other spelling (``parameters.yml`` <-> ``parameter.yml``) is
+    used; when ``path`` is a directory, the first spelling found inside it
+    is used. Otherwise ``FileNotFoundError`` names every spelling tried.
     """
     p = Path(path)
-    if not p.exists():
-        raise FileNotFoundError(f"parameters.yml not found at {p}")
+    if p.is_file():
+        return p
+    candidates: list[Path] = []
+    if p.is_dir():
+        candidates = [p / name for name in PARAMETER_FILE_NAMES]
+    elif p.name in PARAMETER_FILE_NAMES:
+        candidates = [p.with_name(name) for name in PARAMETER_FILE_NAMES if name != p.name]
+    for candidate in candidates:
+        if candidate.is_file():
+            logger.info("parameters file %s not found; using %s", p, candidate)
+            return candidate
+    tried = ", ".join(str(c) for c in [p, *candidates])
+    raise FileNotFoundError(f"parameters file not found; tried {tried}")
+
+
+def resolve_allow_raw_guids(
+    flag: bool | None = None, *, settings_path: str | Path | None = None
+) -> bool:
+    """Resolve the raw-GUID opt-in: explicit flag, else settings, else False.
+
+    Order of precedence:
+    1. ``flag`` when it is not ``None``: ``True`` from ``--allow-raw-guids``,
+       ``False`` from ``--no-allow-raw-guids`` (which refuses raw GUIDs for
+       this run although the settings allow them).
+    2. ``[deploy] allow_raw_guids`` in the settings file, or
+       ``SIGANTRY_DEPLOY__ALLOW_RAW_GUIDS``, through
+       :func:`sigantry_core.config.load_settings` (``settings_path`` names
+       the file explicitly; ``None`` resolves it from the working directory).
+    3. ``False``.
+
+    A settings file that fails to load does not raise here: the opt-in stays
+    off and the reason is logged, so the strict default is what applies.
+    """
+    if flag is not None:
+        return flag
+    try:
+        from sigantry_core.config import load_settings
+
+        settings = load_settings(settings_path)
+    except Exception as exc:  # the strict default applies; say why
+        logger.warning("allow_raw_guids: settings could not be loaded (%s); default False", exc)
+        return False
+    return bool(settings.deploy.allow_raw_guids)
+
+
+def opt_in_from_flags(allow: bool, refuse: bool) -> bool | None:
+    """Map the CLI pair ``--allow-raw-guids`` / ``--no-allow-raw-guids`` to the opt-in.
+
+    ``True`` for ``--allow-raw-guids``, ``False`` for ``--no-allow-raw-guids``
+    (refuse for this run although the settings allow), ``None`` for neither
+    (the settings decide). Both at once is an error.
+    """
+    if allow and refuse:
+        raise ValueError("--allow-raw-guids and --no-allow-raw-guids cannot both be given")
+    if allow:
+        return True
+    if refuse:
+        return False
+    return None
+
+
+def load_and_validate(
+    path: str | Path,
+    *,
+    allow_raw_guids: bool | None = None,
+    environment: str | None = None,
+) -> ParametersConfig:
+    """Read ``parameters.yml`` (or ``parameter.yml``); run the toolkit's validators.
+
+    Args:
+        path: Path to the parameters file; see :func:`resolve_parameters_path`.
+        allow_raw_guids: Let raw GUIDs through (logged, and listed on the
+            result) instead of raising ``HardcodedGuidError``. ``None`` (the
+            default) resolves the settings opt-in through
+            :func:`resolve_allow_raw_guids`, so every caller honours
+            ``[deploy] allow_raw_guids`` unless it says otherwise.
+        environment: The environment this deploy targets. When given, it must
+            be declared in the file (or the file must use ``_ALL_``), and only
+            its ``$ENV:`` references, ``_ALL_``'s and those outside the
+            per-environment maps must resolve.
+
+    Raises:
+        FileNotFoundError: no file under either spelling.
+        HardcodedGuidError: raw GUID outside allowed prefix (``allow_raw_guids`` off).
+        UnknownEnvironmentError: ``environment`` is declared nowhere in the file.
+        RuntimeError: unresolved ``$ENV:<VAR>`` reference in scope.
+
+    Returns:
+        ``ParametersConfig`` with the raw dict, the environments seen and the
+        raw GUIDs allowed.
+    """
+    p = resolve_parameters_path(path)
     with p.open("r", encoding="utf-8") as fp:
         doc = yaml.safe_load(fp) or {}
 
@@ -94,41 +223,89 @@ def load_and_validate(path: str | Path) -> ParametersConfig:
         # with a clear error rather than letting the validator walk miss.
         raise ValueError(f"parameters.yml at {p} must be a mapping; got {type(doc).__name__}")
 
-    environments = _collect_environments(doc)
-    _reject_hardcoded_guids(doc, str(p))
-    _resolve_env_references(doc)
+    if allow_raw_guids is None:
+        allow_raw_guids = resolve_allow_raw_guids(None)
 
+    environments = _collect_environments(doc)
+    if environment is not None:
+        _check_target_environment(doc, environments, environment, str(p))
+    raw_guids = _reject_hardcoded_guids(doc, str(p), allow_raw_guids=allow_raw_guids)
+    _resolve_env_references(doc, environment=environment)
+
+    # Report the path as the caller wrote it when that file was used; only a
+    # substituted sibling spelling is reported resolved. ``str(Path(...))``
+    # rewrites separators on Windows (``p[/x].yml`` -> ``p[\\x].yml``) and
+    # drops a leading ``./`` everywhere, and the CLIs print this value.
+    reported = str(path) if Path(path) == p else str(p)
     return ParametersConfig(
         raw=doc,
-        path=str(p),
+        path=reported,
         environments_seen=frozenset(environments),
+        raw_guids=tuple(raw_guids),
     )
 
 
-def _collect_environments(doc: dict[str, Any]) -> set[str]:
-    """Scan every ``replace_value`` dict; capture environment keys used."""
-    envs: set[str] = set()
-    for entry in doc.get("find_replace", []) or []:
-        if isinstance(entry, dict):
-            envs.update((entry.get("replace_value") or {}).keys())
-    for entry in doc.get("key_value_replace", []) or []:
-        if isinstance(entry, dict):
-            envs.update((entry.get("replace_value") or {}).keys())
-    for entry in doc.get("spark_pool", []) or []:
-        if isinstance(entry, dict):
-            envs.update((entry.get("replace_value") or {}).keys())
+def _is_wildcard(key: Any) -> bool:
+    """Whether a per-environment key is the ``_ALL_`` wildcard, in any case."""
+    return str(key).upper() == ALL_ENVIRONMENTS
+
+
+def _env_maps(doc: dict[str, Any]) -> list[dict[str, Any]]:
+    """Every per-environment map in the document, in file order.
+
+    Covers each entry's ``replace_value`` in the entry sections and, under
+    ``semantic_model_binding``, ``default.connection_id`` and every
+    ``models[].connection_id``.
+    """
+    maps: list[dict[str, Any]] = []
+    for section in _ENTRY_SECTIONS:
+        for entry in doc.get(section, []) or []:
+            if isinstance(entry, dict) and isinstance(entry.get("replace_value"), dict):
+                maps.append(entry["replace_value"])
     binding = doc.get("semantic_model_binding") or {}
     if isinstance(binding, dict):
         default = binding.get("default") or {}
-        if isinstance(default, dict):
-            conn = default.get("connection_id") or {}
-            if isinstance(conn, dict):
-                envs.update(conn.keys())
-    return {e for e in envs if e != "_ALL_"}
+        if isinstance(default, dict) and isinstance(default.get("connection_id"), dict):
+            maps.append(default["connection_id"])
+        for model in binding.get("models") or []:
+            if isinstance(model, dict) and isinstance(model.get("connection_id"), dict):
+                maps.append(model["connection_id"])
+    return maps
 
 
-def _reject_hardcoded_guids(doc: dict[str, Any], path: str) -> None:
-    """Recursive walk — fails on any GUID outside an allowed reference form."""
+def _collect_environments(doc: dict[str, Any]) -> set[str]:
+    """Scan every per-environment map; capture environment keys used."""
+    envs: set[str] = set()
+    for env_map in _env_maps(doc):
+        envs.update(str(k) for k in env_map)
+    return {e for e in envs if not _is_wildcard(e)}
+
+
+def _check_target_environment(
+    doc: dict[str, Any], environments: set[str], environment: str, path: str
+) -> None:
+    """Raise unless the target environment is declared, or the file uses ``_ALL_``."""
+    if environment in environments or not environments:
+        return
+    # A map that carries ``_ALL_`` applies to any target; only a map with
+    # neither the target nor the wildcard would silently apply nothing.
+    if not any(
+        env_map and not any(_is_wildcard(k) for k in env_map) and environment not in env_map
+        for env_map in _env_maps(doc)
+    ):
+        return
+    raise UnknownEnvironmentError(
+        f"{path}: environment {environment!r} is not declared in the file; "
+        f"declared: {', '.join(sorted(environments))}. A mistyped --environment "
+        f"would apply no substitutions."
+    )
+
+
+def _reject_hardcoded_guids(
+    doc: dict[str, Any], path: str, *, allow_raw_guids: bool = False
+) -> list[str]:
+    """Walk the document; raise on the first raw GUID, or list them all when allowed."""
+    allowed: list[str] = []
 
     def _walk(node: Any, trail: tuple[str, ...]) -> None:
         if isinstance(node, dict):
@@ -145,30 +322,48 @@ def _reject_hardcoded_guids(doc: dict[str, Any], path: str) -> None:
             # Accept if the surrounding string begins with an allowed prefix.
             if any(stripped.startswith(pfx) for pfx in _ALLOWED_PREFIXES):
                 return
+            where = ".".join(trail) or "<root>"
+            if allow_raw_guids:
+                logger.warning(
+                    "%s: raw GUID %s at %s allowed by allow_raw_guids", path, match.group(0), where
+                )
+                allowed.append(where)
+                return
             raise HardcodedGuidError(
-                f"{path}: hard-coded GUID {match.group(0)} at "
-                f"{'.'.join(trail) or '<root>'}. "
-                f"Use $items.<Type>.<Name>.$id, $workspace.$id, or $ENV:<VAR>."
+                f"{path}: hard-coded GUID {match.group(0)} at {where}. "
+                f"Use $items.<Type>.<Name>.$id, $workspace.$id, or $ENV:<VAR>, "
+                f"or pass --allow-raw-guids for a stock fabric-cicd file."
             )
 
     _walk(doc, ())
+    return allowed
 
 
-def _resolve_env_references(doc: dict[str, Any]) -> None:
-    """Check every ``$ENV:<VAR>`` reference resolves to a set environment variable.
+def _in_scope(parent_key: str | None, key: Any, environment: str | None) -> bool:
+    """Whether a per-environment slot applies to the target environment."""
+    if environment is None or parent_key not in _ENV_KEYED:
+        return True
+    return key == environment or _is_wildcard(key)
+
+
+def _resolve_env_references(doc: dict[str, Any], *, environment: str | None = None) -> None:
+    """Check every in-scope ``$ENV:<VAR>`` reference resolves to a set variable.
 
     Pre-flight reachability check. Substitution is performed separately by
     :func:`substitute_env_references` immediately before the substituted
-    document is written to disk and handed to fabric-cicd.
+    document is written to disk and handed to fabric-cicd. With a target
+    ``environment``, slots keyed by another environment are not checked:
+    a DEV deploy does not need PROD's secrets set.
     """
 
-    def _walk(node: Any) -> None:
+    def _walk(node: Any, parent_key: str | None) -> None:
         if isinstance(node, dict):
-            for v in node.values():
-                _walk(v)
+            for k, v in node.items():
+                if _in_scope(parent_key, k, environment):
+                    _walk(v, str(k))
         elif isinstance(node, list):
             for v in node:
-                _walk(v)
+                _walk(v, parent_key)
         elif isinstance(node, str):
             for m in _ENV_REF_RE.finditer(node):
                 if m.group(1) not in os.environ:
@@ -177,11 +372,13 @@ def _resolve_env_references(doc: dict[str, Any]) -> None:
                         f"variable is not set in the current environment."
                     )
 
-    _walk(doc)
+    _walk(doc, None)
 
 
-def substitute_env_references(doc: dict[str, Any]) -> dict[str, Any]:
-    """Return a deep copy of ``doc`` with every ``$ENV:<VAR>`` token expanded.
+def substitute_env_references(
+    doc: dict[str, Any], *, environment: str | None = None
+) -> dict[str, Any]:
+    """Return a deep copy of ``doc`` with every in-scope ``$ENV:<VAR>`` token expanded.
 
     fabric-cicd 1.x does NOT recognise ``$ENV:`` references in
     ``replace_value`` slots by default -- it raises ``Invalid replace_value
@@ -197,16 +394,27 @@ def substitute_env_references(doc: dict[str, Any]) -> dict[str, Any]:
     env vars surface as a clear ``RuntimeError`` rather than silently
     leaving placeholders in the substituted document.
 
+    With a target ``environment``, the copy keeps only that environment's
+    slot and ``_ALL_`` in every per-environment map, so no other
+    environment's token, resolved or not, reaches fabric-cicd. An entry
+    whose ``replace_value`` has no slot left applies to no item in this
+    deploy and is dropped. Under ``semantic_model_binding`` a ``default``
+    or a ``models[]`` entry whose ``connection_id`` has no slot left is
+    dropped whole, and the section itself when nothing remains: fabric-cicd
+    requires ``connection_id`` on each and refuses an empty ``default``.
+
     Args:
         doc: Parsed parameters.yml mapping (as returned by
             :class:`ParametersConfig`.raw).
+        environment: The environment this deploy targets, or ``None`` to
+            expand every slot.
 
     Returns:
         A new dict with ``$ENV:VAR`` tokens replaced by ``os.environ[VAR]``.
         Non-string scalars + dict / list structure are preserved exactly.
 
     Raises:
-        KeyError: a referenced env var is unset. ``load_and_validate``
+        KeyError: an in-scope env var is unset. ``load_and_validate``
             already gates on this; the explicit raise here is a defence
             in depth so direct callers cannot accidentally produce a
             silently-broken document.
@@ -224,19 +432,72 @@ def substitute_env_references(doc: dict[str, Any]) -> dict[str, Any]:
 
         return _ENV_REF_RE.sub(_sub, text)
 
-    def _walk(node: Any) -> Any:
+    def _walk(node: Any, parent_key: str | None) -> Any:
         if isinstance(node, dict):
-            return {k: _walk(v) for k, v in node.items()}
+            out: dict[Any, Any] = {}
+            for k, v in node.items():
+                if not _in_scope(parent_key, k, environment):
+                    continue
+                child = _walk(v, str(k))
+                if k == "connection_id" and environment is not None and child == {}:
+                    continue  # no slot for this environment: not bound here
+                out[k] = child
+            return out
         if isinstance(node, list):
-            return [_walk(v) for v in node]
+            return [_walk(v, parent_key) for v in node]
         if isinstance(node, str):
             return _expand(node)
         return node
 
-    return cast(dict[str, Any], _walk(doc))
+    substituted = cast(dict[str, Any], _walk(doc, None))
+    if environment is not None:
+        for section in _ENTRY_SECTIONS:
+            entries = substituted.get(section)
+            if isinstance(entries, list):
+                substituted[section] = [
+                    e
+                    for e in entries
+                    if not (
+                        isinstance(e, dict) and "replace_value" in e and e["replace_value"] == {}
+                    )
+                ]
+        _drop_unbound_model_bindings(substituted)
+    return substituted
 
 
-def write_substituted_parameters(config: ParametersConfig, target_path: str | Path) -> Path:
+def _drop_unbound_model_bindings(substituted: dict[str, Any]) -> None:
+    """Remove binding parts left without a ``connection_id`` by scoping.
+
+    fabric-cicd (1.3.0) validates the new-format ``semantic_model_binding``
+    as ``default`` requiring ``connection_id`` and every ``models[]`` entry
+    requiring one too, and the section requiring ``default`` or ``models``;
+    a leftover ``default: {}`` or a model entry stripped of its map ends the
+    deploy with "Deployment terminated due to an invalid parameter file".
+    The legacy list form carries no per-environment maps and is untouched.
+    """
+    binding = substituted.get("semantic_model_binding")
+    if not isinstance(binding, dict):
+        return
+    default = binding.get("default")
+    if isinstance(default, dict) and not default.get("connection_id"):
+        del binding["default"]
+    models = binding.get("models")
+    if isinstance(models, list):
+        kept = [m for m in models if not (isinstance(m, dict) and not m.get("connection_id"))]
+        if kept:
+            binding["models"] = kept
+        else:
+            del binding["models"]
+    if not binding.get("default") and not binding.get("models"):
+        del substituted["semantic_model_binding"]
+
+
+def write_substituted_parameters(
+    config: ParametersConfig,
+    target_path: str | Path,
+    *,
+    environment: str | None = None,
+) -> Path:
     """Substitute ``$ENV:`` refs in ``config.raw`` and write to ``target_path``.
 
     Convenience wrapper around :func:`substitute_env_references` +
@@ -247,11 +508,12 @@ def write_substituted_parameters(config: ParametersConfig, target_path: str | Pa
     Args:
         config: A validated ``ParametersConfig`` from :func:`load_and_validate`.
         target_path: Where to write the substituted YAML.
+        environment: Passed through to :func:`substitute_env_references`.
 
     Returns:
         The resolved ``Path`` that was written.
     """
-    substituted = substitute_env_references(config.raw)
+    substituted = substitute_env_references(config.raw, environment=environment)
     p = Path(target_path)
     p.parent.mkdir(parents=True, exist_ok=True)
     with p.open("w", encoding="utf-8") as fp:

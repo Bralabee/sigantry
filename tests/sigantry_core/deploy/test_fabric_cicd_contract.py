@@ -1,5 +1,6 @@
 """Contract canaries against the INSTALLED fabric-cicd (1.1.0 delta audit, 2026-06-11;
-re-audited green against 1.3.0, 2026-08-24 — all three findings unchanged).
+re-audited green against 1.3.0, 2026-08-24 — all three findings unchanged;
+re-audited against 1.4.0, 2026-10-07 — finding 1 CHANGED, see below).
 
 These tests pin the upstream behaviours that Sigantry's deploy/sync layers
 were designed around. They run against the *installed* ``fabric_cicd``
@@ -18,6 +19,15 @@ Audit findings encoded below (fabric-cicd 1.0.0 -> 1.1.0):
    (plain ``FOO=bar`` env vars referenced as ``$ENV:FOO`` in
    parameters.yml), so ``sigantry_core.deploy.parameters`` keeps doing
    the substitution itself (PR #54).
+
+   fabric-cicd 1.4.0 changed the flag-gated path: it now reads the PLAIN
+   variable name (``$ENV:FOO`` -> ``os.environ["FOO"]``) and ignores a
+   variable literally named ``$ENV:FOO``. Two things did not change and
+   still carry the toolkit's design: the path is off without the feature
+   flag (1a), which Sigantry never sets, and an UNSET name keeps the token
+   in the file silently (1d), where Sigantry refuses before the deploy.
+   The 1b/1c canaries assert per installed version so a dependency bump
+   in either direction fails loudly here.
 
 2. ``items_to_include`` is still double-flag-gated (D-17-09):
    ``enable_experimental_features`` + ``enable_items_to_include``.
@@ -39,11 +49,23 @@ import os
 from pathlib import Path
 
 import fabric_cicd
+import pytest
 from fabric_cicd import constants
 from fabric_cicd._parameter._utils import replace_variables_in_parameter_file
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _ENV_FLAG = "enable_environment_variable_replacement"
+
+
+def _upstream_version() -> tuple[int, ...]:
+    from importlib.metadata import version
+
+    return tuple(int(part) for part in version("fabric-cicd").split(".")[:2])
+
+
+#: fabric-cicd 1.4.0 reads the plain variable name behind the flag; 1.1.0
+#: through 1.3.0 read only a variable literally named ``$ENV:<name>``.
+_NATIVE_READS_PLAIN_NAMES = _upstream_version() >= (1, 4)
 
 
 def _without_flag(flag: str):
@@ -100,13 +122,14 @@ def test_upstream_leaves_env_tokens_untouched_without_feature_flag(monkeypatch) 
     assert "real-value" not in result
 
 
-def test_upstream_native_env_replacement_ignores_plain_env_var_names(monkeypatch) -> None:
-    """Finding 1b: even WITH the flag, upstream ignores normally-named env vars.
+def test_upstream_native_env_replacement_and_plain_env_var_names(monkeypatch) -> None:
+    """Finding 1b: WITH the flag, what upstream does with a normally-named env var.
 
-    Upstream filters ``os.environ`` for keys that literally start with
-    ``$ENV:`` -- a plain ``FOO=bar`` export is invisible to it. This is
-    why Sigantry does not delegate substitution upstream even on 1.1.0:
-    the documented operator contract is plain env-var names.
+    Through 1.3.0 upstream filtered ``os.environ`` for keys literally
+    starting with ``$ENV:``, so a plain ``FOO=bar`` export was invisible
+    to it. 1.4.0 reads the plain name. Either way Sigantry does not
+    delegate substitution upstream: the flag is off by default (1a) and an
+    unset name is kept silently (1d).
     """
     monkeypatch.setenv("SIGANTRY_CONTRACT_PROBE", "real-value")
     # Hermetic guard: a host env var literally named "$ENV:..." (leaked
@@ -115,24 +138,49 @@ def test_upstream_native_env_replacement_ignores_plain_env_var_names(monkeypatch
     raw = "DEV: $ENV:SIGANTRY_CONTRACT_PROBE\n"
     with _with_flag(_ENV_FLAG):
         result = replace_variables_in_parameter_file(raw)
-    # Plain-named env var is NOT picked up by the upstream implementation.
-    assert "$ENV:SIGANTRY_CONTRACT_PROBE" in result
+    if _NATIVE_READS_PLAIN_NAMES:
+        assert result == "DEV: real-value\n"
+    else:
+        # Plain-named env var is NOT picked up by the 1.1.0-1.3.0 implementation.
+        assert "$ENV:SIGANTRY_CONTRACT_PROBE" in result
 
 
-def test_upstream_native_env_replacement_requires_dollar_prefixed_names(monkeypatch) -> None:
-    """Finding 1c: upstream's flag-gated path only sees ``$ENV:``-NAMED env vars.
+def test_upstream_native_env_replacement_and_dollar_prefixed_names(monkeypatch) -> None:
+    """Finding 1c: what upstream's flag-gated path does with a ``$ENV:``-NAMED env var.
 
-    Documents the exact upstream mechanism so a future reader
-    understands why it is unusable for Sigantry's contract: operators
-    would have to export environment variables literally named
-    ``$ENV:FOO``, which most CI variable stores cannot even express.
+    Through 1.3.0 that was the ONLY name it read: operators would have had
+    to export variables literally named ``$ENV:FOO``, which most CI
+    variable stores cannot even express. 1.4.0 ignores such a name and
+    looks up the plain one instead.
     """
+    monkeypatch.delenv("SIGANTRY_CONTRACT_PROBE", raising=False)
     monkeypatch.setitem(os.environ, "$ENV:SIGANTRY_CONTRACT_PROBE", "dollar-named-value")
     raw = "DEV: $ENV:SIGANTRY_CONTRACT_PROBE\n"
     with _with_flag(_ENV_FLAG):
         result = replace_variables_in_parameter_file(raw)
-    assert "dollar-named-value" in result
-    assert "$ENV:SIGANTRY_CONTRACT_PROBE" not in result
+    if _NATIVE_READS_PLAIN_NAMES:
+        assert "dollar-named-value" not in result
+        assert "$ENV:SIGANTRY_CONTRACT_PROBE" in result
+    else:
+        assert "dollar-named-value" in result
+        assert "$ENV:SIGANTRY_CONTRACT_PROBE" not in result
+
+
+def test_upstream_native_env_replacement_keeps_an_unset_name_silently(monkeypatch) -> None:
+    """Finding 1d (1.4.0): an unset plain name leaves the token in the file, no error.
+
+    This is why ``sigantry_core.deploy.parameters`` keeps its reachability
+    check: a deploy would otherwise reach fabric-cicd with a literal
+    ``$ENV:FOO`` in a ``replace_value`` slot.
+    """
+    if not _NATIVE_READS_PLAIN_NAMES:
+        pytest.skip("1.1.0-1.3.0 never read a plain name; finding 1b covers them")
+    monkeypatch.delenv("SIGANTRY_CONTRACT_PROBE", raising=False)
+    monkeypatch.delitem(os.environ, "$ENV:SIGANTRY_CONTRACT_PROBE", raising=False)
+    raw = "DEV: $ENV:SIGANTRY_CONTRACT_PROBE\n"
+    with _with_flag(_ENV_FLAG):
+        result = replace_variables_in_parameter_file(raw)
+    assert result == raw
 
 
 def test_items_to_include_double_flag_gate_constants_still_exist() -> None:

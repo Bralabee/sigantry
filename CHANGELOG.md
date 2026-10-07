@@ -9,6 +9,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Raw GUIDs on request, either file spelling, and per-environment
+  validation.** A stock fabric-cicd `parameter.yml` carries raw GUIDs by
+  design and was refused outright; validating demanded every environment's
+  `$ENV:` variables in every job; and only the `parameters.yml` spelling was
+  read. Now `--allow-raw-guids` on `config validate`, `deploy validate` and
+  `deploy run`, or `[deploy] allow_raw_guids = true` in `.sigantry.toml`
+  (`SIGANTRY_DEPLOY__ALLOW_RAW_GUIDS`), lets raw GUIDs through, each one
+  logged and listed; either spelling is read, with a note when the sibling
+  was used; `-e <env>` on the validate commands, and `deploy run`'s own
+  `--environment`, check only that environment's slots plus `_ALL_` and
+  refuse an environment the file does not declare; the substituted copy
+  handed to fabric-cicd keeps only the target's and `_ALL_`'s slots.
+  `ParametersConfig` gains `raw_guids`; `load_and_validate`,
+  `substitute_env_references` and `write_substituted_parameters` take
+  keyword-only `allow_raw_guids` / `environment`. Review round 1 on the
+  change: the settings opt-in is resolved inside `load_and_validate` when a
+  caller passes nothing, so `deploy run --rollback`, `sync apply
+  --with-publish` and `preflight --params` honour it too (they fell back to
+  the strict default and refused a file `deploy run` accepted), and the
+  rollback branch forwards the flags as the forward path does; a
+  `--no-allow-raw-guids` flag refuses raw GUIDs for one run although CI
+  sets the env var; `sync apply --with-publish --environment`
+  scopes the `$ENV:` check and the substituted copy as `deploy run` does;
+  `_ALL_` is matched in any case, as fabric-cicd matches it (a `_all_`
+  entry was silently dropped from the substituted copy); the environment
+  check sees `semantic_model_binding.models[].connection_id`; and a binding
+  `default` or `models[]` entry with no slot for the target is dropped whole,
+  the section with it when nothing remains, instead of an empty `default`
+  that fabric-cicd 1.3.0 refuses ("Deployment terminated due to an invalid
+  parameter file", reproduced on a DEV deploy whose binding named only PROD).
+
+### Changed
+- **Classifier `Development Status :: 4 - Beta`** (was `5 - Production/Stable`).
+  The project has one maintainer, every review is by the author, and the
+  CHANGELOG's own "Known remaining" list is not empty. The classifier now
+  says so; the code is unchanged.
+- **`sigantry preflight` runs three probes, not four.** `DependencyGraphProbe`
+  is no longer in the default set: the shipped `sync.yml` schema declares no
+  item dependencies and `workspace.yml` has no items, so against a real
+  manifest it ordered nothing and reported "0 item(s) verified" as a pass.
+  The class stays importable for manifests that carry `items[].depends_on`.
+  `BaseProbe.run` gains `token_provider`, `workspace_id` and `tenant_id`
+  keyword arguments; a subclass must accept them.
+
 ### Fixed
 - **CD and drift templates: sign in, pin, approve before publishing, record
   the real approver.** Measured at 1.0.1: the GitHub reusable workflows
@@ -30,6 +75,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in every ADO stage that runs it. A `workflow_call:` caller must grant
   `id-token: write` (and `actions: read` for CD) itself; the runbooks show
   the caller block.
+- **Contract canaries follow fabric-cicd 1.4.0.** CI resolves
+  `fabric-cicd>=1.0,<2.0` to 1.4.0, whose flag-gated `$ENV:` replacement
+  now reads the plain variable name (`$ENV:FOO` -> `os.environ["FOO"]`)
+  and ignores a variable literally named `$ENV:FOO`; two canaries pinned
+  the 1.1.0-1.3.0 behaviour and failed every test job on the first PR to
+  run after the release (measured 2026-10-07). They now assert per
+  installed version, and a new canary pins that 1.4.0 keeps an unset
+  name's token silently, the reason the toolkit's reachability check and
+  its own substitution stay. No behaviour changes.
+- **Preflight reports only what it checked, and `--strict` fails on what it
+  could not.** Measured at 1.0.1: a manifest reading `foo: bar` passed the
+  schema probe (it only parsed `.platform`/`.ipynb` files under the
+  manifest's directory, never the manifest); the demo manifest copied without
+  its item tree passed with "0 artifacts"; `--params` was accepted and never
+  read; `AZURE_CLIENT_ID=not-a-real-id AZURE_CLIENT_SECRET=garbage` made the
+  Entra probe PASS (it checked that the variables existed); the capacity
+  probe always reported SKIP because the CLI attached no client; and
+  `--strict` exited 0 with two probes skipped, printing "Preflight simulation
+  successful". Now: the schema probe loads the manifest as a `sync.yml` or a
+  `workspace.yml` (a file that is neither fails with both loaders' errors),
+  requires every sync item's `local_path` to exist, parses the fabric-cicd
+  files under it, and runs `--params` through the `config validate` rules;
+  the Entra probe acquires a Fabric token through the credential chain
+  (a configured credential that gets none is a FAIL, no credential at all is
+  a SKIP) and with `--tenant-id` fails when the token's `tid` differs; the
+  capacity probe, given `--workspace-id`, reads the workspace's capacity and
+  fails when it is missing, paused or otherwise down; a `SKIP` message starts
+  `not checked:`, the summary names every skipped probe, and under
+  `--strict` a skip exits 1. Probe messages are rendered as text, so a path
+  holding `[...]` is printed, not read as markup.
+- **Preflight review fixes (round 1 on the change above).** One probe raising
+  no longer loses the report: the engine records it as that probe's `FAIL`
+  and runs the rest, so `--json` always carries a report (measured: a
+  malformed `--params` file ended the command in a `yaml` traceback with no
+  report at all; the schema probe now reports it as a `parameters:` problem,
+  and a manifest or parameters path that is a directory or not UTF-8 is a
+  `FAIL` too). `--tenant-id` and the workspace's capacity id compare to the
+  token's `tid` and to `/v1/capacities` without regard to case, so a GUID
+  pasted in uppercase no longer fails a correct tenant. With `--workspace-id`
+  but no credential able to acquire a token, the capacity probe is `SKIP`
+  (`FAIL` when a credential was configured), the same rule as the Entra
+  probe, instead of a `FAIL` that read nothing.
 - **PR review bot: serializer-shaped TMDL.** Three parser gaps made a real
   Power BI Desktop or Fabric export diff as "no changes". Indentation counted
   spaces only, so a tab-indented model (one tab per level, the serializer's

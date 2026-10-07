@@ -763,7 +763,16 @@ loader validates two extra rules on top:
 
 - No raw GUIDs anywhere; every workspace / capacity / item ID must
   resolve via `$workspace.$id`, `$items.<Type>.<Name>.$id`, `$ENV:<VAR>`,
-  or the wildcard `_ALL_`.
+  or the wildcard `_ALL_` (matched in any case). A stock fabric-cicd file is
+  accepted with `--allow-raw-guids` or `[deploy] allow_raw_guids = true`;
+  the setting applies wherever the file is read (`deploy run` and its
+  rollback, `sync apply --with-publish`, `preflight --params`) and
+  `--no-allow-raw-guids` refuses raw GUIDs for one run regardless. Each
+  GUID let through is logged. The file may be spelled `parameters.yml` or
+  fabric-cicd's `parameter.yml`.
+- With a target environment (`-e DEV` / `--environment DEV`) only that
+  environment's `$ENV:` references (plus `_ALL_`) must be set, and the
+  target must be declared in the file.
 - `$ENV:VAR` references are substituted at deploy time into a tempfile
   copy of the manifest before `fabric-cicd` sees it (a workaround for
   upstream's strict regex on `replace_value` slots, fixed in Sigantry
@@ -1308,13 +1317,23 @@ Verbs (18 subcommands; run `sigantry <verb> --help` for the full flag set):
   variable-library                       -- Fabric Variable Library CRUD
   env                                    -- Fabric Environment wheel upload
   dq                                     -- run a registered DQ gate plugin
-  config validate <path>                 -- pre-flight check parameters.yml
-  preflight                              -- pre-deployment simulation + safety
-                                            probes (ADR-0015)
+  config validate [<path>]               -- pre-flight check parameters.yml
+                                            (or parameter.yml; default parameters.yml)
+    --environment LABEL / -e             check only this environment's $ENV: slots
+    --allow-raw-guids / --no-allow-raw-guids
+                                         accept raw GUIDs (stock fabric-cicd file);
+                                            unset, [deploy] allow_raw_guids applies
+  preflight                              -- pre-deployment safety probes
+                                            (ADR-0015)
     --manifest PATH / -m                 sync.yml or workspace.yml [default sync.yml]
-    --params PATH / -p                   deployment parameters.yml
+    --params PATH / -p                   deployment parameters.yml (validated)
     --environment LABEL / -e             target environment [default dev]
-    --strict                             treat warnings as failures
+    --workspace-id GUID                  target workspace; the capacity probe
+                                            is not checked without it
+    --tenant-id GUID                     expected tenant; the Entra probe fails
+                                            when the token's tid differs
+    --strict                             fail on a warning and on a probe that
+                                            could not check (the CI gate)
     --json                               emit the report as JSON
 
 Standalone console script (not a sigantry subcommand):

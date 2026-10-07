@@ -197,9 +197,14 @@ def _snapshot_for_publish_phase(
     params_path: str | Path,
     *,
     snapshot_workspace_fn,
+    environment: str | None = None,
 ) -> tuple[set[tuple[str, str]], Path, tempfile.TemporaryDirectory]:
     """W4.2 phase: pre-reconcile snapshot + parameters substitution for
     ``with_publish=True``.
+
+    ``environment`` scopes the parameters file as ``deploy run`` does: only
+    that environment's ``$ENV:`` slots (plus ``_ALL_``) must resolve, and
+    the substituted copy handed to fabric-cicd carries only those slots.
 
     Returns the ``existing_set`` (display_name + type tuples already in
     the workspace), the substituted-parameters tempfile path, and the
@@ -212,11 +217,12 @@ def _snapshot_for_publish_phase(
     """
     snapshot = snapshot_workspace_fn(workspace_id, client=client_obj)
     existing_set = {(it.display_name, it.type) for it in snapshot.items_by_id.values()}
-    params_config = load_and_validate(Path(params_path))
+    params_config = load_and_validate(Path(params_path), environment=environment)
     publish_params_tmpdir = tempfile.TemporaryDirectory(prefix="sigantry-sync-publish-params-")
     substituted_params_path = write_substituted_parameters(
         params_config,
         Path(publish_params_tmpdir.name) / "parameters.yml",
+        environment=environment,
     )
     return existing_set, substituted_params_path, publish_params_tmpdir
 
@@ -808,6 +814,7 @@ def apply_sync(
                     client_obj,
                     params_path,
                     snapshot_workspace_fn=snapshot_workspace_fn,
+                    environment=environment,
                 )
             )
 
