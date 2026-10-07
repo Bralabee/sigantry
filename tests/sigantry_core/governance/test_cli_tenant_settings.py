@@ -68,11 +68,11 @@ def test_tenant_settings_export_threads_tenant_id(tmp_path: Path) -> None:
                 "--output",
                 str(out),
                 "--tenant-id",
-                "tenant-xyz",
+                "00000000-0000-0000-0000-0000000000d1",
             ],
         )
     assert r.exit_code == 0, r.stdout
     # --tenant-id must thread through to FabricRestClient.from_defaults
-    from_defaults.assert_called_once_with(tenant_id="tenant-xyz")
+    from_defaults.assert_called_once_with(tenant_id="00000000-0000-0000-0000-0000000000d1")
     data = json.loads(out.read_text(encoding="utf-8"))
-    assert data["tenantId"] == "tenant-xyz"
+    assert data["tenantId"] == "00000000-0000-0000-0000-0000000000d1"

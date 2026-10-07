@@ -29,6 +29,9 @@ from sigantry_core.auth.token_provider import reset_token_provider
 from sigantry_core.config import _CONFIG_FILENAME, _LEGACY_CONFIG_FILENAME
 
 _GROUP = "fabric-deployers"
+#: The tenant every token ``_ScopedCredential`` issues is for (synthetic).
+_TOKEN_TENANT = "00000000-0000-0000-0000-0000000000a1"
+_OTHER_TENANT = "00000000-0000-0000-0000-0000000000b2"
 _AUDIENCE_BY_SCOPE = {FABRIC_SCOPE: FABRIC_AUDIENCE, GRAPH_SCOPE: GRAPH_AUDIENCE}
 
 
@@ -55,7 +58,7 @@ class _ScopedCredential:
         token = self._make_jwt(
             {
                 "aud": _AUDIENCE_BY_SCOPE.get(scope, scope.removesuffix("/.default")),
-                "tid": "tid-abc",
+                "tid": _TOKEN_TENANT,
                 "oid": "oid-123",
                 "appid": "app-456",
                 "exp": int(time.time()) + 3600,
@@ -145,7 +148,7 @@ class TestLiveMode:
         assert result.exit_code == 0, result.stdout
         assert _no_token_in(result.stdout, cred)  # raw token NEVER in output
         # Claims summary IS in output
-        assert "tid-abc" in result.stdout
+        assert _TOKEN_TENANT in result.stdout
 
     def test_live_json_output_has_no_token_key(
         self,
@@ -165,7 +168,7 @@ class TestLiveMode:
         data = json.loads(result.stdout)
         assert "token" not in data, data
         assert _no_token_in(result.stdout, cred)
-        assert data["token_claims"]["tid"] == "tid-abc"
+        assert data["token_claims"]["tid"] == _TOKEN_TENANT
 
     def test_exit_3_when_token_acquisition_fails(self, runner: CliRunner) -> None:
         cred = MagicMock()
@@ -193,13 +196,14 @@ class TestLiveMode:
         data = json.loads(result.stdout)
         assert data["tenant_toggles"]["classification"] == "api_not_enabled"
 
-    def test_mismatched_tenant_id_emits_warning(
+    def test_mismatched_tenant_id_is_refused_with_exit_3(
         self,
         runner: CliRunner,
         respx_router: respx.MockRouter,
         cred: _ScopedCredential,
     ) -> None:
-        respx_router.get(f"{FABRIC_AUDIENCE}/v1/admin/tenantsettings").mock(
+        """A token from another tenant is no usable token, not a warning."""
+        settings = respx_router.get(f"{FABRIC_AUDIENCE}/v1/admin/tenantsettings").mock(
             return_value=httpx.Response(200, json={"tenantSettings": []})
         )
         respx_router.get(f"{GRAPH_AUDIENCE}/v1.0/me/memberOf").mock(
@@ -208,11 +212,15 @@ class TestLiveMode:
         with patch("sigantry_core.auth.token_provider.DefaultAzureCredential", return_value=cred):
             result = runner.invoke(
                 app,
-                ["--tenant-id", "wrong-tid", "--output", "table", "--expected-group", _GROUP],
+                ["--tenant-id", _OTHER_TENANT, "--output", "table", "--expected-group", _GROUP],
             )
-        # Token succeeded so exit is 0 (tenant toggles ok, entra ok) but table has a WARNING row.
-        assert "WARNING" in result.stdout
-        assert _no_token_in(result.stdout, cred)
+        assert result.exit_code == 3, result.output
+        assert "WARNING" not in result.output
+        stderr_lines = result.stderr.splitlines()
+        assert len(stderr_lines) == 1
+        assert _OTHER_TENANT in stderr_lines[0] and _TOKEN_TENANT in stderr_lines[0]
+        assert not settings.called  # the refused token was never sent
+        assert _no_token_in(result.output, cred)
 
 
 def _member_of(respx_router: respx.MockRouter, groups: list[str]) -> respx.Route:
@@ -316,7 +324,9 @@ class TestExpectedGroup:
         (tmp_path / ".sigantry.toml").write_text("[auth\n", encoding="utf-8")
         route = _member_of(respx_router, [_GROUP])
         with caplog.at_level(logging.WARNING, logger="sigantry_core.auth.cli"):
-            result = _invoke_live(runner, cred, ["--output", "json"])
+            # --tenant-id: without it the unreadable file stops the run (exit 3)
+            # before any token, since the file may hold the tenant to pin.
+            result = _invoke_live(runner, cred, ["--output", "json", "--tenant-id", _TOKEN_TENANT])
         assert result.exit_code == 2, result.output
         groups = json.loads(result.stdout)["entra_groups"]
         assert groups["status"] == "error"
@@ -335,7 +345,11 @@ class TestExpectedGroup:
         (tmp_path / ".sigantry.toml").write_text("[auth\n", encoding="utf-8")
         route = _member_of(respx_router, [_GROUP])
         with caplog.at_level(logging.WARNING, logger="sigantry_core.auth.cli"):
-            result = _invoke_live(runner, cred, ["--output", "json", "--expected-group", _GROUP])
+            result = _invoke_live(
+                runner,
+                cred,
+                ["--output", "json", "--expected-group", _GROUP, "--tenant-id", _TOKEN_TENANT],
+            )
         assert result.exit_code == 0, result.output
         assert json.loads(result.stdout)["entra_groups"]["status"] == "ok"
         assert route.called
@@ -395,7 +409,11 @@ class TestExpectedGroup:
     ) -> None:
         (tmp_path / ".sigantry.toml").write_text("[auth\n", encoding="utf-8")
         with caplog.at_level(logging.WARNING, logger="sigantry_core.auth.cli"):
-            result = _invoke_live(runner, cred, ["--scope", "powerbi", "--output", "json"])
+            result = _invoke_live(
+                runner,
+                cred,
+                ["--scope", "powerbi", "--output", "json", "--tenant-id", _TOKEN_TENANT],
+            )
         assert result.exit_code == 0, result.output
         assert json.loads(result.stdout)["entra_groups"] is None
         assert "Could not load Sigantry settings" not in caplog.text
@@ -615,7 +633,7 @@ class TestUpgradeFrom100:
         """``PYTHONWARNINGS=error``: the settings warnings may not stop the run."""
         body = f'[auth]\nexpected_group = "{_GROUP}"\n' if configured else "[core]\n"
         (settings_env / _LEGACY_CONFIG_FILENAME).write_text(body, encoding="utf-8")
-        monkeypatch.setenv("FDT_CORE__TENANT_ID", "t-env")
+        monkeypatch.setenv("FDT_CORE__TENANT_ID", _TOKEN_TENANT)
         _member_of(respx_router, [_GROUP])
         with warnings.catch_warnings():
             warnings.simplefilter("error")
@@ -641,8 +659,9 @@ class TestUpgradeFrom100:
             f'[auth]\nexpected_group = "{_GROUP}"\n', encoding="utf-8"
         )
         (settings_env / _CONFIG_FILENAME).write_text("[core]\n", encoding="utf-8")
-        monkeypatch.setenv("FDT_CORE__TENANT_ID", "t1")
-        monkeypatch.setenv("SIGANTRY_CORE__TENANT_ID", "t2")
+        # The legacy name outranks the new one, so the run pins _TOKEN_TENANT.
+        monkeypatch.setenv("FDT_CORE__TENANT_ID", _TOKEN_TENANT)
+        monkeypatch.setenv("SIGANTRY_CORE__TENANT_ID", _OTHER_TENANT)
         monkeypatch.setenv("TENANT_ID", "unprefixed")
         _member_of(respx_router, [_GROUP])
         with warnings.catch_warnings():

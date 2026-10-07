@@ -444,11 +444,11 @@ def test_cli_rollback_forwards_tenant_id(tmp_path: Path) -> None:
                 "--audit-dir",
                 str(tmp_path),
                 "--tenant-id",
-                "custom-tenant-xyz",
+                "00000000-0000-0000-0000-0000000000c9",
             ],
         )
     assert res.exit_code == 0
-    assert "custom-tenant-xyz" in seen_tenants
+    assert "00000000-0000-0000-0000-0000000000c9" in seen_tenants
     assert mock_dw.call_args.kwargs.get("token_provider") is not None
 
 

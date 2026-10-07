@@ -10,8 +10,18 @@ Exit codes:
 - 2 = degraded (token works but the tenant toggle is missing, or the Entra
       group check did not pass); Click also exits 2 on a usage error
       (unknown `--scope`, malformed arguments)
-- 3 = broken (no credential returned a token)
+- 3 = broken: no credential returned a token, or none usable for the pinned
+      tenant (a token from another tenant, a `--tenant-id` / `core.tenant_id`
+      that is not a GUID, or settings that cannot be loaded when no
+      `--tenant-id` is given)
 - 4 = invalid `--output` value
+
+The tenant to pin is `--tenant-id`, else `core.tenant_id` in the settings
+(`SIGANTRY_CORE__TENANT_ID`, or `[core] tenant_id` in `.sigantry.toml`); see
+`sigantry_core._cli_tenant`. With a pinned tenant every token is requested
+from it, and a token whose `tid` claim names another tenant (or cannot be
+read) is refused: the run reports no token, exit 3, and one line on stderr
+names both tenants. Without one, the chain's default tenant is used.
 
 The Entra group check runs only for the Fabric scope (the default,
 `--scope fabric`). The expected group comes from `--expected-group`, else from
@@ -44,7 +54,7 @@ from __future__ import annotations
 import json
 import logging
 import tomllib
-from typing import Annotated, Any
+from typing import Annotated, Any, NoReturn
 
 import typer
 from pydantic import ValidationError
@@ -54,6 +64,12 @@ from rich.table import Table
 from rich.text import Text
 
 from sigantry_core._cli_settings import load_settings_for_cli
+from sigantry_core._cli_tenant import (
+    TenantSettingsError,
+    find_tenant_error,
+    resolve_tenant_id,
+    tenant_error_line,
+)
 from sigantry_core.auth.audiences import (
     AZURE_DEVOPS_SCOPE,
     AZURE_RM_SCOPE,
@@ -66,10 +82,9 @@ from sigantry_core.auth.diagnose import (
     build_report,
     check_entra_group,
     check_tenant_toggles,
-    decode_token_claims,
     group_check_result,
 )
-from sigantry_core.auth.errors import TokenAcquisitionError
+from sigantry_core.auth.errors import InvalidTenantIdError, TokenAcquisitionError
 from sigantry_core.auth.token_provider import TokenProvider
 
 logger = logging.getLogger(__name__)
@@ -183,7 +198,13 @@ def diagnose(
     scope: Annotated[str, typer.Option(help="Scope alias or full /.default scope")] = "fabric",
     tenant_id: Annotated[
         str | None,
-        typer.Option("--tenant-id", help="Expected tenant id (warns on mismatch)"),
+        typer.Option(
+            "--tenant-id",
+            help=(
+                "Entra tenant ID (GUID) to pin: a token from any other tenant is "
+                "refused (exit 3). Default: core.tenant_id in the settings."
+            ),
+        ),
     ] = None,
     dry_run: Annotated[
         bool, typer.Option("--dry-run", help="Print the plan without hitting Azure")
@@ -219,6 +240,11 @@ def diagnose(
 
     resolved_scope = _resolve_scope(scope)
 
+    try:
+        tenant_id = resolve_tenant_id(tenant_id)
+    except (InvalidTenantIdError, TenantSettingsError) as exc:
+        _refuse_tenant(output, resolved_scope, exc)
+
     if dry_run:
         plan = {
             "mode": "dry-run",
@@ -246,6 +272,9 @@ def diagnose(
     try:
         token = provider.get_token(resolved_scope)
     except TokenAcquisitionError as e:
+        tenant_error = find_tenant_error(e)
+        if tenant_error is not None:
+            _refuse_tenant(output, resolved_scope, tenant_error, credential_used=e.credential_used)
         report = build_report(
             scope=resolved_scope,
             credential_used=e.credential_used,
@@ -277,16 +306,9 @@ def diagnose(
         else:
             entra_groups = _check_group_with_graph_token(provider, group, principal_id)
 
-    # Tenant sanity check (Pitfall P1-6)
-    claims = decode_token_claims(token)
-    if tenant_id and claims.get("tid") and claims["tid"] != tenant_id:
-        console.print(
-            Text.assemble(
-                ("WARNING", "yellow"),
-                f": token tid {claims['tid']!r} does not match expected {tenant_id!r}",
-            )
-        )
-
+    # Tenant sanity check (Pitfall P1-6): a pinned provider has already
+    # refused a token from any other tenant, so a token here is the pinned
+    # tenant's (or no tenant was pinned).
     report = build_report(
         scope=resolved_scope,
         credential_used=credential_used,
@@ -296,6 +318,30 @@ def diagnose(
     )
     _emit(output, report)
     raise typer.Exit(code=report["exit_code"])
+
+
+def _refuse_tenant(
+    output: str,
+    scope: str,
+    error: Exception,
+    *,
+    credential_used: str | None = None,
+) -> NoReturn:
+    """End the run with exit 3: no token usable for the pinned tenant.
+
+    One line on stderr names the refusal (both tenants for a mismatch); the
+    report follows on stdout, as for any run without a token.
+    """
+    typer.echo(f"diagnose-auth: error: {tenant_error_line(error)}", err=True)
+    report = build_report(
+        scope=scope,
+        credential_used=credential_used,
+        token=None,
+        tenant_toggles=None,
+        entra_groups=None,
+    )
+    _emit(output, report, error=str(error))
+    raise typer.Exit(code=3) from error
 
 
 def _emit(output: str, report: dict, *, error: str | None = None) -> None:

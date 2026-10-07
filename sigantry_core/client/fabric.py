@@ -17,10 +17,12 @@ Usage - process-wide singleton (preferred in domain code)::
     client = FabricRestClient.from_defaults()
     workspaces = list(client.list_paginated("/v1/workspaces"))
 
-For multi-tenant callers, pass ``tenant_id`` to ``from_defaults()`` - it threads
-through to ``get_token_provider(tenant_id=...)`` which pins the credential chain
-so ``AzureCliCredential`` cannot silently succeed with the engineer's personal
-subscription (Phase 1 Pitfall P1-6).
+For multi-tenant callers, pass ``tenant_id`` (a tenant ID GUID) to
+``from_defaults()`` - it threads through to ``get_token_provider(tenant_id=...)``,
+whose credential requests every token from that tenant and refuses a token
+whose ``tid`` claim names another one (``TenantMismatchError``), so
+``AzureCliCredential`` cannot silently succeed with the engineer's default
+tenant (Phase 1 Pitfall P1-6).
 """
 
 from __future__ import annotations
@@ -76,9 +78,9 @@ class FabricRestClient(BaseRestClient):
         ``sigantry_core.auth``. The scope is always :data:`FABRIC_SCOPE`.
 
         Args:
-            tenant_id: Optional tenant id forwarded to
-                :func:`sigantry_core.auth.get_token_provider` to pin the
-                credential chain on that tenant (Pitfall P1-6).
+            tenant_id: Optional tenant ID GUID forwarded to
+                :func:`sigantry_core.auth.get_token_provider`, which pins
+                every token to that tenant (Pitfall P1-6).
             base_url: Override the Fabric Core root (defaults to
                 ``https://api.fabric.microsoft.com``). Useful for sovereign
                 clouds.

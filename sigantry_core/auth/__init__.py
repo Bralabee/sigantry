@@ -10,8 +10,11 @@ imports tokens and secrets from here. The contract:
   pass-through `Secret(value=ref)` for plain strings) using the same
   credential chain as token acquisition.
 - `Secret` is an opaque wrapper: its `repr`/`str` never leak the cleartext.
-- `FabricAuthError` and its four subclasses carry `credential_used`, `scope`,
+- `FabricAuthError` and its subclasses carry `credential_used`, `scope`,
   and `remediation` attributes for actionable logging.
+- `TokenProvider(tenant_id=...)` pins a tenant: a token from any other tenant
+  raises `TenantMismatchError`, and a tenant id that is not a GUID raises
+  `InvalidTenantIdError` (see `sigantry_core.auth.tenant`).
 """
 
 from __future__ import annotations
@@ -29,7 +32,9 @@ from sigantry_core.auth.audiences import (
 from sigantry_core.auth.errors import (
     FabricAuthError,
     GroupMembershipError,
+    InvalidTenantIdError,
     KeyVaultResolutionError,
+    TenantMismatchError,
     TenantSettingError,
     TokenAcquisitionError,
 )
@@ -59,8 +64,10 @@ __all__ = [
     "PURVIEW_SCOPE",
     "FabricAuthError",
     "GroupMembershipError",
+    "InvalidTenantIdError",
     "KeyVaultResolutionError",
     "Secret",
+    "TenantMismatchError",
     "TenantSettingError",
     "TokenAcquisitionError",
     "TokenProvider",
