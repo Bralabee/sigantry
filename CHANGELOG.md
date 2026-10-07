@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Raw GUIDs on request, either file spelling, and per-environment
+  validation.** A stock fabric-cicd `parameter.yml` carries raw GUIDs by
+  design and was refused outright; validating demanded every environment's
+  `$ENV:` variables in every job; and only the `parameters.yml` spelling was
+  read. Now `--allow-raw-guids` on `config validate`, `deploy validate` and
+  `deploy run`, or `[deploy] allow_raw_guids = true` in `.sigantry.toml`
+  (`SIGANTRY_DEPLOY__ALLOW_RAW_GUIDS`), lets raw GUIDs through, each one
+  logged and listed; either spelling is read, with a note when the sibling
+  was used; `-e <env>` on the validate commands, and `deploy run`'s own
+  `--environment`, check only that environment's slots plus `_ALL_` and
+  refuse an environment the file does not declare; the substituted copy
+  handed to fabric-cicd keeps only the target's and `_ALL_`'s slots.
+  `ParametersConfig` gains `raw_guids`; `load_and_validate`,
+  `substitute_env_references` and `write_substituted_parameters` take
+  keyword-only `allow_raw_guids` / `environment`.
+
 ### Fixed
 - **PR review bot: serializer-shaped TMDL.** Three parser gaps made a real
   Power BI Desktop or Fabric export diff as "no changes". Indentation counted

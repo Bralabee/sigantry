@@ -276,7 +276,9 @@ def test_deploy_workspace_calls_parameter_validator(
         parameters_path=str(tmp_item_tree / "parameters.yml"),
         token_provider=mock_token_provider,
     )
-    params_mock.assert_called_once_with(str(tmp_item_tree / "parameters.yml"))
+    params_mock.assert_called_once_with(
+        str(tmp_item_tree / "parameters.yml"), allow_raw_guids=False, environment="DEV"
+    )
 
 
 def test_deploy_workspace_calls_dependency_validator(

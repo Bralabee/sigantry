@@ -462,7 +462,7 @@ Runbook: [`runbooks/pr-bot-operator.md`](runbooks/pr-bot-operator.md).
 | Verb | Purpose | Source |
 |---|---|---|
 | `sigantry doctor` | List discovered plugins with a Trust column. `--strict` exits non-zero on any entry-point import failure; `--strict-trust` exits non-zero when any plugin's Trust is `untrusted`, meaning `SIGANTRY_TRUSTED_PLUGIN_DISTS` is non-empty and does not list that plugin's distribution; with the variable unset or empty every plugin shows `unknown` and the flag passes ([ADR-0014](decisions/ADR-0014-plugin-trust-model.md)). | `sigantry_core/doctor.py:249` |
-| `sigantry config validate <parameters.yml>` | Validate a `fabric-cicd` `parameters.yml` (catches `HardcodedGuidError` + unset `$ENV:`). | `sigantry_core/config_cli.py:37` |
+| `sigantry config validate [<parameters.yml>]` | Validate a `fabric-cicd` `parameters.yml` or `parameter.yml` (catches `HardcodedGuidError` + unset `$ENV:`); `-e <env>` scopes the `$ENV:` check to one declared environment, `--allow-raw-guids` (or `[deploy] allow_raw_guids`) accepts a stock file and lists each GUID let through. | `sigantry_core/config_cli.py:37` |
 | `sigantry preflight` | Four non-destructive probes (schema syntax, dependency graph, Entra scope, capacity state) against a `sync.yml` or `workspace.yml`. Exits 1 on any failed probe, and also on any warning under `--strict` ([ADR-0015](decisions/ADR-0015-config-driven-preflight.md)). | `sigantry_core/preflight/cli.py:24` |
 | `diagnose-auth` | Standalone console script (not a `sigantry` subcommand): which credential resolved, and whether the tenant toggle is visible. Exit 0 healthy / 2 degraded / 3 no token / 4 invalid `--output` value. | `sigantry_core/auth/cli.py` |
 

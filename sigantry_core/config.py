@@ -247,6 +247,7 @@ class TelemetrySettings(_SeamSubSettings):
 
 class DeploySettings(_SeamSubSettings):
     profile: str | None = None
+    allow_raw_guids: bool = False
 
 
 class DqSettings(_SeamSubSettings):

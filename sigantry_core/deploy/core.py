@@ -71,6 +71,7 @@ def deploy_workspace(
     shortcut_exclude_regex: str | None = None,
     bulk: bool = False,
     max_workers: int = 4,
+    allow_raw_guids: bool = False,
 ) -> DeployResult:
     """Deploy a Fabric item tree via fabric-cicd 1.0.0.
 
@@ -80,7 +81,8 @@ def deploy_workspace(
         environment: Parameter-file environment key (e.g. ``"DEV"``).
         item_type_in_scope: fabric-cicd's selective-deploy scope list.
         parameters_path: Override path to ``parameters.yml`` (defaults to
-            ``<repository_directory>/parameters.yml``).
+            ``<repository_directory>/parameters.yml``, falling back to the
+            ``parameter.yml`` spelling fabric-cicd uses).
         token_provider: Optional ``TokenProvider``; when ``None`` the
             default chain is constructed via ``TokenProvider.from_defaults()``.
         unpublish_orphans: If True, also delete workspace items absent from
@@ -103,9 +105,14 @@ def deploy_workspace(
             shortcuts during publish.
         bulk: If True, publish items concurrently using a worker pool.
         max_workers: Concurrency worker limit for bulk publish (default: 4).
+        allow_raw_guids: Let raw GUIDs in the parameters file through (a
+            stock fabric-cicd file); each one is logged.
 
     Raises:
-        HardcodedGuidError: parameters.yml contains a raw GUID.
+        HardcodedGuidError: parameters.yml contains a raw GUID and
+            ``allow_raw_guids`` is False.
+        UnknownEnvironmentError: ``environment`` is declared nowhere in
+            the parameters file.
         DependencyCycleError: item tree contains a cycle.
         DestructiveOpError: ``unpublish_orphans=True`` without
             ``unpublish_force=True``.
@@ -118,8 +125,12 @@ def deploy_workspace(
     credential = tp.get_credential()
 
     # 1) Parameter validation — DEPLOY-03 teeth.
+    # Either spelling is accepted; ``load_and_validate`` falls back to the
+    # sibling spelling when the named file is absent.
     params_path = parameters_path or f"{repository_directory.rstrip('/')}/parameters.yml"
-    config = load_and_validate(params_path)
+    config = load_and_validate(
+        params_path, allow_raw_guids=allow_raw_guids, environment=environment
+    )
 
     # 2) Dependency cycle check + DOT artefact — DEPLOY-04.
     dot_path = validate_order(
@@ -136,8 +147,10 @@ def deploy_workspace(
     # a no-op when no $ENV: refs are present.
     _params_tmpdir = tempfile.TemporaryDirectory(prefix="sigantry-params-")
     try:
+        # Scoped to this environment: other environments' slots never reach
+        # fabric-cicd, so an unset PROD secret cannot break a DEV deploy.
         substituted_path = write_substituted_parameters(
-            config, Path(_params_tmpdir.name) / "parameters.yml"
+            config, Path(_params_tmpdir.name) / "parameters.yml", environment=environment
         )
 
         # 4) Upstream instantiation — 1.0.0 REQUIRES token_credential.
