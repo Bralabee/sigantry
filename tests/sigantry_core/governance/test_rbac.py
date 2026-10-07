@@ -824,3 +824,113 @@ class TestScopedAudit:
         assert len(cap_rows) == 1
         assert cap_rows[0].resource_id == "cap-hidden"
         assert cap_rows[0].access_status == "forbidden-admin-only"
+
+
+# ---------------------------------------------------------------------------
+# The default Graph client runs as the Fabric client's caller
+# ---------------------------------------------------------------------------
+
+_TENANT_A = "00000000-0000-0000-0000-00000000000a"
+_TENANT_B = "00000000-0000-0000-0000-00000000000b"
+_WS = "00000000-0000-0000-0000-0000000000d1"
+_GROUP = "00000000-0000-0000-0000-0000000000d2"
+_MEMBER = "00000000-0000-0000-0000-0000000000d3"
+
+
+def _fake_jwt(tid: str) -> str:
+    import base64
+    import json
+
+    def b64url(raw: bytes) -> str:
+        return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+    header = b64url(json.dumps({"typ": "JWT", "alg": "none"}).encode())
+    payload = b64url(json.dumps({"tid": tid}).encode())
+    return f"{header}.{payload}.sig"
+
+
+class _RecordingCredential:
+    """Issues fake JWTs for ``tid`` and records (scope, requested tenant)."""
+
+    def __init__(self, tid: str) -> None:
+        self.tid = tid
+        self.requests: list[tuple[str, str | None]] = []
+
+    def get_token(self, *scopes: str, tenant_id: str | None = None, **_: object):
+        import time
+
+        from azure.core.credentials import AccessToken
+
+        self.requests.append((" ".join(scopes), tenant_id))
+        return AccessToken(_fake_jwt(self.tid), int(time.time()) + 3600)
+
+
+class TestAuditDefaultGraphClient:
+    """Without ``graph_client``, group expansion must authenticate as the
+    Fabric client does: the same credential and the same tenant pin, never
+    the process default chain.
+    """
+
+    @pytest.mark.parametrize("tenant", [_TENANT_A, None], ids=["pinned", "unpinned"])
+    def test_group_expansion_uses_the_fabric_clients_credential_and_pin(
+        self, monkeypatch: pytest.MonkeyPatch, tenant: str | None
+    ) -> None:
+        import httpx
+
+        from sigantry_core.auth import GRAPH_SCOPE, TokenProvider
+        from sigantry_core.auth.token_provider import reset_token_provider
+        from sigantry_core.governance.rbac import audit
+
+        default_chain: list[_RecordingCredential] = []
+
+        def build_default(**_: object) -> _RecordingCredential:
+            cred = _RecordingCredential(_TENANT_B)
+            default_chain.append(cred)
+            return cred
+
+        monkeypatch.setattr(
+            "sigantry_core.auth.token_provider.DefaultAzureCredential", build_default
+        )
+
+        sent: list[tuple[str, str]] = []
+
+        def fake_send(self: httpx.Client, request: httpx.Request, **_: object) -> httpx.Response:
+            url = str(request.url)
+            sent.append((url, request.headers.get("Authorization", "")))
+            if url.endswith("/v1/workspaces"):
+                body: dict = {"value": [{"id": _WS, "displayName": "ws"}]}
+            elif url.endswith(f"/v1/workspaces/{_WS}/roleAssignments"):
+                principal = {"id": _GROUP, "type": "Group", "displayName": "grp"}
+                body = {"value": [{"principal": principal, "role": "Admin"}]}
+            elif url.startswith(f"https://graph.microsoft.com/v1.0/groups/{_GROUP}/"):
+                member = {
+                    "id": _MEMBER,
+                    "displayName": "member",
+                    "@odata.type": "#microsoft.graph.user",
+                }
+                body = {"value": [member]}
+            elif url.endswith("/v1/capacities"):
+                body = {"value": []}
+            else:  # pragma: no cover - a request the test did not expect
+                raise AssertionError(f"unexpected request {request.method} {url}")
+            return httpx.Response(200, json=body, request=request)
+
+        monkeypatch.setattr(httpx.Client, "send", fake_send)
+        reset_token_provider()
+        try:
+            caller = _RecordingCredential(_TENANT_A)
+            tp = TokenProvider(credential=caller, tenant_id=tenant)
+            with (
+                FabricRestClient(token_provider=tp) as fabric,
+                PowerBIRestClient(token_provider=tp) as powerbi,
+            ):
+                rows = list(audit(fabric, powerbi))
+        finally:
+            reset_token_provider()
+
+        assert any(r.access_status == "via-group:grp" for r in rows), rows
+        graph_requests = [r for r in caller.requests if r[0] == GRAPH_SCOPE]
+        assert graph_requests == [(GRAPH_SCOPE, tenant)], caller.requests
+        assert default_chain == [], "the Graph token came from the process default chain"
+        graph_auth = [a for u, a in sent if u.startswith("https://graph.microsoft.com/")]
+        assert graph_auth == [f"Bearer {_fake_jwt(_TENANT_A)}"]

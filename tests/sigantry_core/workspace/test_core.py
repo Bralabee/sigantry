@@ -146,6 +146,25 @@ def test_delete_with_force_hits_api(mock_fabric_client: MagicMock) -> None:
     mock_fabric_client.send_lro.assert_not_called()
 
 
+def _patch_powerbi_client(monkeypatch: pytest.MonkeyPatch) -> tuple[MagicMock, dict]:
+    """Replace ``PowerBIRestClient`` (the class the fallback builds) with a
+    factory that records its keyword arguments and yields a mock client."""
+    from sigantry_core.client import powerbi as powerbi_mod
+
+    pbi_instance = MagicMock()
+    pbi_cm = MagicMock()
+    pbi_cm.__enter__ = MagicMock(return_value=pbi_instance)
+    pbi_cm.__exit__ = MagicMock(return_value=False)
+    seen: dict = {}
+
+    def fake_client(**kw: object) -> MagicMock:
+        seen.update(kw)
+        return pbi_cm
+
+    monkeypatch.setattr(powerbi_mod, "PowerBIRestClient", fake_client)
+    return pbi_instance, seen
+
+
 class TestDeleteWorkspacePbiFallback:
     """Fabric DELETE can fail with UnknownError; with pbi_fallback=True the
     delete is tried again through the Power BI groups endpoint
@@ -195,20 +214,7 @@ class TestDeleteWorkspacePbiFallback:
             body={"errorCode": "UnknownError", "message": "transient"},
             request_id="req-z",
         )
-
-        # Build a context-manager-shaped mock for PowerBIRestClient.from_defaults.
-        pbi_instance = MagicMock()
-        pbi_cm = MagicMock()
-        pbi_cm.__enter__ = MagicMock(return_value=pbi_instance)
-        pbi_cm.__exit__ = MagicMock(return_value=False)
-
-        from sigantry_core.client import powerbi as powerbi_mod
-
-        monkeypatch.setattr(
-            powerbi_mod.PowerBIRestClient,
-            "from_defaults",
-            classmethod(lambda cls, **kw: pbi_cm),
-        )
+        pbi_instance, _ = _patch_powerbi_client(monkeypatch)
 
         delete_workspace(
             mock_fabric_client,
@@ -216,17 +222,20 @@ class TestDeleteWorkspacePbiFallback:
             force=True,
             resource_id="w1",
             pbi_fallback=True,
-            tenant_id="tenant-abc",
         )
         # PBI fallback was hit
         pbi_instance.send.assert_called_once_with("DELETE", "/v1.0/myorg/groups/w1")
 
-    def test_pbi_fallback_ignores_status_code_and_forwards_tenant(
-        self, mock_fabric_client: MagicMock, monkeypatch: pytest.MonkeyPatch
+    def test_pbi_fallback_ignores_status_code_and_uses_the_callers_provider(
+        self,
+        mock_fabric_client: MagicMock,
+        mock_token_provider: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """The docstring says the status code is not checked: a 5xx carrying
-        UnknownError triggers the fallback too, and ``tenant_id`` reaches the
-        Power BI client (its only credential input).
+        UnknownError triggers the fallback too. The Power BI client is built on
+        the Fabric client's token provider (issue #62), and a ``tenant_id``
+        that names the provider's pin, in any case, leaves it as it is.
         """
         from sigantry_core.client.errors import ServerError
 
@@ -235,31 +244,19 @@ class TestDeleteWorkspacePbiFallback:
             body={"errorCode": "UnknownError", "message": "server"},
             request_id="req-5",
         )
-        pbi_instance = MagicMock()
-        pbi_cm = MagicMock()
-        pbi_cm.__enter__ = MagicMock(return_value=pbi_instance)
-        pbi_cm.__exit__ = MagicMock(return_value=False)
-        seen: dict = {}
+        mock_fabric_client.token_provider = mock_token_provider
+        pbi_instance, seen = _patch_powerbi_client(monkeypatch)
 
-        def fake_from_defaults(cls, **kw):  # type: ignore[no-untyped-def]
-            seen.update(kw)
-            return pbi_cm
-
-        from sigantry_core.client import powerbi as powerbi_mod
-
-        monkeypatch.setattr(
-            powerbi_mod.PowerBIRestClient, "from_defaults", classmethod(fake_from_defaults)
-        )
         delete_workspace(
             mock_fabric_client,
             "w1",
             force=True,
             resource_id="w1",
             pbi_fallback=True,
-            tenant_id="tenant-abc",
+            tenant_id=mock_token_provider.tenant_id.upper(),
         )
         pbi_instance.send.assert_called_once_with("DELETE", "/v1.0/myorg/groups/w1")
-        assert seen == {"tenant_id": "tenant-abc"}
+        assert seen == {"token_provider": mock_token_provider}
 
     def test_unknown_error_detected_in_nested_error_envelope(
         self, mock_fabric_client: MagicMock, monkeypatch: pytest.MonkeyPatch
@@ -272,17 +269,7 @@ class TestDeleteWorkspacePbiFallback:
             body={"error": {"code": "UnknownError", "message": "transient"}},
             request_id="req-n",
         )
-        pbi_instance = MagicMock()
-        pbi_cm = MagicMock()
-        pbi_cm.__enter__ = MagicMock(return_value=pbi_instance)
-        pbi_cm.__exit__ = MagicMock(return_value=False)
-        from sigantry_core.client import powerbi as powerbi_mod
-
-        monkeypatch.setattr(
-            powerbi_mod.PowerBIRestClient,
-            "from_defaults",
-            classmethod(lambda cls, **kw: pbi_cm),
-        )
+        pbi_instance, _ = _patch_powerbi_client(monkeypatch)
 
         delete_workspace(
             mock_fabric_client,
@@ -312,3 +299,151 @@ def test_list_workspaces_roles_filter(mock_fabric_client: MagicMock) -> None:
     mock_fabric_client.list_paginated.assert_called_once_with(
         "/v1/workspaces", params={"roles": "Admin"}
     )
+
+
+# ---- the Power BI retry authenticates as the caller -------------------------
+
+_TENANT_A = "00000000-0000-0000-0000-00000000000a"
+_TENANT_B = "00000000-0000-0000-0000-00000000000b"
+_WS = "00000000-0000-0000-0000-0000000000e1"
+_POWERBI_DELETE = f"https://api.powerbi.com/v1.0/myorg/groups/{_WS}"
+
+
+def _fake_jwt(tid: str, marker: str) -> str:
+    import base64
+    import json
+
+    def b64url(raw: bytes) -> str:
+        return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+    header = b64url(json.dumps({"typ": "JWT", "alg": "none"}).encode())
+    payload = b64url(json.dumps({"tid": tid, "marker": marker}).encode())
+    return f"{header}.{payload}.sig"
+
+
+class _RecordingCredential:
+    """Issues fake JWTs for ``tid`` (tagged ``marker``) and records each request."""
+
+    def __init__(self, tid: str, marker: str) -> None:
+        self.tid = tid
+        self.marker = marker
+        self.requests: list[tuple[str, str | None]] = []
+
+    def get_token(self, *scopes: str, tenant_id: str | None = None, **_: object):
+        import time
+
+        from azure.core.credentials import AccessToken
+
+        self.requests.append((" ".join(scopes), tenant_id))
+        return AccessToken(_fake_jwt(self.tid, self.marker), int(time.time()) + 3600)
+
+
+class _FallbackHarness:
+    """A Fabric DELETE that fails with UnknownError and a Power BI DELETE that
+    succeeds, over a patched ``httpx.Client.send``; the process default chain
+    is replaced by a recording fake so a request through it shows up."""
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import httpx
+
+        self.sent: list[tuple[str, str, str]] = []
+        self.default_chain: list[_RecordingCredential] = []
+
+        def build_default(**_: object) -> _RecordingCredential:
+            cred = _RecordingCredential(_TENANT_B, "default-chain")
+            self.default_chain.append(cred)
+            return cred
+
+        def fake_send(client: httpx.Client, request: httpx.Request, **_: object) -> httpx.Response:
+            url = str(request.url)
+            self.sent.append((request.method, url, request.headers.get("Authorization", "")))
+            if request.method == "DELETE" and url.endswith(f"/v1/workspaces/{_WS}"):
+                body = {"errorCode": "UnknownError", "message": "transient"}
+                return httpx.Response(400, json=body, request=request)
+            if request.method == "DELETE" and url == _POWERBI_DELETE:
+                return httpx.Response(200, request=request)
+            raise AssertionError(f"unexpected request {request.method} {url}")
+
+        monkeypatch.setattr(
+            "sigantry_core.auth.token_provider.DefaultAzureCredential", build_default
+        )
+        monkeypatch.setattr(httpx.Client, "send", fake_send)
+
+    def powerbi_auth(self) -> list[str]:
+        return [auth for method, url, auth in self.sent if url == _POWERBI_DELETE]
+
+
+@pytest.fixture
+def fallback(monkeypatch: pytest.MonkeyPatch):
+    from sigantry_core.auth.token_provider import reset_token_provider
+
+    reset_token_provider()
+    yield _FallbackHarness(monkeypatch)
+    reset_token_provider()
+
+
+class TestPbiFallbackAuthenticatesAsTheCaller:
+    """Issue #62, credential part: the Power BI retry of a failed workspace
+    delete must use the caller's token provider (the ``token_provider``
+    argument, else the Fabric client's own), so it runs as the same
+    principal under the same tenant pin, never the process default chain.
+    """
+
+    def test_retry_uses_the_fabric_clients_provider(self, fallback: _FallbackHarness) -> None:
+        from sigantry_core.auth import POWERBI_SCOPE, TokenProvider
+        from sigantry_core.client import FabricRestClient
+
+        caller = _RecordingCredential(_TENANT_A, "caller")
+        tp = TokenProvider(credential=caller, tenant_id=_TENANT_A)
+        with FabricRestClient(token_provider=tp) as client:
+            delete_workspace(client, _WS, force=True, pbi_fallback=True)
+
+        assert fallback.powerbi_auth() == [f"Bearer {_fake_jwt(_TENANT_A, 'caller')}"]
+        assert (POWERBI_SCOPE, _TENANT_A) in caller.requests, caller.requests
+        assert fallback.default_chain == []
+
+    def test_retry_uses_the_token_provider_argument(self, fallback: _FallbackHarness) -> None:
+        from sigantry_core.auth import POWERBI_SCOPE, TokenProvider
+        from sigantry_core.client import FabricRestClient
+
+        client_cred = _RecordingCredential(_TENANT_A, "client")
+        given_cred = _RecordingCredential(_TENANT_A, "given")
+        given = TokenProvider(credential=given_cred, tenant_id=_TENANT_A)
+        with FabricRestClient(token_provider=TokenProvider(credential=client_cred)) as client:
+            delete_workspace(client, _WS, force=True, pbi_fallback=True, token_provider=given)
+
+        assert fallback.powerbi_auth() == [f"Bearer {_fake_jwt(_TENANT_A, 'given')}"]
+        assert given_cred.requests == [(POWERBI_SCOPE, _TENANT_A)]
+        assert fallback.default_chain == []
+
+    def test_tenant_id_pins_an_unpinned_callers_credential(
+        self, fallback: _FallbackHarness
+    ) -> None:
+        from sigantry_core.auth import POWERBI_SCOPE, TokenProvider
+        from sigantry_core.client import FabricRestClient
+
+        caller = _RecordingCredential(_TENANT_A, "caller")
+        with FabricRestClient(token_provider=TokenProvider(credential=caller)) as client:
+            delete_workspace(client, _WS, force=True, pbi_fallback=True, tenant_id=_TENANT_A)
+
+        assert fallback.powerbi_auth() == [f"Bearer {_fake_jwt(_TENANT_A, 'caller')}"]
+        assert (POWERBI_SCOPE, _TENANT_A) in caller.requests, caller.requests
+        assert fallback.default_chain == []
+
+    def test_tenant_id_other_than_the_providers_pin_is_refused_before_the_retry(
+        self, fallback: _FallbackHarness
+    ) -> None:
+        from sigantry_core.auth import TenantMismatchError, TokenProvider
+        from sigantry_core.client import FabricRestClient
+
+        caller = _RecordingCredential(_TENANT_A, "caller")
+        tp = TokenProvider(credential=caller, tenant_id=_TENANT_A)
+        with (
+            FabricRestClient(token_provider=tp) as client,
+            pytest.raises(TenantMismatchError) as excinfo,
+        ):
+            delete_workspace(client, _WS, force=True, pbi_fallback=True, tenant_id=_TENANT_B)
+
+        assert _TENANT_A in str(excinfo.value) and _TENANT_B in str(excinfo.value)
+        assert fallback.powerbi_auth() == []
+        assert fallback.default_chain == []

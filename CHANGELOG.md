@@ -114,6 +114,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before. `rbac-audit` expands group members through a Microsoft Graph
   client pinned to the same tenant; it used the unpinned default. The
   provider pool keys a tenant without regard to case or surrounding spaces.
+- **`governance.rbac.audit()` without `graph_client` reads Microsoft Graph
+  as the Fabric client's caller.** Measured at 1.0.1: with no
+  `graph_client`, `audit()` built its Graph client with
+  `_GraphClient.from_defaults()`, so the group-member requests carried a
+  token from the process default credential chain, not from the credential
+  of the Fabric client it was given. Now that Graph client is built on the
+  Fabric client's token provider (read through a new
+  `FabricRestClient.token_provider` property): the same credential, and the
+  same tenant pin when that provider is pinned. A `graph_client` passed in
+  is used as before; `sigantry rbac-audit` passes its own.
+- **The Power BI retry of `delete_workspace(..., pbi_fallback=True)`
+  authenticates as the caller.** This addresses the credential part of
+  issue #62 only. Measured at 1.0.1: the retry built
+  `PowerBIRestClient.from_defaults(tenant_id=tenant_id)`, so its request
+  carried a token from the process default credential chain, not one from
+  the `token_provider` argument or the Fabric client's credential. Now the
+  retry is built on the `token_provider` argument, else on the Fabric
+  client's own provider, so it runs as the same principal under the same
+  tenant pin. `tenant_id`, which was the retry's only credential input, now
+  has to agree with that provider's pin: an unpinned provider's credential
+  is pinned to it for the retry, and a provider pinned to another tenant
+  raises `TenantMismatchError` before the retry is sent. The rest of
+  issue #62 still stands: the retry always goes to `api.powerbi.com`,
+  whatever base URL the Fabric client uses, and the audit record does not
+  show that it ran.
 - **CD and drift templates: sign in, pin, approve before publishing, record
   the real approver.** Measured at 1.0.1: the GitHub reusable workflows
   (`.github/workflows/sigantry-cd.yml`, `drift-check.yml`) had no Azure

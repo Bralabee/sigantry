@@ -27,7 +27,7 @@ tenant (Phase 1 Pitfall P1-6).
 
 from __future__ import annotations
 
-from typing import Final
+from typing import Final, cast
 
 import httpx
 
@@ -63,6 +63,18 @@ class FabricRestClient(BaseRestClient):
             default_timeout=default_timeout,
             http_client=http_client,
         )
+
+    @property
+    def token_provider(self) -> TokenProvider:
+        """The ``TokenProvider`` this client was built with.
+
+        Code that builds another client on the caller's behalf (the Graph
+        client of :func:`sigantry_core.governance.rbac.audit`, the Power BI
+        retry of :func:`sigantry_core.workspace.core.delete_workspace`) builds
+        it on this provider, so that client runs as the same principal under
+        the same tenant pin.
+        """
+        return cast("TokenProvider", self._tp)
 
     @classmethod
     def from_defaults(
