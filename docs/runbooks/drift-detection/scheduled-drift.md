@@ -85,6 +85,10 @@ This is the load-bearing boundary the scheduled drift-check templates enforce --
        - cron: '0 6 * * *'   # daily 06:00 UTC
      workflow_dispatch:        # operator-triggered for testing
 
+   permissions:
+     contents: read
+     id-token: write   # the reusable workflow's azure/login needs it from the caller too
+
    jobs:
      drift:
        uses: org/sigantry-templates/.github/workflows/drift-check.yml@<tag>
@@ -92,10 +96,13 @@ This is the load-bearing boundary the scheduled drift-check templates enforce --
          workspaceId: '<workspace-guid>'
          manifestPath: 'fabric-iac/sync.yml'
          environment: 'prod'
+         azureClientId: '<app-registration-client-id>'
+         azureTenantId: '<tenant-id>'
+         sigantryVersion: '1.0.1'
        secrets: inherit
    ```
 
-2. Configure `azure/login@v2` OIDC at the federated-credential level (subject = `repo:org/repo:environment:prod`).
+2. Add a federated credential to the app registration for the caller (subject = `repo:org/repo:ref:refs/heads/main` for a scheduled run). The reusable workflow signs in with `azure/login` (SHA-pinned) through OIDC; no client secret is stored anywhere.
 
 3. Configure Teams / Slack / SMTP secrets as repo secrets (see section 4).
 
@@ -108,6 +115,9 @@ Both halves accept the same input set (with intentional per-platform divergences
 | `workspaceId` | yes | -- | Target Fabric workspace GUID |
 | `manifestPath` | yes | -- | Path to `sync.yml` (relative to repo root) |
 | `serviceConnection` (ADO only) | yes | -- | WIF service connection name |
+| `azureClientId` (GHA only) | yes | -- | App registration (client) id for the OIDC login |
+| `azureTenantId` (GHA only) | yes | -- | Entra tenant id for the OIDC login |
+| `sigantryVersion` | no | `''` (latest) | Pins `pip install sigantry==<version>` in every job |
 | `environment` | yes | -- | Environment label (parameters.yml key) |
 | `notificationSink` | no | `teams` | One of `teams`, `slack`, `email` |
 | `cron` | no (consumer-side) | `0 6 * * *` | Cron expression -- daily at 06:00 UTC |

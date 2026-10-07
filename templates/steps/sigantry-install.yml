@@ -1,0 +1,36 @@
+# templates/steps/sigantry-install.yml
+# ------------------------------------------------------------------
+# Step template: put Python on PATH and install `sigantry` from PyPI,
+# pinned to `sigantryVersion` when one is given (empty = latest).
+#
+# Every ADO stage runs on a fresh agent, so every stage that calls
+# `sigantry` must install it; the smoke, integration, promote and
+# drift-check jobs use this template. The deploy stage keeps
+# steps/fabric-deploy.yml, which installs from the ADO Artifacts feed
+# with the same version parameter (`fabricDataopsVersion`).
+#
+# The version reaches bash through `env:` (WR-05), never interpolated
+# into the script.
+# ------------------------------------------------------------------
+
+parameters:
+  - name: sigantryVersion
+    type: string
+    default: ''
+  - name: pythonVersion
+    type: string
+    default: '3.11'
+
+steps:
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: ${{ parameters.pythonVersion }}
+      addToPath: true
+
+  - script: |
+      set -e
+      python -m pip install --upgrade pip
+      python -m pip install "sigantry${SIGANTRY_VERSION:+==$SIGANTRY_VERSION}"
+    displayName: 'pip install sigantry'
+    env:
+      SIGANTRY_VERSION: ${{ parameters.sigantryVersion }}

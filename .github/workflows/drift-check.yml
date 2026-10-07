@@ -22,6 +22,12 @@
 # carries no ignore token: a token read by the lint would also excuse any
 # parameter present only on the ADO side.
 #
+# Authentication: the drift job signs in with azure/login through OIDC
+# (`azureClientId` + `azureTenantId`, no secret) for sigantry's
+# DefaultAzureCredential chain; only that job holds `id-token: write`,
+# which a `workflow_call:` caller must grant too. `sigantryVersion` pins
+# the package (empty = latest) and reaches bash through `env:` (WR-05).
+#
 # Sources (Plan 13-06 / DRIFT-03):
 #   GitHub Docs -- Workflow syntax (on: schedule)
 #     https://docs.github.com/actions/reference/workflow-syntax-for-github-actions
@@ -38,6 +44,9 @@ on:
       manifestPath:     { type: string, required: false, default: 'sync.yml' }
       notificationSink: { type: string, required: false, default: 'teams' }
       cron:             { type: string, required: false, default: '0 6 * * *' }
+      azureClientId:    { type: string, required: true }
+      azureTenantId:    { type: string, required: true }
+      sigantryVersion:  { type: string, required: false, default: '' }
   workflow_call:
     inputs:
       workspaceId:      { type: string, required: true }
@@ -45,6 +54,9 @@ on:
       manifestPath:     { type: string, required: false, default: 'sync.yml' }
       notificationSink: { type: string, required: false, default: 'teams' }
       cron:             { type: string, required: false, default: '0 6 * * *' }
+      azureClientId:    { type: string, required: true }
+      azureTenantId:    { type: string, required: true }
+      sigantryVersion:  { type: string, required: false, default: '' }
 
 permissions:
   contents: read
@@ -53,6 +65,9 @@ jobs:
   drift_check:
     name: Drift check
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # azure/login OIDC token, this job only
     # WR-05 / Pitfall 8 inheritance (D-28): operator inputs are passed
     # via the ``env:`` block (which GHA expands BEFORE bash sees the
     # script) rather than template-time interpolated into a bash
@@ -66,7 +81,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with: { python-version: '3.11' }
-      - run: pip install sigantry
+      - name: Azure login (OIDC)
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ inputs.azureClientId }}
+          tenant-id: ${{ inputs.azureTenantId }}
+          allow-no-subscriptions: true
+      - name: Install sigantry
+        env:
+          SIGANTRY_VERSION: ${{ inputs.sigantryVersion }}
+        run: pip install "sigantry${SIGANTRY_VERSION:+==$SIGANTRY_VERSION}"
       - name: sigantry diff (json + fail-on-drift)
         run: |
           set -e
@@ -101,7 +125,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with: { python-version: '3.11' }
-      - run: pip install sigantry
+      - name: Install sigantry
+        env:
+          SIGANTRY_VERSION: ${{ inputs.sigantryVersion }}
+        run: pip install "sigantry${SIGANTRY_VERSION:+==$SIGANTRY_VERSION}"
       - name: Download drift.json artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:

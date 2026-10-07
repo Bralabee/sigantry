@@ -1,7 +1,7 @@
 # templates/stages/sigantry-cd.yml
 # ------------------------------------------------------------------
 # Sigantry five-stage deploy template (PIPELINE-01).
-# deploy -> smoke -> integration -> approval -> promote
+# approval -> deploy -> smoke -> integration -> promote
 #
 # Renamed from sigantry-deploy-with-tests.yml on 2026-05-12 to match the
 # GHA half rename. See the .github/workflows/sigantry-cd.yml header for
@@ -15,6 +15,12 @@
 # `shared_ignores`; either reason alone silences all parameter extras):
 # sigantry-dual-ci-ignore: gha-uses-oidc-not-service-connection
 # sigantry-dual-ci-ignore: ado-gh-env-naming
+#
+# Order: the approval stage runs FIRST, so the environment's reviewers
+# clear the deploy before anything is published; promote records the
+# release afterwards. `sigantryVersion` pins the package in every stage
+# (empty = latest); each stage runs on a fresh agent and installs it
+# through steps/sigantry-install.yml (deploy: steps/fabric-deploy.yml).
 #
 # Sources (Pitfall 14 / Phase 5 Success Criterion 1):
 #   Microsoft Learn - Deployment jobs
@@ -65,11 +71,29 @@ parameters:
   - name: auditDir
     type: string
     default: '.sigantry/audit'
+  - name: sigantryVersion
+    type: string
+    default: ''
 
 stages:
+  - stage: approval
+    displayName: 'Awaiting approval'
+    dependsOn: []
+    jobs:
+      - deployment: gate
+        displayName: 'Approval gate'
+        environment: ${{ parameters.adoApprovalEnvironment }}    # required reviewers attached via UI (D-04)
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - script: |
+                    echo "Approval granted for environment ${{ parameters.adoApprovalEnvironment }}"
+                  displayName: 'Approval acknowledged'
+
   - stage: deploy
     displayName: 'Deploy'
-    dependsOn: []
+    dependsOn: [approval]
     jobs:
       - deployment: deploy
         displayName: 'sigantry deploy run'
@@ -86,6 +110,7 @@ stages:
                     parametersPath: ${{ parameters.parametersPath }}
                     environment: ${{ parameters.environment }}
                     itemTypes: ${{ parameters.itemTypes }}
+                    fabricDataopsVersion: ${{ parameters.sigantryVersion }}
 
   - stage: smoke
     displayName: 'Smoke'
@@ -94,6 +119,9 @@ stages:
       - job: smoke
         displayName: 'Smoke checks'
         steps:
+          - template: ../steps/sigantry-install.yml
+            parameters:
+              sigantryVersion: ${{ parameters.sigantryVersion }}
           - script: ${{ parameters.smokeCommand }}
             displayName: 'Run smoke command'
 
@@ -104,27 +132,15 @@ stages:
       - job: integration
         displayName: 'Integration tests'
         steps:
+          - template: ../steps/sigantry-install.yml
+            parameters:
+              sigantryVersion: ${{ parameters.sigantryVersion }}
           - script: ${{ parameters.integrationCommand }}
             displayName: 'Run integration command'
 
-  - stage: approval
-    displayName: 'Awaiting approval'
-    dependsOn: [integration]
-    jobs:
-      - deployment: gate
-        displayName: 'Approval gate'
-        environment: ${{ parameters.adoApprovalEnvironment }}    # required reviewers attached via UI (D-04)
-        strategy:
-          runOnce:
-            deploy:
-              steps:
-                - script: |
-                    echo "Approval granted for environment ${{ parameters.adoApprovalEnvironment }}"
-                  displayName: 'Approval acknowledged'
-
   - stage: promote
     displayName: 'Promote (record release)'
-    dependsOn: [approval]
+    dependsOn: [integration]
     jobs:
       - deployment: promote
         displayName: 'sigantry release record'
@@ -134,6 +150,9 @@ stages:
             deploy:
               steps:
                 - checkout: self
+                - template: ../steps/sigantry-install.yml
+                  parameters:
+                    sigantryVersion: ${{ parameters.sigantryVersion }}
                 - task: AzureCLI@2
                   displayName: 'sigantry release record'
                   # WR-05 review fix: operator inputs are passed via the

@@ -10,6 +10,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **CD and drift templates: sign in, pin, approve before publishing, record
+  the real approver.** Measured at 1.0.1: the GitHub reusable workflows
+  (`.github/workflows/sigantry-cd.yml`, `drift-check.yml`) had no Azure
+  login step and no `id-token` permission, so they could not authenticate
+  as shipped; they installed whatever `pip install sigantry` resolved to;
+  the CD workflow published in its first job and asked for approval
+  afterwards; and the ledger's approver was the run's actor. On ADO, every
+  stage after deploy ran `sigantry` on a fresh agent that never installed
+  it. Now both GHA workflows take `azureClientId` and `azureTenantId`
+  (required) and sign in with `azure/login` through OIDC, SHA-pinned like
+  every other action, in each job that reaches Fabric, under
+  `permissions: id-token: write`; `sigantryVersion` pins the install in
+  every job and stage, reaching bash through `env:`; the approval stage
+  runs first on both platforms, so nothing is published before the
+  reviewers clear it; the GHA promote job reads the approver from the run's
+  approval record (`actions: read`) and warns when it has to fall back to
+  the actor; and `templates/steps/sigantry-install.yml` installs sigantry
+  in every ADO stage that runs it. A `workflow_call:` caller must grant
+  `id-token: write` (and `actions: read` for CD) itself; the runbooks show
+  the caller block.
 - **PR review bot: serializer-shaped TMDL.** Three parser gaps made a real
   Power BI Desktop or Fabric export diff as "no changes". Indentation counted
   spaces only, so a tab-indented model (one tab per level, the serializer's

@@ -6,7 +6,7 @@ workflow, and the canonical pitfalls to avoid.
 
 ## 0. Decision matrix -- which deploy verb am I looking for?
 
-`sigantry deploy run` is the **publish** verb -- it deploys first-time items and parameterises per environment. It writes no `DeployRecord`; the release is recorded separately by `sigantry release record`. The dual-CI templates this runbook documents wrap that verb in a five-stage `deploy -> smoke -> integration -> approval -> promote` flow with platform-native approval gates, where `promote` runs `sigantry release record`. [ADR-0012](../../decisions/ADR-0012-sync-apply-vs-deploy-run-boundary.md) formalises the boundary between `deploy run` and the sync verbs (`apply` / `pull` / `diff` / `snapshot`); [ADR-0013](../../decisions/ADR-0013-sync-publish-parameters-resolution.md) covers the `parameters.yml` resolution rule and the `sync apply --with-publish` composite verb.
+`sigantry deploy run` is the **publish** verb -- it deploys first-time items and parameterises per environment. It writes no `DeployRecord`; the release is recorded separately by `sigantry release record`. The dual-CI templates this runbook documents wrap that verb in a five-stage `approval -> deploy -> smoke -> integration -> promote` flow with platform-native approval gates, where `promote` runs `sigantry release record`. [ADR-0012](../../decisions/ADR-0012-sync-apply-vs-deploy-run-boundary.md) formalises the boundary between `deploy run` and the sync verbs (`apply` / `pull` / `diff` / `snapshot`); [ADR-0013](../../decisions/ADR-0013-sync-publish-parameters-resolution.md) covers the `parameters.yml` resolution rule and the `sync apply --with-publish` composite verb.
 
 | You want to ... | Verb | Touches workspace? | First-time item creation? |
 |---|---|---|---|
@@ -22,10 +22,13 @@ If you want folder reconcile + first-time item publish in a single verb, ADR-001
 ## 1. Overview
 
 Sigantry ships a pair of pipeline templates that implement
-`deploy -> smoke -> integration -> approval -> promote` with platform-native
-approval gates. The deploy stage runs first; the smoke tests, the
-integration tests and the approval gate the `promote` stage, which records
-the release. They do not gate the deployment itself:
+`approval -> deploy -> smoke -> integration -> promote` with platform-native
+approval gates. The approval gate runs first, so the environment's
+reviewers clear the deploy before anything is published; the smoke and
+integration tests then gate the `promote` stage, which records the release
+with the approver read from the platform's own approval record (GitHub: the
+run's review history; ADO: the pipeline's requester, overridable by the
+`approver` parameter):
 
 - ADO: `templates/stages/sigantry-cd.yml` -- a stage-list
   template that consumer pipelines compose via
@@ -99,13 +102,20 @@ This is the boundary the five-stage pipeline enforces -- ADR-0012 formalises the
 
 ## 4. Pipeline parameter reference
 
-Both halves accept the same 12-parameter surface, with two intentional
-per-platform divergences (the parameters marked ADO or GHA below):
+Both halves accept the same parameter surface, with intentional
+per-platform divergences for authentication (the parameters marked ADO or
+GHA below). GHA signs in with `azure/login` through OIDC (no secret: a
+federated credential on the app registration, subject
+`repo:<org>/<repo>:environment:<ghApprovalEnvironment or environment>`);
+ADO uses the workload-identity service connection.
 
 | Parameter | Required | Default | Purpose |
 |-----------|----------|---------|---------|
 | `workspaceId` | yes | -- | Target Fabric workspace GUID |
 | `serviceConnection` (ADO only) | yes | -- | WIF service connection name |
+| `azureClientId` (GHA only) | yes | -- | App registration (client) id for the OIDC login |
+| `azureTenantId` (GHA only) | yes | -- | Entra tenant id for the OIDC login |
+| `sigantryVersion` | no | `''` (latest) | Pins `pip install sigantry==<version>` in every stage |
 | `environment` | yes | -- | Deploy env (parameters.yml key) |
 | `sourceDir` | no | `fabric_items/` | Repo path to .platform items |
 | `parametersPath` | no | `parameters.yml` | Override path |
@@ -147,10 +157,20 @@ Or via workflow inputs (GHA `workflow_dispatch:` or `workflow_call:`):
 
 ```yaml
 # caller workflow
+permissions:
+  contents: read
+  id-token: write   # the reusable workflow's azure/login needs it from the caller too
+  actions: read     # and the approval-record lookup
 jobs:
   deploy:
     uses: org/sigantry-templates/.github/workflows/sigantry-cd.yml@<tag>
     with:
+      workspaceId: '<workspace-guid>'
+      environment: 'prod'
+      ghApprovalEnvironment: 'prod-approval'
+      azureClientId: '<app-registration-client-id>'
+      azureTenantId: '<tenant-id>'
+      sigantryVersion: '1.0.1'
       smokeCommand: 'sigantry doctor && curl -s https://my-app/health'
 ```
 

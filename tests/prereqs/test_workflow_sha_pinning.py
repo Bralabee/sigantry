@@ -147,6 +147,7 @@ def test_dependabot_entries_disable_default_labels() -> None:
     [
         "actions/checkout",
         "actions/setup-python",
+        "azure/login",
     ],
 )
 def test_known_pinned_actions_resolve_consistently(expected_repo: str) -> None:
