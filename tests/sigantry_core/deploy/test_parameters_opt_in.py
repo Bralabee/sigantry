@@ -460,3 +460,18 @@ def test_config_validate_no_allow_raw_guids_overrides_the_settings(
         app, ["config", "validate", str(p), "--allow-raw-guids", "--no-allow-raw-guids"]
     )
     assert both.exit_code == 1 and "cannot both be given" in both.output
+
+
+def test_load_reports_the_path_as_written_when_used_as_named(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Windows CI: ``str(Path("p[/x].yml"))`` is ``p[\\x].yml``, so the CLI printed a
+    spelling the operator never typed (``test_validate_params_and_graph_paths_printed_as_written``).
+    On every platform ``str(Path("./p.yml"))`` is ``p.yml``, which reproduces it here."""
+    body = 'find_replace:\n  - find_value: x\n    replace_value:\n      DEV: "v"\n'
+    _write(tmp_path, body, name="p.yml")
+    _write(tmp_path, body, name="parameter.yml")
+    monkeypatch.chdir(tmp_path)
+    assert load_and_validate("./p.yml").path == "./p.yml"
+    # A substituted sibling spelling is reported resolved: the CLI's note depends on it.
+    assert load_and_validate("./parameters.yml").path == str(Path("./parameter.yml"))

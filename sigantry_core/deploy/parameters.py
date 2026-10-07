@@ -232,9 +232,14 @@ def load_and_validate(
     raw_guids = _reject_hardcoded_guids(doc, str(p), allow_raw_guids=allow_raw_guids)
     _resolve_env_references(doc, environment=environment)
 
+    # Report the path as the caller wrote it when that file was used; only a
+    # substituted sibling spelling is reported resolved. ``str(Path(...))``
+    # rewrites separators on Windows (``p[/x].yml`` -> ``p[\\x].yml``) and
+    # drops a leading ``./`` everywhere, and the CLIs print this value.
+    reported = str(path) if Path(path) == p else str(p)
     return ParametersConfig(
         raw=doc,
-        path=str(p),
+        path=reported,
         environments_seen=frozenset(environments),
         raw_guids=tuple(raw_guids),
     )
