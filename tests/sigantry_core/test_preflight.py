@@ -175,7 +175,7 @@ class FakeClient:
 
 
 def _workspace_payload(capacity_id: str | None = _CAP_ID) -> dict[str, Any]:
-    payload: dict[str, Any] = {"id": _WS_ID, "displayName": "aims-dev", "type": "Workspace"}
+    payload: dict[str, Any] = {"id": _WS_ID, "displayName": "demo-dev", "type": "Workspace"}
     if capacity_id is not None:
         payload["capacityId"] = capacity_id
     return payload
