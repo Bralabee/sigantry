@@ -277,7 +277,11 @@ def test_deploy_workspace_calls_parameter_validator(
         token_provider=mock_token_provider,
     )
     params_mock.assert_called_once_with(
-        str(tmp_item_tree / "parameters.yml"), allow_raw_guids=False, environment="DEV"
+        # ``None``: the validator resolves the settings opt-in itself, so a caller
+        # without the flag (rollback) honours ``[deploy] allow_raw_guids``.
+        str(tmp_item_tree / "parameters.yml"),
+        allow_raw_guids=None,
+        environment="DEV",
     )
 
 

@@ -45,6 +45,7 @@ from sigantry_core.deploy.notebook_binding import NotebookBindingError, set_note
 from sigantry_core.deploy.parameters import (
     HardcodedGuidError,
     load_and_validate,
+    opt_in_from_flags,
     resolve_allow_raw_guids,
 )
 
@@ -176,9 +177,14 @@ def deploy_cmd(
         "--allow-raw-guids",
         help=(
             "Accept raw GUIDs in the parameters file (a stock fabric-cicd file); "
-            "each one is logged. Also [deploy] allow_raw_guids in .sigantry.toml "
-            "or SIGANTRY_DEPLOY__ALLOW_RAW_GUIDS."
+            "each one is logged. Unset, [deploy] allow_raw_guids in .sigantry.toml "
+            "or SIGANTRY_DEPLOY__ALLOW_RAW_GUIDS applies."
         ),
+    ),
+    no_allow_raw_guids: bool = typer.Option(
+        False,
+        "--no-allow-raw-guids",
+        help="Refuse raw GUIDs for this run although the settings allow them.",
     ),
 ) -> None:
     """Deploy a Fabric item tree. Non-zero exit on any item-publish failure."""
@@ -334,7 +340,9 @@ def deploy_cmd(
             items_to_include=items_include,
             shortcut_exclude_regex=shortcut_exclude_regex,
             bulk=bulk,
-            allow_raw_guids=resolve_allow_raw_guids(allow_raw_guids),
+            allow_raw_guids=resolve_allow_raw_guids(
+                opt_in_from_flags(allow_raw_guids, no_allow_raw_guids)
+            ),
         )
     except Exception as exc:  # CLI boundary: surface anything to the user.
         _console.print(Text.assemble(("deploy failed", "red"), f": {exc}"))
@@ -390,7 +398,15 @@ def validate_cmd(
     allow_raw_guids: bool = typer.Option(
         False,
         "--allow-raw-guids",
-        help="Accept raw GUIDs in the parameters file (a stock fabric-cicd file).",
+        help=(
+            "Accept raw GUIDs in the parameters file (a stock fabric-cicd file). "
+            "Unset, the settings opt-in applies."
+        ),
+    ),
+    no_allow_raw_guids: bool = typer.Option(
+        False,
+        "--no-allow-raw-guids",
+        help="Refuse raw GUIDs for this run although the settings allow them.",
     ),
 ) -> None:
     """Validate Fabric items WITHOUT deploying (ADOPIPE-05).
@@ -416,7 +432,9 @@ def validate_cmd(
     try:
         cfg = load_and_validate(
             params,
-            allow_raw_guids=resolve_allow_raw_guids(allow_raw_guids),
+            allow_raw_guids=resolve_allow_raw_guids(
+                opt_in_from_flags(allow_raw_guids, no_allow_raw_guids)
+            ),
             environment=environment,
         )
         _console.print(Text.assemble(("OK", "green"), f"  parameters: {cfg.path}"))

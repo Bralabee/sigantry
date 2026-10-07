@@ -71,7 +71,7 @@ def deploy_workspace(
     shortcut_exclude_regex: str | None = None,
     bulk: bool = False,
     max_workers: int = 4,
-    allow_raw_guids: bool = False,
+    allow_raw_guids: bool | None = None,
 ) -> DeployResult:
     """Deploy a Fabric item tree via fabric-cicd 1.0.0.
 

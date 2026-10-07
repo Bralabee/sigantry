@@ -13,7 +13,7 @@ fabric-cicd-native schema: ``find_replace``, ``key_value_replace``, ``spark_pool
     vars literally NAMED ``$ENV:VAR`` -- unusable for the plain-named
     operator contract; pinned by
     ``tests/sigantry_core/deploy/test_fabric_cicd_contract.py``)
-  - ``_ALL_`` environment wildcard
+  - ``_ALL_`` environment wildcard (matched in any case, as fabric-cicd does)
 
 The file may be spelled ``parameters.yml`` (sigantry's docs) or
 ``parameter.yml`` (fabric-cicd's own default). :func:`resolve_parameters_path`
@@ -26,7 +26,12 @@ The toolkit adds TWO validators on top of upstream's shape check:
      fabric-cicd file carries raw GUIDs by design, so the rule can be switched
      off with ``allow_raw_guids`` (CLI ``--allow-raw-guids``, settings
      ``[deploy] allow_raw_guids``, env ``SIGANTRY_DEPLOY__ALLOW_RAW_GUIDS``);
-     every GUID so allowed is logged and listed on the result.
+     every GUID so allowed is logged and listed on the result. The settings
+     value is resolved inside :func:`load_and_validate` when a caller passes
+     nothing, so it applies wherever the file is read (``deploy run`` and its
+     ``--rollback`` replay, ``sync apply --with-publish``, ``preflight
+     --params``); an explicit flag, ``--allow-raw-guids`` or
+     ``--no-allow-raw-guids``, wins for that run.
   2. ``$ENV:<VAR>`` references must resolve to a SET environment variable
      (RuntimeError; pre-flight catch rather than a cryptic deploy-time failure).
      With a target ``environment`` only that environment's slots, ``_ALL_``
@@ -133,11 +138,15 @@ def resolve_parameters_path(path: str | Path) -> Path:
     raise FileNotFoundError(f"parameters file not found; tried {tried}")
 
 
-def resolve_allow_raw_guids(flag: bool = False, *, settings_path: str | Path | None = None) -> bool:
+def resolve_allow_raw_guids(
+    flag: bool | None = None, *, settings_path: str | Path | None = None
+) -> bool:
     """Resolve the raw-GUID opt-in: explicit flag, else settings, else False.
 
     Order of precedence:
-    1. ``flag`` (a CLI ``--allow-raw-guids``) when True.
+    1. ``flag`` when it is not ``None``: ``True`` from ``--allow-raw-guids``,
+       ``False`` from ``--no-allow-raw-guids`` (which refuses raw GUIDs for
+       this run although the settings allow them).
     2. ``[deploy] allow_raw_guids`` in the settings file, or
        ``SIGANTRY_DEPLOY__ALLOW_RAW_GUIDS``, through
        :func:`sigantry_core.config.load_settings` (``settings_path`` names
@@ -147,8 +156,8 @@ def resolve_allow_raw_guids(flag: bool = False, *, settings_path: str | Path | N
     A settings file that fails to load does not raise here: the opt-in stays
     off and the reason is logged, so the strict default is what applies.
     """
-    if flag:
-        return True
+    if flag is not None:
+        return flag
     try:
         from sigantry_core.config import load_settings
 
@@ -159,10 +168,26 @@ def resolve_allow_raw_guids(flag: bool = False, *, settings_path: str | Path | N
     return bool(settings.deploy.allow_raw_guids)
 
 
+def opt_in_from_flags(allow: bool, refuse: bool) -> bool | None:
+    """Map the CLI pair ``--allow-raw-guids`` / ``--no-allow-raw-guids`` to the opt-in.
+
+    ``True`` for ``--allow-raw-guids``, ``False`` for ``--no-allow-raw-guids``
+    (refuse for this run although the settings allow), ``None`` for neither
+    (the settings decide). Both at once is an error.
+    """
+    if allow and refuse:
+        raise ValueError("--allow-raw-guids and --no-allow-raw-guids cannot both be given")
+    if allow:
+        return True
+    if refuse:
+        return False
+    return None
+
+
 def load_and_validate(
     path: str | Path,
     *,
-    allow_raw_guids: bool = False,
+    allow_raw_guids: bool | None = None,
     environment: str | None = None,
 ) -> ParametersConfig:
     """Read ``parameters.yml`` (or ``parameter.yml``); run the toolkit's validators.
@@ -170,7 +195,10 @@ def load_and_validate(
     Args:
         path: Path to the parameters file; see :func:`resolve_parameters_path`.
         allow_raw_guids: Let raw GUIDs through (logged, and listed on the
-            result) instead of raising ``HardcodedGuidError``.
+            result) instead of raising ``HardcodedGuidError``. ``None`` (the
+            default) resolves the settings opt-in through
+            :func:`resolve_allow_raw_guids`, so every caller honours
+            ``[deploy] allow_raw_guids`` unless it says otherwise.
         environment: The environment this deploy targets. When given, it must
             be declared in the file (or the file must use ``_ALL_``), and only
             its ``$ENV:`` references, ``_ALL_``'s and those outside the
@@ -195,6 +223,9 @@ def load_and_validate(
         # with a clear error rather than letting the validator walk miss.
         raise ValueError(f"parameters.yml at {p} must be a mapping; got {type(doc).__name__}")
 
+    if allow_raw_guids is None:
+        allow_raw_guids = resolve_allow_raw_guids(None)
+
     environments = _collect_environments(doc)
     if environment is not None:
         _check_target_environment(doc, environments, environment, str(p))
@@ -209,8 +240,18 @@ def load_and_validate(
     )
 
 
+def _is_wildcard(key: Any) -> bool:
+    """Whether a per-environment key is the ``_ALL_`` wildcard, in any case."""
+    return str(key).upper() == ALL_ENVIRONMENTS
+
+
 def _env_maps(doc: dict[str, Any]) -> list[dict[str, Any]]:
-    """Every per-environment map in the document, in file order."""
+    """Every per-environment map in the document, in file order.
+
+    Covers each entry's ``replace_value`` in the entry sections and, under
+    ``semantic_model_binding``, ``default.connection_id`` and every
+    ``models[].connection_id``.
+    """
     maps: list[dict[str, Any]] = []
     for section in _ENTRY_SECTIONS:
         for entry in doc.get(section, []) or []:
@@ -221,6 +262,9 @@ def _env_maps(doc: dict[str, Any]) -> list[dict[str, Any]]:
         default = binding.get("default") or {}
         if isinstance(default, dict) and isinstance(default.get("connection_id"), dict):
             maps.append(default["connection_id"])
+        for model in binding.get("models") or []:
+            if isinstance(model, dict) and isinstance(model.get("connection_id"), dict):
+                maps.append(model["connection_id"])
     return maps
 
 
@@ -229,7 +273,7 @@ def _collect_environments(doc: dict[str, Any]) -> set[str]:
     envs: set[str] = set()
     for env_map in _env_maps(doc):
         envs.update(str(k) for k in env_map)
-    return {e for e in envs if e != ALL_ENVIRONMENTS}
+    return {e for e in envs if not _is_wildcard(e)}
 
 
 def _check_target_environment(
@@ -241,7 +285,7 @@ def _check_target_environment(
     # A map that carries ``_ALL_`` applies to any target; only a map with
     # neither the target nor the wildcard would silently apply nothing.
     if not any(
-        env_map and ALL_ENVIRONMENTS not in env_map and environment not in env_map
+        env_map and not any(_is_wildcard(k) for k in env_map) and environment not in env_map
         for env_map in _env_maps(doc)
     ):
         return
@@ -294,7 +338,7 @@ def _in_scope(parent_key: str | None, key: Any, environment: str | None) -> bool
     """Whether a per-environment slot applies to the target environment."""
     if environment is None or parent_key not in _ENV_KEYED:
         return True
-    return key in (environment, ALL_ENVIRONMENTS)
+    return key == environment or _is_wildcard(key)
 
 
 def _resolve_env_references(doc: dict[str, Any], *, environment: str | None = None) -> None:
@@ -349,7 +393,10 @@ def substitute_env_references(
     slot and ``_ALL_`` in every per-environment map, so no other
     environment's token, resolved or not, reaches fabric-cicd. An entry
     whose ``replace_value`` has no slot left applies to no item in this
-    deploy and is dropped; a ``connection_id`` with no slot left is removed.
+    deploy and is dropped. Under ``semantic_model_binding`` a ``default``
+    or a ``models[]`` entry whose ``connection_id`` has no slot left is
+    dropped whole, and the section itself when nothing remains: fabric-cicd
+    requires ``connection_id`` on each and refuses an empty ``default``.
 
     Args:
         doc: Parsed parameters.yml mapping (as returned by
@@ -409,7 +456,35 @@ def substitute_env_references(
                         isinstance(e, dict) and "replace_value" in e and e["replace_value"] == {}
                     )
                 ]
+        _drop_unbound_model_bindings(substituted)
     return substituted
+
+
+def _drop_unbound_model_bindings(substituted: dict[str, Any]) -> None:
+    """Remove binding parts left without a ``connection_id`` by scoping.
+
+    fabric-cicd (1.3.0) validates the new-format ``semantic_model_binding``
+    as ``default`` requiring ``connection_id`` and every ``models[]`` entry
+    requiring one too, and the section requiring ``default`` or ``models``;
+    a leftover ``default: {}`` or a model entry stripped of its map ends the
+    deploy with "Deployment terminated due to an invalid parameter file".
+    The legacy list form carries no per-environment maps and is untouched.
+    """
+    binding = substituted.get("semantic_model_binding")
+    if not isinstance(binding, dict):
+        return
+    default = binding.get("default")
+    if isinstance(default, dict) and not default.get("connection_id"):
+        del binding["default"]
+    models = binding.get("models")
+    if isinstance(models, list):
+        kept = [m for m in models if not (isinstance(m, dict) and not m.get("connection_id"))]
+        if kept:
+            binding["models"] = kept
+        else:
+            del binding["models"]
+    if not binding.get("default") and not binding.get("models"):
+        del substituted["semantic_model_binding"]
 
 
 def write_substituted_parameters(

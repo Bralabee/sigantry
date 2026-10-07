@@ -337,7 +337,7 @@ def apply_cmd(
         # exception. The bounded f-string (str(exc)) avoids leaking raw
         # tracebacks per T-17-cli-leak.
         try:
-            params_config = load_and_validate(Path(params))
+            params_config = load_and_validate(Path(params), environment=environment)
         except (HardcodedGuidError, FileNotFoundError, ValueError) as exc:
             raise typer.BadParameter(f"--params validation failed: {exc}") from exc
         # D-17-02: when parameters.yml references any environment beyond

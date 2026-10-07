@@ -29,6 +29,7 @@ import typer
 from sigantry_core.deploy.parameters import (
     HardcodedGuidError,
     load_and_validate,
+    opt_in_from_flags,
     resolve_allow_raw_guids,
 )
 
@@ -58,9 +59,15 @@ def validate(
         False,
         "--allow-raw-guids",
         help=(
-            "Accept raw GUIDs (a stock fabric-cicd file); each one is listed. Also "
-            "[deploy] allow_raw_guids in .sigantry.toml or SIGANTRY_DEPLOY__ALLOW_RAW_GUIDS."
+            "Accept raw GUIDs (a stock fabric-cicd file); each one is listed. Unset, "
+            "[deploy] allow_raw_guids in .sigantry.toml or SIGANTRY_DEPLOY__ALLOW_RAW_GUIDS "
+            "applies."
         ),
+    ),
+    no_allow_raw_guids: bool = typer.Option(
+        False,
+        "--no-allow-raw-guids",
+        help="Refuse raw GUIDs for this run although the settings allow them.",
     ),
 ) -> None:
     """Validate a fabric-cicd parameters.yml (or parameter.yml) file.
@@ -75,7 +82,9 @@ def validate(
     try:
         result = load_and_validate(
             file,
-            allow_raw_guids=resolve_allow_raw_guids(allow_raw_guids),
+            allow_raw_guids=resolve_allow_raw_guids(
+                opt_in_from_flags(allow_raw_guids, no_allow_raw_guids)
+            ),
             environment=environment,
         )
     except FileNotFoundError as exc:

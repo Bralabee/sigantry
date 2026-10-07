@@ -138,9 +138,9 @@ def test_resolve_allow_raw_guids_reads_the_settings_file(tmp_path: Path) -> None
     """The documented ``[deploy] allow_raw_guids`` key is read, not only the env var."""
     toml = tmp_path / ".sigantry.toml"
     toml.write_text("[deploy]\nallow_raw_guids = true\n", encoding="utf-8")
-    assert resolve_allow_raw_guids(False, settings_path=toml) is True
+    assert resolve_allow_raw_guids(None, settings_path=toml) is True
     toml.write_text("[deploy]\nallow_raw_guids = false\n", encoding="utf-8")
-    assert resolve_allow_raw_guids(False, settings_path=toml) is False
+    assert resolve_allow_raw_guids(None, settings_path=toml) is False
 
 
 def test_resolve_allow_raw_guids_reads_the_env_var(
@@ -149,7 +149,7 @@ def test_resolve_allow_raw_guids_reads_the_env_var(
     toml = tmp_path / ".sigantry.toml"
     toml.write_text("[deploy]\n", encoding="utf-8")
     monkeypatch.setenv("SIGANTRY_DEPLOY__ALLOW_RAW_GUIDS", "true")
-    assert resolve_allow_raw_guids(False, settings_path=toml) is True
+    assert resolve_allow_raw_guids(None, settings_path=toml) is True
 
 
 def test_resolve_allow_raw_guids_defaults_off_when_settings_are_broken(
@@ -158,7 +158,7 @@ def test_resolve_allow_raw_guids_defaults_off_when_settings_are_broken(
     toml = tmp_path / ".sigantry.toml"
     toml.write_text("[deploy\nallow_raw_guids = true\n", encoding="utf-8")  # not TOML
     with caplog.at_level(logging.WARNING, logger="sigantry_core.deploy.parameters"):
-        assert resolve_allow_raw_guids(False, settings_path=toml) is False
+        assert resolve_allow_raw_guids(None, settings_path=toml) is False
     assert any("settings could not be loaded" in r.getMessage() for r in caplog.records)
 
 
@@ -251,9 +251,9 @@ def test_substitution_drops_a_connection_with_no_slot_for_the_target(
 ) -> None:
     monkeypatch.setenv("ONLY_PROD_VAR", "prod")
     doc = {"semantic_model_binding": {"default": {"connection_id": {"PROD": "$ENV:ONLY_PROD_VAR"}}}}
-    assert substitute_env_references(doc, environment="DEV") == {
-        "semantic_model_binding": {"default": {}}
-    }
+    # fabric-cicd 1.3.0 refuses ``default: {}`` (``connection_id`` is required), so a
+    # binding with no slot for the target is dropped whole, not left empty.
+    assert substitute_env_references(doc, environment="DEV") == {}
 
 
 def test_write_substituted_parameters_is_scoped(
@@ -323,3 +323,140 @@ def test_deploy_commands_expose_the_opt_in() -> None:
     validate_help = runner.invoke(app, ["deploy", "validate", "--help"]).output
     assert "--allow-raw-guids" in run_help
     assert "--allow-raw-guids" in validate_help and "--environment" in validate_help
+    assert "--no-allow-raw-guids" in run_help and "--no-allow-raw-guids" in validate_help
+
+
+# ---------------------------------------------------------------------------
+# Review round 1 on PR #88: the wildcard in any case, model bindings in the
+# environment check and in scoping, the settings opt-in wherever the file is
+# read, and an explicit --no-allow-raw-guids.
+# ---------------------------------------------------------------------------
+
+_LOWER_ALL = """
+find_replace:
+  - find_value: "a"
+    replace_value:
+      DEV: "dev-a"
+      PROD: "prod-a"
+  - find_value: "b"
+    replace_value:
+      _all_: "z"
+"""
+
+_MODELS_ONLY = """
+semantic_model_binding:
+  models:
+    - semantic_model_name: sales
+      connection_id:
+        PROD: "$ENV:ONLY_PROD_VAR"
+"""
+
+
+def test_lowercase_wildcard_slot_is_kept_in_scope(tmp_path: Path) -> None:
+    """fabric-cicd matches ``_ALL_`` in any case; a ``_all_`` entry must reach it."""
+    cfg = load_and_validate(_write(tmp_path, _LOWER_ALL), environment="DEV")
+    assert cfg.environments_seen == frozenset({"DEV", "PROD"})
+    out = substitute_env_references(cfg.raw, environment="DEV")
+    assert [e["find_value"] for e in out["find_replace"]] == ["a", "b"]
+    assert out["find_replace"][1]["replace_value"] == {"_all_": "z"}
+
+
+def test_lowercase_wildcard_counts_for_the_environment_check(tmp_path: Path) -> None:
+    only = 'find_replace:\n  - find_value: "b"\n    replace_value:\n      _all_: "z"\n'
+    cfg = load_and_validate(_write(tmp_path, only), environment="ANY")
+    assert cfg.environments_seen == frozenset()
+
+
+def test_model_binding_maps_count_for_the_environment_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ONLY_PROD_VAR", "p")
+    with pytest.raises(UnknownEnvironmentError):
+        load_and_validate(_write(tmp_path, _MODELS_ONLY), environment="PRDO")
+    cfg = load_and_validate(_write(tmp_path, _MODELS_ONLY), environment="PROD")
+    assert cfg.environments_seen == frozenset({"PROD"})
+
+
+def test_scoped_binding_with_no_slot_for_the_target_is_dropped_whole(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reproduced in review: ``default: {}`` / a model entry without ``connection_id``
+    made fabric-cicd 1.3.0 stop with "Deployment terminated due to an invalid
+    parameter file" on a DEV deploy whose binding names only PROD."""
+    monkeypatch.setenv("ONLY_PROD_VAR", "prod")
+    default_only = {
+        "semantic_model_binding": {"default": {"connection_id": {"PROD": "$ENV:ONLY_PROD_VAR"}}}
+    }
+    assert substitute_env_references(default_only, environment="DEV") == {}
+    models_only = {
+        "semantic_model_binding": {
+            "models": [
+                {"semantic_model_name": "m", "connection_id": {"PROD": "$ENV:ONLY_PROD_VAR"}}
+            ]
+        }
+    }
+    assert substitute_env_references(models_only, environment="DEV") == {}
+
+
+def test_scoped_binding_keeps_the_parts_that_bind_the_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONLY_DEV_VAR", "dev")
+    monkeypatch.setenv("ONLY_PROD_VAR", "prod")
+    doc = {
+        "semantic_model_binding": {
+            "default": {"connection_id": {"DEV": "$ENV:ONLY_DEV_VAR"}},
+            "models": [
+                {"semantic_model_name": "m1", "connection_id": {"PROD": "$ENV:ONLY_PROD_VAR"}},
+                {"semantic_model_name": "m2", "connection_id": {"_ALL_": "$ENV:ONLY_DEV_VAR"}},
+            ],
+        }
+    }
+    assert substitute_env_references(doc, environment="DEV") == {
+        "semantic_model_binding": {
+            "default": {"connection_id": {"DEV": "dev"}},
+            "models": [{"semantic_model_name": "m2", "connection_id": {"_ALL_": "dev"}}],
+        }
+    }
+
+
+def test_legacy_binding_list_is_untouched_by_scoping() -> None:
+    doc = {"semantic_model_binding": [{"connection_id": _GUID, "semantic_model_name": "m"}]}
+    assert substitute_env_references(doc, environment="DEV") == doc
+
+
+def test_load_and_validate_reads_the_settings_opt_in_when_the_caller_passes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Rollback, sync and preflight call the validator without the flag; the
+    documented settings key must still apply there. An explicit False wins."""
+    p = _write(tmp_path, _STOCK)
+    (tmp_path / ".sigantry.toml").write_text("[deploy]\nallow_raw_guids = true\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    cfg = load_and_validate(p)
+    assert cfg.raw_guids == ("find_replace.[0].replace_value.DEV",)
+    with pytest.raises(HardcodedGuidError):
+        load_and_validate(p, allow_raw_guids=False)
+
+
+def test_resolve_allow_raw_guids_explicit_false_beats_the_settings(tmp_path: Path) -> None:
+    toml = tmp_path / ".sigantry.toml"
+    toml.write_text("[deploy]\nallow_raw_guids = true\n", encoding="utf-8")
+    assert resolve_allow_raw_guids(False, settings_path=toml) is False
+    assert resolve_allow_raw_guids(None, settings_path=toml) is True
+
+
+def test_config_validate_no_allow_raw_guids_overrides_the_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A PROD job can refuse raw GUIDs for one run although CI sets the env var."""
+    p = _write(tmp_path, _STOCK, name="parameter.yml")
+    monkeypatch.setenv("SIGANTRY_DEPLOY__ALLOW_RAW_GUIDS", "true")
+    runner = CliRunner()
+    assert runner.invoke(app, ["config", "validate", str(p)]).exit_code == 0
+    refused = runner.invoke(app, ["config", "validate", str(p), "--no-allow-raw-guids"])
+    assert refused.exit_code == 1 and "hard-coded GUID" in refused.output
+    both = runner.invoke(
+        app, ["config", "validate", str(p), "--allow-raw-guids", "--no-allow-raw-guids"]
+    )
+    assert both.exit_code == 1 and "cannot both be given" in both.output

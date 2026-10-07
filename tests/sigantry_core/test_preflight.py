@@ -771,3 +771,25 @@ def test_capacity_fails_when_a_configured_credential_cannot_acquire_a_token(
     assert result.status == ProbeStatus.FAIL, result.message
     assert "AZURE_CLIENT_ID" in result.message
     assert result.details["configured_credential_vars"] == ["AZURE_CLIENT_ID"]
+
+
+def test_schema_parameters_check_honours_the_settings_opt_in(
+    workspace_yml: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review round 1 on PR #88: preflight must not fail a file deploy accepts."""
+    monkeypatch.delenv("SIGANTRY_DEPLOY__ALLOW_RAW_GUIDS", raising=False)
+    params = tmp_path / "parameter.yml"
+    params.write_text(
+        "find_replace:\n  - find_value: x\n    item_type: Notebook\n    replace_value:\n"
+        '      DEV: "11111111-2222-3333-4444-555555555555"\n',
+        encoding="utf-8",
+    )
+    toml = tmp_path / ".sigantry.toml"
+    toml.write_text("[deploy]\nallow_raw_guids = true\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    allowed = _schema(workspace_yml, params)
+    assert allowed.status == ProbeStatus.PASS, allowed.message
+    assert allowed.details["params_checked"] is True
+    toml.write_text("[deploy]\nallow_raw_guids = false\n", encoding="utf-8")
+    refused = _schema(workspace_yml, params)
+    assert refused.status == ProbeStatus.FAIL and "hard-coded GUID" in refused.message

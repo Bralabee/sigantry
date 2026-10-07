@@ -155,7 +155,7 @@ sigantry sync apply --manifest sync.yml --workspace-id "$WSID" \
 | Symptom | Cause | Fix |
 |---|---|---|
 | `--with-publish requires --params <parameters.yml>` | forgot `--params` | add `--params parameters.yml` |
-| `HardcodedGuidError` on validate | raw GUID in parameters.yml | use `$items.`/`$workspace.`/`$ENV:` forms, or `--allow-raw-guids` for a stock fabric-cicd file |
+| `HardcodedGuidError` on validate | raw GUID in parameters.yml | use `$items.`/`$workspace.`/`$ENV:` forms; for a stock fabric-cicd file set `[deploy] allow_raw_guids = true` in `.sigantry.toml` (or `SIGANTRY_DEPLOY__ALLOW_RAW_GUIDS=true`), which `sync apply --with-publish` honours; `--allow-raw-guids` is a flag of `config validate` and `deploy run`, not of `sync` |
 | publish succeeds but item lands at workspace root | `target_folder` typo | fix the path; re-run apply (it will move the item) |
 | `403` on apply | Viewer-only role | you need Contributor+ to create folders/items |
 | second apply still shows `Publishing ...` | display_name in manifest differs from the published item | make `display_name` match exactly; the absent-set join is on (display_name, type) |

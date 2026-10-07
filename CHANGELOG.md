@@ -24,7 +24,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   handed to fabric-cicd keeps only the target's and `_ALL_`'s slots.
   `ParametersConfig` gains `raw_guids`; `load_and_validate`,
   `substitute_env_references` and `write_substituted_parameters` take
-  keyword-only `allow_raw_guids` / `environment`.
+  keyword-only `allow_raw_guids` / `environment`. Review round 1 on the
+  change: the settings opt-in is resolved inside `load_and_validate` when a
+  caller passes nothing, so `deploy run --rollback`, `sync apply
+  --with-publish` and `preflight --params` honour it too (they fell back to
+  the strict default and refused a file `deploy run` accepted); a
+  `--no-allow-raw-guids` flag refuses raw GUIDs for one run although CI
+  sets the env var; `sync apply --with-publish --environment`
+  scopes the `$ENV:` check and the substituted copy as `deploy run` does;
+  `_ALL_` is matched in any case, as fabric-cicd matches it (a `_all_`
+  entry was silently dropped from the substituted copy); the environment
+  check sees `semantic_model_binding.models[].connection_id`; and a binding
+  `default` or `models[]` entry with no slot for the target is dropped whole,
+  the section with it when nothing remains, instead of an empty `default`
+  that fabric-cicd 1.3.0 refuses ("Deployment terminated due to an invalid
+  parameter file", reproduced on a DEV deploy whose binding named only PROD).
 
 ### Changed
 - **Classifier `Development Status :: 4 - Beta`** (was `5 - Production/Stable`).

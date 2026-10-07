@@ -763,9 +763,12 @@ loader validates two extra rules on top:
 
 - No raw GUIDs anywhere; every workspace / capacity / item ID must
   resolve via `$workspace.$id`, `$items.<Type>.<Name>.$id`, `$ENV:<VAR>`,
-  or the wildcard `_ALL_`. A stock fabric-cicd file is accepted with
-  `--allow-raw-guids` (or `[deploy] allow_raw_guids = true`); each GUID
-  let through is logged. The file may be spelled `parameters.yml` or
+  or the wildcard `_ALL_` (matched in any case). A stock fabric-cicd file is
+  accepted with `--allow-raw-guids` or `[deploy] allow_raw_guids = true`;
+  the setting applies wherever the file is read (`deploy run` and its
+  rollback, `sync apply --with-publish`, `preflight --params`) and
+  `--no-allow-raw-guids` refuses raw GUIDs for one run regardless. Each
+  GUID let through is logged. The file may be spelled `parameters.yml` or
   fabric-cicd's `parameter.yml`.
 - With a target environment (`-e DEV` / `--environment DEV`) only that
   environment's `$ENV:` references (plus `_ALL_`) must be set, and the
@@ -1317,7 +1320,9 @@ Verbs (18 subcommands; run `sigantry <verb> --help` for the full flag set):
   config validate [<path>]               -- pre-flight check parameters.yml
                                             (or parameter.yml; default parameters.yml)
     --environment LABEL / -e             check only this environment's $ENV: slots
-    --allow-raw-guids                    accept raw GUIDs (stock fabric-cicd file)
+    --allow-raw-guids / --no-allow-raw-guids
+                                         accept raw GUIDs (stock fabric-cicd file);
+                                            unset, [deploy] allow_raw_guids applies
   preflight                              -- pre-deployment safety probes
                                             (ADR-0015)
     --manifest PATH / -m                 sync.yml or workspace.yml [default sync.yml]

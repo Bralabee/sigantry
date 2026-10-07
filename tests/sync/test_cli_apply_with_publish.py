@@ -604,3 +604,41 @@ def test_with_publish_succeeded_publish_exits_zero(
         ],
     )
     assert result.exit_code == 0, result.output
+
+
+def test_with_publish_validation_is_scoped_to_the_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review round 1 on PR #88: a DEV sync must not demand PROD's secrets."""
+    _bypass_preview_warning(monkeypatch)
+    monkeypatch.setenv("ONLY_DEV_VAR", "dev")
+    monkeypatch.delenv("ONLY_PROD_VAR", raising=False)
+    params_yml = tmp_path / "p.yml"
+    params_yml.write_text(
+        "find_replace:\n"
+        "  - find_value: 'placeholder'\n"
+        "    replace_value:\n"
+        "      DEV: '$ENV:ONLY_DEV_VAR'\n"
+        "      PROD: '$ENV:ONLY_PROD_VAR'\n",
+        encoding="utf-8",
+    )
+    manifest = tmp_path / "sync.yml"
+    manifest.write_text("schema_version: '1.0.0'\nitems: []\n", encoding="utf-8")
+    mock_apply = _stub_apply(monkeypatch, _make_report())
+    result = runner.invoke(
+        sync_app,
+        [
+            "apply",
+            "--manifest",
+            str(manifest),
+            "--workspace-id",
+            "ws-x",
+            "--with-publish",
+            "--params",
+            str(params_yml),
+            "--environment",
+            "DEV",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert mock_apply.call_args.kwargs.get("environment") == "DEV"
