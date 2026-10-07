@@ -377,3 +377,30 @@ def test_errors_are_exported() -> None:
     assert issubclass(auth.InvalidTenantIdError, auth.FabricAuthError)
     assert "TenantMismatchError" in auth.__all__
     assert "InvalidTenantIdError" in auth.__all__
+
+
+# ---- no route back to the unpinned credential ---------------------------------
+
+
+@pytest.mark.parametrize("credential_cls", [_FakeCredential, _GetTokenOnlyCredential])
+def test_the_pinned_credential_hands_out_no_unpinned_credential(credential_cls: type) -> None:
+    """A caller holding the pinned credential cannot reach the one it wraps:
+    no public attribute of the wrapper is the unpinned credential."""
+    raw = credential_cls()
+    pinned = TokenProvider(credential=raw, tenant_id=TENANT_A).get_credential()
+    assert pinned is not raw
+    leaks = [
+        name for name in dir(pinned) if not name.startswith("_") and getattr(pinned, name) is raw
+    ]
+    assert leaks == []
+
+
+def test_a_pinned_provider_keeps_only_the_pinned_credential() -> None:
+    """The provider keeps the unpinned credential's class name for its logs and
+    errors, not the credential itself."""
+    raw = _FakeCredential(tid=TENANT_A)
+    tp = TokenProvider(credential=raw, tenant_id=TENANT_A)
+    held = [name for name, value in vars(tp).items() if value is raw]
+    assert held == []
+    tp.get_token(FABRIC_SCOPE)
+    assert tp.last_credential_class(FABRIC_SCOPE) == "_FakeCredential"

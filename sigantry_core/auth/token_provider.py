@@ -114,7 +114,9 @@ class TokenProvider:
                 # refuses a request for another unless that one is allowed.
                 kwargs["additionally_allowed_tenants"] = [pinned]
             credential = DefaultAzureCredential(**kwargs)
-        self._inner_credential = credential
+        # Only the class name is kept (for logs and errors): the provider holds
+        # no reference to an unpinned credential beside the pinned one.
+        self._credential_class = type(credential).__name__
         # Pitfall P1-6: the pin is enforced by the credential itself, so it
         # also holds for callers that take the credential (fabric-cicd).
         self._credential = credential if pinned is None else pin_credential(credential, pinned)
@@ -172,7 +174,7 @@ class TokenProvider:
                 raise TokenAcquisitionError(
                     f"chain failed to acquire token for scope {scope!r}: {exc}",
                     scope=scope,
-                    credential_used=type(self._inner_credential).__name__,
+                    credential_used=self._credential_class,
                     remediation=(
                         "Check that az login is active (laptop) OR "
                         "AZURE_FEDERATED_TOKEN_FILE is set (ADO pipeline) OR "
@@ -181,7 +183,7 @@ class TokenProvider:
                     ),
                 ) from exc
 
-            credential_class = type(self._inner_credential).__name__
+            credential_class = self._credential_class
             self._cache[scope] = _CachedToken(
                 access_token=tok.token,
                 expires_on=tok.expires_on,

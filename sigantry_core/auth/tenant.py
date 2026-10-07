@@ -99,6 +99,8 @@ class _TenantPinnedCredential:
     """
 
     def __init__(self, credential: TokenCredential, tenant_id: str) -> None:
+        # Private on purpose: a public way back to the unpinned credential
+        # would let a caller request tokens around the pin.
         self._inner = credential
         self._tenant_id = tenant_id
 
@@ -106,11 +108,6 @@ class _TenantPinnedCredential:
     def tenant_id(self) -> str:
         """The pinned tenant."""
         return self._tenant_id
-
-    @property
-    def inner_credential(self) -> TokenCredential:
-        """The credential the tokens come from."""
-        return self._inner
 
     def _credential_name(self) -> str:
         return type(self._inner).__name__
