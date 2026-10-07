@@ -632,3 +632,15 @@ def test_help_lists_every_option_at_80_columns(
     for option in leaves[command]:
         if option.startswith("--") and option not in ("--install-completion", "--show-completion"):
             assert option in result.output, f"{command}: {option} missing from --help"
+
+
+def test_preflight_capacity_probe_fails_on_a_refused_token(
+    authority: _Authority, tmp_path: Path
+) -> None:
+    authority.tid = TENANT_B
+    outcome = _run("preflight", tmp_path, "--tenant-id", TENANT_A, "--workspace-id", WS, "--json")
+    assert outcome.exit_code == 1, outcome.output
+    report = json.loads(outcome.output[outcome.output.index("{") :])
+    capacity = next(r for r in report["results"] if r["name"] == "capacity_state")
+    assert capacity["status"] == "FAIL"
+    assert TENANT_A in capacity["message"] and TENANT_B in capacity["message"]
