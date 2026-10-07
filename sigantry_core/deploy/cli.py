@@ -42,7 +42,12 @@ from sigantry_core.deploy.environments_manifest import (
 from sigantry_core.deploy.environments_sync import sync_environments
 from sigantry_core.deploy.item_copy import ItemCopyError, copy_item
 from sigantry_core.deploy.notebook_binding import NotebookBindingError, set_notebook_binding
-from sigantry_core.deploy.parameters import HardcodedGuidError, load_and_validate
+from sigantry_core.deploy.parameters import (
+    HardcodedGuidError,
+    load_and_validate,
+    opt_in_from_flags,
+    resolve_allow_raw_guids,
+)
 
 deploy_app = typer.Typer(
     help="Deploy Fabric items from a Git working tree via fabric-cicd.",
@@ -167,6 +172,20 @@ def deploy_cmd(
         "--bulk",
         help="Enable concurrent bulk publish acceleration for multi-item publish.",
     ),
+    allow_raw_guids: bool = typer.Option(
+        False,
+        "--allow-raw-guids",
+        help=(
+            "Accept raw GUIDs in the parameters file (a stock fabric-cicd file); "
+            "each one is logged. Unset, [deploy] allow_raw_guids in .sigantry.toml "
+            "or SIGANTRY_DEPLOY__ALLOW_RAW_GUIDS applies."
+        ),
+    ),
+    no_allow_raw_guids: bool = typer.Option(
+        False,
+        "--no-allow-raw-guids",
+        help="Refuse raw GUIDs for this run although the settings allow them.",
+    ),
 ) -> None:
     """Deploy a Fabric item tree. Non-zero exit on any item-publish failure."""
     # NOTE: rollback branch must execute BEFORE the existing
@@ -239,6 +258,7 @@ def deploy_cmd(
                 force=rollback_force,
                 runbook_id=rollback_runbook_id,
                 token_provider=tp,
+                allow_raw_guids=opt_in_from_flags(allow_raw_guids, no_allow_raw_guids),
             )
         except Exception as exc:
             _console.print(Text.assemble(("rollback failed", "red"), f": {exc}"))
@@ -321,6 +341,9 @@ def deploy_cmd(
             items_to_include=items_include,
             shortcut_exclude_regex=shortcut_exclude_regex,
             bulk=bulk,
+            allow_raw_guids=resolve_allow_raw_guids(
+                opt_in_from_flags(allow_raw_guids, no_allow_raw_guids)
+            ),
         )
     except Exception as exc:  # CLI boundary: surface anything to the user.
         _console.print(Text.assemble(("deploy failed", "red"), f": {exc}"))
@@ -364,6 +387,28 @@ def validate_cmd(
         "--skip-pre-commit",
         help="Skip the pre-commit fabric-item consistency backstop.",
     ),
+    environment: str | None = typer.Option(
+        None,
+        "--environment",
+        "-e",
+        help=(
+            "Target environment: must be declared in the parameters file, and only "
+            "its $ENV: references (plus _ALL_) must be set. Omit to check every slot."
+        ),
+    ),
+    allow_raw_guids: bool = typer.Option(
+        False,
+        "--allow-raw-guids",
+        help=(
+            "Accept raw GUIDs in the parameters file (a stock fabric-cicd file). "
+            "Unset, the settings opt-in applies."
+        ),
+    ),
+    no_allow_raw_guids: bool = typer.Option(
+        False,
+        "--no-allow-raw-guids",
+        help="Refuse raw GUIDs for this run although the settings allow them.",
+    ),
 ) -> None:
     """Validate Fabric items WITHOUT deploying (ADOPIPE-05).
 
@@ -386,8 +431,21 @@ def validate_cmd(
     # RESEARCH section 14 Example 5 contract. HardcodedGuidError and the
     # $ENV: RuntimeError land in `errors` (exit 1).
     try:
-        load_and_validate(params)
-        _console.print(Text.assemble(("OK", "green"), f"  parameters: {params}"))
+        cfg = load_and_validate(
+            params,
+            allow_raw_guids=resolve_allow_raw_guids(
+                opt_in_from_flags(allow_raw_guids, no_allow_raw_guids)
+            ),
+            environment=environment,
+        )
+        _console.print(Text.assemble(("OK", "green"), f"  parameters: {cfg.path}"))
+        if cfg.raw_guids:
+            _console.print(
+                Text.assemble(
+                    ("WARN", "yellow"),
+                    f" {len(cfg.raw_guids)} raw GUID(s) allowed: {', '.join(cfg.raw_guids)}",
+                )
+            )
     except FileNotFoundError as e:
         _console.print(Text.assemble(("FAIL", "red"), f" parameters missing: {e}"))
         if junit_xml:

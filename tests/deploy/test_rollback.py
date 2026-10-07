@@ -493,3 +493,62 @@ def test_rollback_filters_items_to_scope_and_emits_in_scope_record(
     out = res.stdout + (res.stderr or "")
     assert "Skipp" in out
     assert "lh_1.Lakehouse" in out
+
+
+# ---------------------------------------------------------------------------
+# Review round 2 on PR #88: the raw-GUID flags must reach a rollback too.
+# ---------------------------------------------------------------------------
+
+
+def test_rollback_passes_the_raw_guid_opt_in_to_deploy_workspace(tmp_path: Path) -> None:
+    emit_deploy_record(_record("R-optin", "ws-A", ["nb_1.Notebook"]), audit_dir=tmp_path)
+    with patch("sigantry_core.deploy.rollback.deploy_workspace") as mock_dw:
+        mock_dw.return_value = DeployResult("ws-A", "dev", 1, 0, 0, None)
+        rollback_to_release(
+            "R-optin",
+            workspace="ws-A",
+            repository_directory=str(tmp_path),
+            environment="dev",
+            item_type_in_scope=["Notebook"],
+            audit_dir=tmp_path,
+            force=True,
+            allow_raw_guids=True,
+        )
+    assert mock_dw.call_args.kwargs["allow_raw_guids"] is True
+
+
+@pytest.mark.parametrize(
+    ("extra", "expected"),
+    [(["--allow-raw-guids"], True), (["--no-allow-raw-guids"], False), ([], None)],
+)
+def test_cli_rollback_forwards_the_raw_guid_flags(
+    tmp_path: Path, extra: list[str], expected: bool | None
+) -> None:
+    """Reproduced in review: ``--rollback`` dropped both flags, so a release
+    deployed from a stock file could not be rolled back with ``--allow-raw-guids``,
+    and ``--no-allow-raw-guids`` could not refuse one when CI sets the env var."""
+    emit_deploy_record(_record("R-flag", "ws-A", ["nb_1.Notebook"]), audit_dir=tmp_path)
+    with patch("sigantry_core.deploy.rollback.deploy_workspace") as mock_dw:
+        mock_dw.return_value = DeployResult("ws-A", "dev", 1, 0, 0, None)
+        res = runner.invoke(
+            app,
+            [
+                "deploy",
+                "run",
+                "--rollback",
+                "--to-release",
+                "R-flag",
+                "--rollback-force",
+                "--source",
+                str(tmp_path),
+                "--workspace-id",
+                "ws-A",
+                "--environment",
+                "dev",
+                "--audit-dir",
+                str(tmp_path),
+                *extra,
+            ],
+        )
+    assert res.exit_code == 0, res.output
+    assert mock_dw.call_args.kwargs.get("allow_raw_guids") is expected

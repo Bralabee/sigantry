@@ -9,6 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Raw GUIDs on request, either file spelling, and per-environment
+  validation.** A stock fabric-cicd `parameter.yml` carries raw GUIDs by
+  design and was refused outright; validating demanded every environment's
+  `$ENV:` variables in every job; and only the `parameters.yml` spelling was
+  read. Now `--allow-raw-guids` on `config validate`, `deploy validate` and
+  `deploy run`, or `[deploy] allow_raw_guids = true` in `.sigantry.toml`
+  (`SIGANTRY_DEPLOY__ALLOW_RAW_GUIDS`), lets raw GUIDs through, each one
+  logged and listed; either spelling is read, with a note when the sibling
+  was used; `-e <env>` on the validate commands, and `deploy run`'s own
+  `--environment`, check only that environment's slots plus `_ALL_` and
+  refuse an environment the file does not declare; the substituted copy
+  handed to fabric-cicd keeps only the target's and `_ALL_`'s slots.
+  `ParametersConfig` gains `raw_guids`; `load_and_validate`,
+  `substitute_env_references` and `write_substituted_parameters` take
+  keyword-only `allow_raw_guids` / `environment`. Review round 1 on the
+  change: the settings opt-in is resolved inside `load_and_validate` when a
+  caller passes nothing, so `deploy run --rollback`, `sync apply
+  --with-publish` and `preflight --params` honour it too (they fell back to
+  the strict default and refused a file `deploy run` accepted), and the
+  rollback branch forwards the flags as the forward path does; a
+  `--no-allow-raw-guids` flag refuses raw GUIDs for one run although CI
+  sets the env var; `sync apply --with-publish --environment`
+  scopes the `$ENV:` check and the substituted copy as `deploy run` does;
+  `_ALL_` is matched in any case, as fabric-cicd matches it (a `_all_`
+  entry was silently dropped from the substituted copy); the environment
+  check sees `semantic_model_binding.models[].connection_id`; and a binding
+  `default` or `models[]` entry with no slot for the target is dropped whole,
+  the section with it when nothing remains, instead of an empty `default`
+  that fabric-cicd 1.3.0 refuses ("Deployment terminated due to an invalid
+  parameter file", reproduced on a DEV deploy whose binding named only PROD).
+
 ### Changed
 - **Classifier `Development Status :: 4 - Beta`** (was `5 - Production/Stable`).
   The project has one maintainer, every review is by the author, and the

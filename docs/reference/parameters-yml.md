@@ -69,7 +69,8 @@ validator):
 
 | Form | Resolved by | Example |
 |---|---|---|
-| literal string | unchanged | `"00000000-0000-0000-0000-000000000abc"` |
+| literal string | unchanged | `"my-lakehouse"` |
+| literal GUID | unchanged, **only with `--allow-raw-guids`** (see below) | `"00000000-0000-0000-0000-000000000abc"` |
 | `$workspace.$id` | fabric-cicd at deploy time | `$workspace.$id` |
 | `$items.<Type>.<Name>.$id` | fabric-cicd at deploy time | `$items.Lakehouse.Bronze.$id` |
 | `$ENV:<VAR>` | sigantry at load time | `$ENV:SIGANTRY_FABRIC_WORKSPACE_ID_DEV` |
@@ -170,6 +171,65 @@ adopter-controlled env var name works; the prefix exists so:
 
 The starter file does NOT require the prefix; rename to whatever your
 adopter convention is.
+
+## Raw GUIDs: refused by default, allowed on request
+
+Sigantry refuses a literal GUID anywhere in the file (`HardcodedGuidError`,
+exit 1) so that a workspace, capacity or item id is resolved by name
+(`$items.<Type>.<Name>.$id`, `$workspace.$id`) or injected (`$ENV:<VAR>`)
+instead of copied between environments by hand. A stock fabric-cicd file
+carries raw GUIDs by design, so the rule can be switched off:
+
+```bash
+sigantry config validate parameter.yml --allow-raw-guids
+sigantry deploy run ... --allow-raw-guids
+```
+
+or in `.sigantry.toml`:
+
+```toml
+[deploy]
+allow_raw_guids = true   # or SIGANTRY_DEPLOY__ALLOW_RAW_GUIDS=true
+```
+
+Every GUID let through is logged and listed by `config validate`
+(`warning: N raw GUID(s) allowed: find_replace.[0].replace_value.DEV`), so
+the deploy says how many it relies on.
+
+The settings value applies wherever the file is read: `deploy run` and its
+`--rollback` replay, `deploy validate`, `sync apply --with-publish` and
+`preflight --params`. The flag, where a command has one, wins for that run
+in either direction: `--no-allow-raw-guids` refuses raw GUIDs although the
+settings (or a CI-wide `SIGANTRY_DEPLOY__ALLOW_RAW_GUIDS`) allow them. The
+settings file is resolved from the working directory, as for every other
+sigantry setting, not from `--source`.
+
+`_ALL_` is matched in any case (`_all_` too), as fabric-cicd matches it. With
+a target environment, a `semantic_model_binding` `default` or `models[]`
+entry whose `connection_id` names no slot for that environment is left out
+of the copy handed to fabric-cicd, and the whole section when nothing
+remains: fabric-cicd requires `connection_id` on each and refuses an empty
+`default`.
+
+## `parameters.yml` or `parameter.yml`
+
+Sigantry's docs spell the file `parameters.yml`; fabric-cicd's own default
+is `parameter.yml`. Every command accepts either: when the named file is
+absent and the sibling spelling exists, that one is read and
+`config validate` says so (`note: read .../parameter.yml`). A missing file
+is reported with both spellings tried.
+
+## Validation is scoped to the target environment
+
+`config validate -e DEV`, `deploy validate -e DEV` and `deploy run
+--environment DEV` check only DEV's slots, `_ALL_` slots and values outside
+the per-environment maps, so a DEV job does not need PROD's secrets set.
+Without `-e`, every slot must resolve, as before. The target must be
+declared in the file wherever a map does not carry `_ALL_`: a mistyped
+`-e PRDO` is refused with the declared names, instead of deploying with
+no substitutions. The substituted copy handed to fabric-cicd keeps only
+the target's and `_ALL_`'s slots, so nothing another environment owns
+reaches upstream.
 
 ## See also
 

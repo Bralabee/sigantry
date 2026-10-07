@@ -26,7 +26,12 @@ from pathlib import Path
 
 import typer
 
-from sigantry_core.deploy.parameters import HardcodedGuidError, load_and_validate
+from sigantry_core.deploy.parameters import (
+    HardcodedGuidError,
+    load_and_validate,
+    opt_in_from_flags,
+    resolve_allow_raw_guids,
+)
 
 config_app = typer.Typer(
     help="Validate Sigantry configuration files (parameters.yml).",
@@ -37,30 +42,67 @@ config_app = typer.Typer(
 @config_app.command("validate")
 def validate(
     file: Path = typer.Argument(  # noqa: B008 -- typer convention: Argument() lives in the default
-        ...,
+        Path("parameters.yml"),
         exists=False,  # file's own existence is checked by load_and_validate
-        help="Path to the parameters.yml file to validate.",
+        help="Path to the parameters.yml (or parameter.yml) file to validate.",
+    ),
+    environment: str | None = typer.Option(
+        None,
+        "--environment",
+        "-e",
+        help=(
+            "Target environment: must be declared in the file, and only its $ENV: "
+            "references (plus _ALL_) must be set. Omit to check every slot."
+        ),
+    ),
+    allow_raw_guids: bool = typer.Option(
+        False,
+        "--allow-raw-guids",
+        help=(
+            "Accept raw GUIDs (a stock fabric-cicd file); each one is listed. Unset, "
+            "[deploy] allow_raw_guids in .sigantry.toml or SIGANTRY_DEPLOY__ALLOW_RAW_GUIDS "
+            "applies."
+        ),
+    ),
+    no_allow_raw_guids: bool = typer.Option(
+        False,
+        "--no-allow-raw-guids",
+        help="Refuse raw GUIDs for this run although the settings allow them.",
     ),
 ) -> None:
-    """Validate a fabric-cicd parameters.yml file.
+    """Validate a fabric-cicd parameters.yml (or parameter.yml) file.
 
     Exit codes:
         0 -- file is structurally valid; prints
              ``OK -- N environment(s) parsed: <comma-separated>``.
-        1 -- HardcodedGuidError or unresolved ``$ENV:<VAR>`` reference.
-        2 -- file not found.
+        1 -- HardcodedGuidError, an undeclared --environment, or an
+             unresolved ``$ENV:<VAR>`` reference.
+        2 -- file not found under either spelling.
     """
     try:
-        result = load_and_validate(file)
-    except FileNotFoundError:
-        typer.echo(f"error: {file} not found", err=True)
+        result = load_and_validate(
+            file,
+            allow_raw_guids=resolve_allow_raw_guids(
+                opt_in_from_flags(allow_raw_guids, no_allow_raw_guids)
+            ),
+            environment=environment,
+        )
+    except FileNotFoundError as exc:
+        typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=2) from None
     except HardcodedGuidError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
-    except RuntimeError as exc:
+    except (ValueError, RuntimeError) as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
     envs = sorted(result.environments_seen)
     typer.echo(f"OK -- {len(envs)} environment(s) parsed: {', '.join(envs)}")
+    if result.path != str(file):
+        typer.echo(f"note: read {result.path}", err=True)
+    if result.raw_guids:
+        typer.echo(
+            f"warning: {len(result.raw_guids)} raw GUID(s) allowed: {', '.join(result.raw_guids)}",
+            err=True,
+        )
