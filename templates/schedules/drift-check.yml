@@ -14,6 +14,9 @@
 # sigantry-dual-ci-ignore: gha-uses-oidc-not-service-connection
 # sigantry-dual-ci-ignore: ado-gh-env-naming
 #
+# Every stage runs on a fresh agent, so each installs sigantry through
+# steps/sigantry-install.yml, pinned to `sigantryVersion` when given.
+#
 # The GHA half has no `schedule:` of its own (see its header). The parity
 # lint compares parameters, not triggers, so that difference carries no token.
 #
@@ -41,6 +44,9 @@ parameters:
   - name: cron
     type: string
     default: '0 6 * * *'
+  - name: sigantryVersion
+    type: string
+    default: ''
 
 schedules:
   - cron: ${{ parameters.cron }}
@@ -57,6 +63,9 @@ stages:
       - job: drift_check
         displayName: 'sigantry diff'
         steps:
+          - template: ../steps/sigantry-install.yml
+            parameters:
+              sigantryVersion: ${{ parameters.sigantryVersion }}
           - task: AzureCLI@2
             displayName: 'sigantry diff (json + fail-on-drift)'
             # WR-05 / Pitfall 8 inheritance (D-28): operator inputs are
@@ -93,6 +102,9 @@ stages:
       - job: notify
         displayName: 'Post drift summary to notification sink'
         steps:
+          - template: ../steps/sigantry-install.yml
+            parameters:
+              sigantryVersion: ${{ parameters.sigantryVersion }}
           - download: current
             artifact: drift_json
           - script: |

@@ -1,7 +1,7 @@
 # .github/workflows/sigantry-cd.yml
 # ------------------------------------------------------------------
 # Sigantry five-job GHA workflow (PIPELINE-02).
-# deploy -> smoke -> integration -> approval -> promote
+# approval -> deploy -> smoke -> integration -> promote
 #
 # Paired with templates/stages/sigantry-cd.yml.
 # Parity enforced by scripts/ci/check-dual-ci-parity.py (Plan 10-06).
@@ -13,6 +13,25 @@
 # keep them above line 20):
 # sigantry-dual-ci-ignore: gha-uses-oidc-not-service-connection
 # sigantry-dual-ci-ignore: ado-gh-env-naming
+#
+# Authentication: every job that calls Fabric signs in with azure/login
+# through OIDC (`azureClientId` + `azureTenantId`, no secret), which
+# puts an `az` session in place for sigantry's DefaultAzureCredential
+# chain. Only those jobs hold `id-token: write`, and only promote holds
+# `actions: read` to read the run's approval record; a caller using
+# `workflow_call:` must grant both in its own `permissions:` block, or
+# GitHub caps them. Those jobs also declare `environment: inputs.environment`
+# so their OIDC token subject is `repo:<org>/<repo>:environment:<environment>`,
+# the one subject the federated credential names; that environment carries
+# no required reviewers (the reviewers sit on `ghApprovalEnvironment`).
+# `sigantryVersion` pins the package in every job
+# (empty = latest). Operator inputs reach bash through `env:` only
+# (WR-05), never interpolated into a script.
+#
+# Order: the approval gate runs FIRST, so the reviewer clears the
+# deploy before anything is published; promote then records the
+# release with the approver read from GitHub's own approval record for
+# the run, not from whoever started it.
 #
 # Renamed from sigantry-deploy-with-tests.yml on 2026-05-12 as part of
 # the ghost-runs fix. Real root cause: the ``releaseId`` and
@@ -32,6 +51,10 @@
 #     https://docs.github.com/actions/deployment/targeting-different-environments/using-environments-for-deployment
 #   GitHub Docs - Reviewing deployments
 #     https://docs.github.com/actions/managing-workflow-runs/reviewing-deployments
+#   GitHub Docs - REST: Get the review history for a workflow run
+#     https://docs.github.com/en/rest/actions/workflow-runs#get-the-review-history-for-a-workflow-run
+#   Azure/login - OIDC login without a subscription
+#     https://github.com/Azure/login#login-with-openid-connect-oidc-recommended
 # ------------------------------------------------------------------
 name: sigantry-deploy-with-tests
 
@@ -40,6 +63,8 @@ on:
     inputs:
       workspaceId:           { type: string,  required: true }
       environment:           { type: string,  required: true }
+      azureClientId:         { type: string,  required: true }
+      azureTenantId:         { type: string,  required: true }
       sourceDir:             { type: string,  required: false, default: 'fabric_items/' }
       parametersPath:        { type: string,  required: false, default: 'parameters.yml' }
       itemTypes:             { type: string,  required: false, default: 'Lakehouse,Environment,Notebook,DataPipeline' }
@@ -51,10 +76,13 @@ on:
       approver:              { type: string,  required: false, default: '' }
       fabricItems:           { type: string,  required: false, default: '' }
       auditDir:              { type: string,  required: false, default: '.sigantry/audit' }
+      sigantryVersion:       { type: string,  required: false, default: '' }
   workflow_call:
     inputs:
       workspaceId:           { type: string,  required: true }
       environment:           { type: string,  required: true }
+      azureClientId:         { type: string,  required: true }
+      azureTenantId:         { type: string,  required: true }
       sourceDir:             { type: string,  required: false, default: 'fabric_items/' }
       parametersPath:        { type: string,  required: false, default: 'parameters.yml' }
       itemTypes:             { type: string,  required: false, default: 'Lakehouse,Environment,Notebook,DataPipeline' }
@@ -66,17 +94,41 @@ on:
       approver:              { type: string,  required: false, default: '' }
       fabricItems:           { type: string,  required: false, default: '' }
       auditDir:              { type: string,  required: false, default: '.sigantry/audit' }
+      sigantryVersion:       { type: string,  required: false, default: '' }
+
+permissions:
+  contents: read
 
 jobs:
+  approval:
+    name: Awaiting approval
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.ghApprovalEnvironment }}     # GitHub environment with required_reviewers (D-04)
+    steps:
+      - run: echo "Approval granted for environment ${{ inputs.ghApprovalEnvironment }}"
+
   deploy:
     name: Deploy
     runs-on: ubuntu-latest
+    needs: [approval]
+    environment: ${{ inputs.environment }}   # OIDC subject; no reviewers on this environment
+    permissions:
+      contents: read
+      id-token: write   # azure/login OIDC token, this job only
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with: { python-version: '3.11', cache: 'pip' }
+        with: { python-version: '3.11' }   # no cache beside the OIDC token (SEC-14)
+      - name: Azure login (OIDC)
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ inputs.azureClientId }}
+          tenant-id: ${{ inputs.azureTenantId }}
+          allow-no-subscriptions: true
       - name: Install sigantry
-        run: pip install sigantry
+        env:
+          SIGANTRY_VERSION: ${{ inputs.sigantryVersion }}
+        run: pip install "sigantry${SIGANTRY_VERSION:+==$SIGANTRY_VERSION}"
       - name: sigantry deploy run
         run: |
           sigantry deploy run \
@@ -94,7 +146,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with: { python-version: '3.11' }
-      - run: pip install sigantry
+      - name: Install sigantry
+        env:
+          SIGANTRY_VERSION: ${{ inputs.sigantryVersion }}
+        run: pip install "sigantry${SIGANTRY_VERSION:+==$SIGANTRY_VERSION}"
       - name: Run smoke command
         run: ${{ inputs.smokeCommand }}
 
@@ -102,35 +157,91 @@ jobs:
     name: Integration
     runs-on: ubuntu-latest
     needs: [smoke]
+    environment: ${{ inputs.environment }}   # OIDC subject; no reviewers on this environment
+    permissions:
+      contents: read
+      id-token: write   # azure/login OIDC token, this job only
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with: { python-version: '3.11' }
-      - run: pip install sigantry '.[dev,test]'
+      - name: Azure login (OIDC)
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ inputs.azureClientId }}
+          tenant-id: ${{ inputs.azureTenantId }}
+          allow-no-subscriptions: true
+      - name: Install sigantry and the consumer's test extras
+        env:
+          SIGANTRY_VERSION: ${{ inputs.sigantryVersion }}
+        run: pip install "sigantry${SIGANTRY_VERSION:+==$SIGANTRY_VERSION}" '.[dev,test]'
       - name: Run integration command
         run: ${{ inputs.integrationCommand }}
-
-  approval:
-    name: Awaiting approval
-    runs-on: ubuntu-latest
-    needs: [integration]
-    environment: ${{ inputs.ghApprovalEnvironment }}     # GitHub environment with required_reviewers (D-04)
-    steps:
-      - run: echo "Approval granted for environment ${{ inputs.ghApprovalEnvironment }}"
 
   promote:
     name: Promote
     runs-on: ubuntu-latest
-    needs: [approval]
+    needs: [integration]
     environment: ${{ inputs.environment }}
     concurrency:
       group: deploy-${{ inputs.environment }}
       cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write   # azure/login OIDC token, this job only
+      actions: read     # the run's approval record
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with: { python-version: '3.11' }
-      - run: pip install sigantry
+      - name: Azure login (OIDC)
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ inputs.azureClientId }}
+          tenant-id: ${{ inputs.azureTenantId }}
+          allow-no-subscriptions: true
+      - name: Install sigantry
+        env:
+          SIGANTRY_VERSION: ${{ inputs.sigantryVersion }}
+        run: pip install "sigantry${SIGANTRY_VERSION:+==$SIGANTRY_VERSION}"
+      - name: Resolve the approver from the run's approval record
+        id: approver
+        # The ledger's approver is whoever cleared the approval gate
+        # (`ghApprovalEnvironment`), which GitHub records per run. That record
+        # is authoritative: the operator-typed `approver` input is only a
+        # fallback, the actor who started the run the last one, and the step
+        # says so whenever it falls back or ignores the input. An API error
+        # (a caller that did not grant `actions: read`) is reported, not hidden.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGANTRY_APPROVER_INPUT: ${{ inputs.approver }}
+          SIGANTRY_GATE_ENVIRONMENT: ${{ inputs.ghApprovalEnvironment }}
+          SIGANTRY_RUN_ID: ${{ github.run_id }}
+          SIGANTRY_REPOSITORY: ${{ github.repository }}
+          SIGANTRY_ACTOR: ${{ github.actor }}
+        run: |
+          set -e
+          login=""
+          if approvals=$(gh api "repos/$SIGANTRY_REPOSITORY/actions/runs/$SIGANTRY_RUN_ID/approvals" 2>&1); then
+            login=$(jq -r --arg env "$SIGANTRY_GATE_ENVIRONMENT" \
+              '[.[] | select(.state == "approved") | select(any(.environments[]?; .name == $env))] | last | .user.login // empty' \
+              <<< "$approvals")
+          else
+            echo "::warning::could not read the approval record for run $SIGANTRY_RUN_ID (does the caller grant actions: read?): $approvals"
+          fi
+          if [ -n "$login" ]; then
+            approver="${login}@users.noreply.github.com"
+            if [ -n "$SIGANTRY_APPROVER_INPUT" ] && [ "$SIGANTRY_APPROVER_INPUT" != "$approver" ]; then
+              echo "::warning::approver input ignored: the approval record for $SIGANTRY_GATE_ENVIRONMENT names $login"
+            fi
+          elif [ -n "$SIGANTRY_APPROVER_INPUT" ]; then
+            echo "::warning::no approval record for $SIGANTRY_GATE_ENVIRONMENT in run $SIGANTRY_RUN_ID; recording the operator-supplied approver"
+            approver="$SIGANTRY_APPROVER_INPUT"
+          else
+            echo "::warning::no approval record for $SIGANTRY_GATE_ENVIRONMENT in run $SIGANTRY_RUN_ID; recording the run actor, who may not be the approver"
+            approver="${SIGANTRY_ACTOR}@users.noreply.github.com"
+          fi
+          echo "approver=$approver" >> "$GITHUB_OUTPUT"
       - name: sigantry release record
         # WR-05 review fix: operator inputs are passed via the ``env:``
         # block (which GHA expands BEFORE bash sees the script) rather
@@ -139,7 +250,7 @@ jobs:
         # operator-typed value (e.g. approver=Maria O'Connor) and was a
         # latent command-injection surface.
         env:
-          # github.run_id / github.actor fallback lives here, not in the input
+          # github.run_id fallback lives here, not in the input
           # `default:` slot. GitHub's workflow parser rejects ${{ github.* }}
           # inside default values (defaults are evaluated at parse time,
           # before the github context is bound) -- that was the real
@@ -147,7 +258,7 @@ jobs:
           SIGANTRY_RELEASE_ID: ${{ inputs.releaseId != '' && inputs.releaseId || github.run_id }}
           SIGANTRY_WORKSPACE_ID: ${{ inputs.workspaceId }}
           SIGANTRY_WORK_ITEMS: ${{ inputs.workItems }}
-          SIGANTRY_APPROVER: ${{ inputs.approver != '' && inputs.approver || format('{0}@users.noreply.github.com', github.actor) }}
+          SIGANTRY_APPROVER: ${{ steps.approver.outputs.approver }}
           SIGANTRY_FABRIC_ITEMS: ${{ inputs.fabricItems }}
           SIGANTRY_SOURCE_DIR: ${{ inputs.sourceDir }}
           SIGANTRY_AUDIT_DIR: ${{ inputs.auditDir != '' && inputs.auditDir || '.sigantry/audit' }}

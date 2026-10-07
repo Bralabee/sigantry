@@ -6,7 +6,7 @@
 
 ## The one-sentence product
 
-**Sigantry** is an Apache-2.0 open-source **governance, audit, and rollback layer on top of Microsoft's official Fabric tooling**: version-controlled artefacts, traceable releases tied to work items, a dev → preprod → prod pipeline template whose smoke tests, integration tests and approval gate the release record (they run after the deploy, so they do not stop it), drift detection, and an integrity-checked audit record ([threat model](reference/audit-ledger-threat-model.md)) — on Azure DevOps or GitHub, in under 15 minutes of setup.
+**Sigantry** is an Apache-2.0 open-source **governance, audit, and rollback layer on top of Microsoft's official Fabric tooling**: version-controlled artefacts, traceable releases tied to work items, a dev → preprod → prod pipeline template whose approval gate runs before the deploy and whose smoke and integration tests gate the release record, drift detection, and an integrity-checked audit record ([threat model](reference/audit-ledger-threat-model.md)) — on Azure DevOps or GitHub, in under 15 minutes of setup.
 
 It is deliberately NOT "a Fabric automation toolkit". Automation primitives (item deploy, CRUD, one-command publish) are owned by Microsoft's officially supported stack — `fabric-cicd`, the `fab` CLI, the Terraform provider. Sigantry wraps that stack and adds the layer none of it provides: integrity-checked deploy ledgers ([threat model](reference/audit-ledger-threat-model.md)), rollback to a prior release, scheduled drift detection, destructive-op gating, and work-item traceability. The 2026-06-11 ecosystem survey ([LANDSCAPE-2026-06.md](LANDSCAPE-2026-06.md) §4) verified that no official or open-source tool offers any of them.
 

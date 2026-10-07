@@ -1176,13 +1176,28 @@ def test_only_the_publish_job_holds_the_oidc_token_or_the_token_list(
 ) -> None:
     """The publishing credential and the token list each reach only their pinned jobs.
 
-    ``id-token: write`` is what PyPI trusted publishing accepts, so only the
-    publish job may ask for it, and that job restores no cache: a restored
+    ``id-token: write`` is what PyPI trusted publishing accepts, so the
+    publish job asks for it, and that job restores no cache: a restored
     cache is content written by an earlier run, held in the same job as the
     token. The build half (ci.yml, called with ``contents: read`` and no
     ``secrets:``) is handed no secret at all. The token list goes to the two jobs
     ``tests/ci/test_name_gate.py`` pins whole, and nowhere else.
+
+    The consumer-facing reusable workflows (``sigantry-cd.yml``,
+    ``drift-check.yml``) sign in to Azure with ``azure/login`` through OIDC,
+    which needs the same permission. Each such job is pinned here by name,
+    holds the permission at job level (never workflow-wide), runs
+    ``azure/login`` and restores no cache, and neither workflow has a
+    ``release`` trigger. PyPI's trusted publisher is bound to
+    ``publish-pypi.yml`` and its ``pypi`` environment, so a token minted in
+    those jobs cannot publish; the set stays explicit all the same.
     """
+    azure_login_holders = {
+        "sigantry-cd.yml::deploy",
+        "sigantry-cd.yml::integration",
+        "sigantry-cd.yml::promote",
+        "drift-check.yml::drift_check",
+    }
     holders = []
     for filename, workflow in all_workflows.items():
         if _grants_id_token(workflow.get("permissions")):
@@ -1190,9 +1205,24 @@ def test_only_the_publish_job_holds_the_oidc_token_or_the_token_list(
         for job_id, job in (workflow.get("jobs") or {}).items():
             if _grants_id_token(job.get("permissions")):
                 holders.append(f"{filename}::{job_id}")
-    assert holders == ["publish-pypi.yml::publish"], (
-        f"only the publish job may request an OIDC token: {holders}"
+    assert set(holders) == {"publish-pypi.yml::publish", *azure_login_holders}, (
+        f"only the publish job and the azure/login jobs may request an OIDC token: {holders}"
     )
+    for holder in azure_login_holders:
+        filename, job_id = holder.split("::")
+        workflow = all_workflows[filename]
+        assert "release" not in _triggers(workflow), f"{filename} must not run on a release"
+        steps = workflow["jobs"][job_id]["steps"]
+        assert any(_action(s) == "azure/login" for s in steps), (
+            f"{holder}: the token is for azure/login"
+        )
+        for step in steps:
+            assert _action(step) != "actions/cache", (
+                f"{holder} restores a cache beside the OIDC token"
+            )
+            assert "cache" not in (step.get("with") or {}), (
+                f"{holder}: step {step.get('name')!r} restores a cache beside the OIDC token"
+            )
     for step in all_workflows["publish-pypi.yml"]["jobs"]["publish"]["steps"]:
         assert _action(step) != "actions/cache", "the job holding the OIDC token restores a cache"
         assert "cache" not in (step.get("with") or {}), (

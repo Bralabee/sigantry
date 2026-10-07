@@ -55,12 +55,11 @@ steps:
   - script: |
       set -e
       python -m pip install --upgrade pip
-      if [ -n '${{ parameters.fabricDataopsVersion }}' ]; then
-        python -m pip install 'sigantry==${{ parameters.fabricDataopsVersion }}'
-      else
-        python -m pip install sigantry
-      fi
+      python -m pip install "sigantry${SIGANTRY_VERSION:+==$SIGANTRY_VERSION}"
     displayName: 'pip install sigantry (from ADO Artifacts)'
+    # The version reaches bash through env (WR-05), never interpolated.
+    env:
+      SIGANTRY_VERSION: ${{ parameters.fabricDataopsVersion }}
 
   - task: AzureCLI@2
     displayName: 'sigantry deploy run (${{ parameters.environment }})'

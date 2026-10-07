@@ -50,7 +50,7 @@ def test_pipeline_pair_carries_no_dual_ci_exception() -> None:
 
 
 def test_pipeline_pair_declares_five_stages() -> None:
-    """deploy -> smoke -> integration -> approval -> promote with parity DAG."""
+    """approval -> deploy -> smoke -> integration -> promote with parity DAG."""
     ado_doc = yaml.safe_load(ADO_TEMPLATE.read_text("utf-8"))
     gha_doc = yaml.safe_load(GHA_WORKFLOW.read_text("utf-8"))
     expected = {"deploy", "smoke", "integration", "approval", "promote"}

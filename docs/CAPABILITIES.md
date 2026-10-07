@@ -529,7 +529,7 @@ No PowerShell module ships in this repository. The `templates/jobs/build-powersh
 
 | Path | Contents |
 |---|---|
-| [`templates/stages/`](../templates/stages/) | `cd-dev.yml`, `cd-test.yml`, `cd-prod.yml`, `ci.yml`, `approval-gate.yml`, `validate-fabric-items.yml`, `sigantry-cd.yml` |
+| [`templates/stages/`](../templates/stages/) | `cd-dev.yml`, `cd-test.yml`, `cd-prod.yml`, `ci.yml`, `approval-gate.yml`, `validate-fabric-items.yml`, `sigantry-cd.yml` (approval first; every stage installs sigantry at `sigantryVersion` through `steps/sigantry-install.yml`) |
 | [`templates/jobs/`](../templates/jobs/) | `build-python.yml`, `lint-python.yml`, `build-powershell.yml`, `lint-powershell.yml` |
 | [`templates/steps/`](../templates/steps/) | `fabric-deploy.yml`, `fabric-validate.yml`, `fabric-vl-apply.yml`, `fabric-git-commit.yml`, `post-pr-comment.yml` |
 | [`templates/extends/`](../templates/extends/) | `secure-pipeline.yml` |
@@ -543,30 +543,30 @@ No PowerShell module ships in this repository. The `templates/jobs/build-powersh
 
 ```mermaid
 flowchart LR
-    PR(["PR merged to main"]) --> S1["1 Deploy<br/>fabric-cicd publish"]
-    S1 --> S2["2 Smoke<br/>fast invariants"]
-    S2 --> S3["3 Integration<br/>full test suite"]
-    S3 --> APP{"4 Approval<br/>ADO/GitHub<br/>Environment gate"}
-    APP -->|approved| S5["5 Promote<br/>sigantry release record"]
-    APP -->|denied| END(("no release record"))
-    S1 -. fail .-> ROLL["sigantry deploy<br/>--rollback ready"]
-    S2 -. fail .-> ROLL
+    PR(["PR merged to main"]) --> APP{"1 Approval<br/>ADO/GitHub<br/>Environment gate"}
+    APP -->|approved| S2["2 Deploy<br/>fabric-cicd publish"]
+    APP -->|denied| END(("nothing published"))
+    S2 --> S3["3 Smoke<br/>fast invariants"]
+    S3 --> S4["4 Integration<br/>full test suite"]
+    S4 --> S5["5 Promote<br/>sigantry release record"]
+    S2 -. fail .-> ROLL["sigantry deploy<br/>--rollback ready"]
     S3 -. fail .-> ROLL
+    S4 -. fail .-> ROLL
 ```
 
-Stage 5 deploys nothing. It runs `sigantry release record`, so the approval gates the release record, not the deployment, which stage 1 has already made. The rollback node marks where an operator would run `sigantry deploy run --rollback`; no stage runs it automatically.
+The approval gate runs first, so nothing is published until the environment's reviewers clear it. Stage 5 deploys nothing: it runs `sigantry release record` with the approver taken from the platform's approval record for the run (GHA) or the pipeline's requester (ADO). The rollback node marks where an operator would run `sigantry deploy run --rollback`; no stage runs it automatically.
 
 **GitHub Actions workflow inventory** (one row per file in `.github/workflows/`):
 
 | Workflow | Purpose |
 |---|---|
 | [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) | Multi-OS and Python matrix test, lint, and build verification. |
-| `.github/workflows/drift-check.yml` | Reusable drift detection (`workflow_call` / `workflow_dispatch`); the caller owns the schedule. |
+| `.github/workflows/drift-check.yml` | Reusable drift detection (`workflow_call` / `workflow_dispatch`); the caller owns the schedule and grants `id-token: write`; signs in with `azure/login` (OIDC) and pins `sigantryVersion`. |
 | `.github/workflows/publish-pypi.yml` | The only workflow that publishes this package, on a published GitHub Release only. It runs the `ci.yml` quality jobs, whose build job builds and checks the sdist and wheel; it then verifies those same files against their recorded SHA-256, scans them and the tree with the name gate, and publishes them to PyPI through trusted publishing. It builds nothing itself. |
 | `.github/workflows/name-gate.yml` | Scans the repository for names from a token list held in a repository secret. Each hit is printed as a location (a file and line, a hashed path, an archive member or a PDF text layer) and a pattern id, never the matched text. It fails closed when the secret is unavailable, as on fork and Dependabot pull requests. It must pass before merge. |
 | `.github/workflows/review-record.yml` | Posts the required `review-record` commit status on each pull request head. |
 | `.github/workflows/review-record-relay.yml` | Takes a submitted pull request review and hands it to `review-record.yml` through `workflow_run`, so the status is recomputed by the default branch's copy of the gate. It has no permissions and runs no pull request code. |
-| `.github/workflows/sigantry-cd.yml` | The 5-stage CD workflow. |
+| `.github/workflows/sigantry-cd.yml` | The 5-stage CD workflow: approval first, OIDC login (`azure/login`, SHA-pinned) in every job that reaches Fabric, `sigantryVersion` pin, approver read from the run's approval record. |
 | `.github/workflows/sigantry-pr-bot.yml` | PR-bot trigger workflow. |
 
 ---
