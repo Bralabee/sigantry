@@ -113,6 +113,13 @@ gate = "<registered-gate-name>"
 sink = "<registered-sink-name>"
 ```
 
+`tenant_id` is the directory (tenant) ID, a GUID. Every `sigantry` command
+that calls Fabric, Power BI, ARM or Microsoft Graph, and `diagnose-auth`, pins
+it when the command is run without `--tenant-id`: tokens are requested from
+that tenant, and a token from any other tenant is refused. A value that is not
+a GUID stops those commands before any token is requested. Leave the key out to
+run unpinned. The user guide, section 6.3, has the details.
+
 Per-plugin namespaced tables (for example
 `[telemetry.log_analytics]`) pass through to the plugin's own
 pydantic-settings model.
