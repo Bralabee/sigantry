@@ -157,11 +157,12 @@ command. Kept **opt-in** to preserve the ADR-0012 deploy/run boundary.
 |---|---|
 | `--scenario <name>` | **absent** -- `preflight --scenario prod` exits 2, `No such option` |
 | `--stage <pre_deploy\|post_deploy>` | **absent** |
-| `--strict` | shipped with different semantics: any `FAIL` exits 1 with or without the flag; `--strict` also turns a `WARN` into exit 1 (`sigantry_core/preflight/engine.py`) |
+| `--strict` | shipped with different semantics: any `FAIL` exits 1 with or without the flag; `--strict` also turns a `WARN` into exit 1, and since the change after 1.0.1 a `SKIP` too, a probe that could not check (`sigantry_core/preflight/engine.py`) |
 | `--json` | shipped as specified |
 | *(not proposed)* | `--manifest` / `-m` (default `sync.yml`) |
 | *(not proposed)* | `--params` / `-p` |
 | *(not proposed)* | `--environment` / `-e` (default `dev`) |
+| *(not proposed)* | `--workspace-id` (the capacity probe reads that workspace's capacity) and `--tenant-id` (the Entra probe checks the token's `tid`); added after 1.0.1 |
 | `sync apply --preflight <scenario>` (phase 2) | **absent** -- `sync apply` declares no `--preflight` |
 
 So the working invocation is:

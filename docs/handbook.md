@@ -96,7 +96,7 @@ python -m sigantry_core --help
 
 | Subapp | Purpose |
 |---|---|
-| `preflight` | Pre-deployment safety probe engine — non-destructive simulations (Syntax, DAG, Entra Scope, Capacity) |
+| `preflight` | Pre-deployment safety probes (schema syntax, Entra scope, capacity state); reports only what it checked |
 | `workspace` | Fabric workspace CRUD + items + capacity assignment + greenfield `bootstrap` |
 | `capacity` | Fabric capacity inspection + lifecycle (pause/resume via ARM) |
 | `label-sync` | Apply a sensitivity label to every item in a workspace |
@@ -121,7 +121,7 @@ python -m sigantry_core --help
 
 ### 4.1 Pre-Deployment Safety Probes (`sigantry preflight`)
 
-Execute non-destructive pre-deployment simulations before triggering any live changes:
+Run the pre-deployment safety probes before triggering any live changes:
 
 ```bash
 # Run preflight against target environment
@@ -130,15 +130,17 @@ sigantry preflight --manifest sync.yml --environment prod
 # Machine-readable JSON output for CI pipelines
 sigantry preflight --manifest sync.yml --environment prod --json
 
-# Treat warnings as failures (the CI gate)
-sigantry preflight --manifest sync.yml --environment prod --strict
+# The CI gate: fail on a warning and on any probe that could not check
+sigantry preflight --manifest sync.yml --environment prod \
+  --workspace-id "<GUID>" --tenant-id "<GUID>" --strict
 ```
 
-The preflight engine runs 4 progressive probes:
-1. **Schema Syntax**: Validates manifest schema and item declarations.
-2. **Dependency Graph**: Detects circular dependencies and validates DAG order.
-3. **Entra Scope**: Validates authentication tokens and required RBAC scopes.
-4. **Capacity State**: Confirms target Fabric capacity is active and not paused.
+The preflight engine runs 3 probes:
+1. **Schema Syntax**: the manifest loads as a `sync.yml` or a `workspace.yml`; every sync item's `local_path` exists and its `.platform`/`.ipynb` files parse; `--params parameters.yml` passes the same rules as `sigantry config validate`.
+2. **Entra Scope**: a Fabric token is acquired through the credential chain (the same chain a deploy uses). With `--tenant-id`, the token's `tid` must match. Credential variables alone prove nothing: a configured credential that gets no token is a FAIL.
+3. **Capacity State**: with `--workspace-id`, the workspace's capacity is read and must be Active; paused or missing fails.
+
+A probe that lacks what it needs (no credential, no `--workspace-id`) reports `SKIP` with a `not checked:` message and the summary names it. Without `--strict` that run still exits 0; with `--strict` it exits 1. The run never reports success for a probe that did not look.
 
 ### 4.2 Bulk Publish Acceleration (`--bulk`)
 
@@ -250,7 +252,7 @@ sigantry sync pull --workspace-id "<YOUR-WORKSPACE-GUID>" --into ./my-fabric-rep
 # 4. Check for out-of-band drift
 sigantry diff --manifest ./my-fabric-repo/sync.yml --workspace-id "<YOUR-WORKSPACE-GUID>"
 
-# 5. Run preflight simulation
+# 5. Run preflight safety probes
 sigantry preflight --manifest ./my-fabric-repo/sync.yml --environment prod
 ```
 

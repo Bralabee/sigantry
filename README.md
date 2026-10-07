@@ -13,7 +13,7 @@ Built by **JToye Digital**, Sigantry wraps Microsoft's official deployment tooli
 
 ## Key Capabilities
 
-- 🚀 **Pre-Deployment Safety Probes**: `sigantry preflight` runs four-phase non-destructive simulations (Schema Syntax, Dependency DAG, Entra ID Scope, Capacity State) before deploying.
+- 🚀 **Pre-Deployment Safety Probes**: `sigantry preflight` runs three non-destructive probes before deploying: the manifest, its item tree and `parameters.yml` parse; a Fabric token is acquired through the credential chain (and checked against `--tenant-id`); the target workspace's capacity is Active (`--workspace-id`). A probe that could not check says so, and fails the run under `--strict`.
 - 🔄 **Brownfield Adoption**: `sigantry sync pull` introspects a hand-built Fabric workspace and generates a `sync.yml` manifest and code tree from it.
 - 🏗️ **Declarative Greenfield Scaffolding**: `sigantry workspace bootstrap` provisions brand-new workspaces, capacity bindings, and medallion folder blueprints from a single `workspace.yml` manifest with idempotent probe-before-act convergence.
 - ⚡ **Concurrent Bulk Publishing**: `--bulk` publishes items through a parallel worker pool instead of one at a time, cutting wall-clock deploy time on multi-item repositories.
