@@ -19,6 +19,11 @@ from sigantry_core.auth.token_provider import (
     reset_token_provider,
 )
 
+# A pinned tenant must be a tenant ID GUID; these are synthetic.
+TENANT_A = "00000000-0000-0000-0000-00000000000a"
+TENANT_B = "00000000-0000-0000-0000-00000000000b"
+TENANT_EXPLICIT = "00000000-0000-0000-0000-0000000000e1"
+
 
 @pytest.fixture(autouse=True)
 def _clean_singleton():
@@ -75,9 +80,9 @@ class TestChainConfiguration:
     def test_tenant_id_passed_to_credential(self) -> None:
         """Pitfall P1-6 mitigation: wrong-tenant silent success."""
         with patch("sigantry_core.auth.token_provider.DefaultAzureCredential") as mock_dac:
-            TokenProvider(tenant_id="tid-explicit")
+            TokenProvider(tenant_id=TENANT_EXPLICIT)
             _, kwargs = mock_dac.call_args
-            assert kwargs.get("additionally_allowed_tenants") == ["tid-explicit"]
+            assert kwargs.get("additionally_allowed_tenants") == [TENANT_EXPLICIT]
 
     def test_injected_credential_skips_default_construction(
         self, fake_credential: MagicMock
@@ -193,48 +198,48 @@ class TestPerTenantSingleton:
     """
 
     def test_distinct_tenant_ids_yield_distinct_providers(self) -> None:
-        tp_a = get_token_provider(tenant_id="tenant-a-uuid")
-        tp_b = get_token_provider(tenant_id="tenant-b-uuid")
+        tp_a = get_token_provider(tenant_id=TENANT_A)
+        tp_b = get_token_provider(tenant_id=TENANT_B)
         assert tp_a is not tp_b
-        assert tp_a._tenant_id == "tenant-a-uuid"
-        assert tp_b._tenant_id == "tenant-b-uuid"
+        assert tp_a._tenant_id == TENANT_A
+        assert tp_b._tenant_id == TENANT_B
 
     def test_same_tenant_id_returns_same_instance(self) -> None:
-        tp_a1 = get_token_provider(tenant_id="tenant-a-uuid")
-        tp_a2 = get_token_provider(tenant_id="tenant-a-uuid")
+        tp_a1 = get_token_provider(tenant_id=TENANT_A)
+        tp_a2 = get_token_provider(tenant_id=TENANT_A)
         assert tp_a1 is tp_a2
 
     def test_none_tenant_is_distinct_from_named_tenant(self) -> None:
         # The default-credential-chain provider (None) must not collide
         # with a named-tenant provider.
         tp_default = get_token_provider()
-        tp_named = get_token_provider(tenant_id="tenant-a-uuid")
+        tp_named = get_token_provider(tenant_id=TENANT_A)
         assert tp_default is not tp_named
         assert tp_default._tenant_id is None
-        assert tp_named._tenant_id == "tenant-a-uuid"
+        assert tp_named._tenant_id == TENANT_A
 
     def test_first_call_wins_regression_does_not_recur(self) -> None:
         # The bug: first call latched the singleton's tenant_id; second
         # call with a different tenant_id silently returned the first.
         # After the fix, the second call constructs a fresh provider
         # bound to the requested tenant.
-        tp_a = get_token_provider(tenant_id="tenant-a-uuid")
-        tp_b = get_token_provider(tenant_id="tenant-b-uuid")
+        tp_a = get_token_provider(tenant_id=TENANT_A)
+        tp_b = get_token_provider(tenant_id=TENANT_B)
         assert tp_a._tenant_id != tp_b._tenant_id
         assert tp_a is not tp_b
 
     def test_reset_clears_all_tenants(self) -> None:
-        tp_a_pre = get_token_provider(tenant_id="tenant-a-uuid")
-        get_token_provider(tenant_id="tenant-b-uuid")
+        tp_a_pre = get_token_provider(tenant_id=TENANT_A)
+        get_token_provider(tenant_id=TENANT_B)
         reset_token_provider()
-        tp_a_post = get_token_provider(tenant_id="tenant-a-uuid")
+        tp_a_post = get_token_provider(tenant_id=TENANT_A)
         assert tp_a_pre is not tp_a_post
 
     def test_token_caches_are_isolated_per_tenant(self, fake_credential: MagicMock) -> None:
         # Each provider has its own credential + cache, so a token cached
         # against tenant A does not leak into tenant B's resolution path.
-        tp_a = get_token_provider(tenant_id="tenant-a-uuid")
-        tp_b = get_token_provider(tenant_id="tenant-b-uuid")
+        tp_a = get_token_provider(tenant_id=TENANT_A)
+        tp_b = get_token_provider(tenant_id=TENANT_B)
         # Different cache dict instances:
         assert tp_a._cache is not tp_b._cache
         # Different credential instances bound to different tenants:

@@ -12,6 +12,15 @@ Excluded slots (per CLAUDE.md + 01-RESEARCH.md Pattern 2):
 EnvironmentCredential is NOT excluded - ADO WIF relies on it when the
 `AzureCLI@2` / `AzurePowerShell@5` tasks set AZURE_FEDERATED_TOKEN_FILE.
 
+Tenant pinning: with ``tenant_id`` set, the credential the provider holds and
+hands out (``credential``, ``get_credential()``) is the pinned credential of
+:mod:`sigantry_core.auth.tenant`. It requests every token from that tenant and
+refuses, with :class:`~sigantry_core.auth.errors.TenantMismatchError`, a token
+whose ``tid`` claim names another tenant or cannot be read. A ``tenant_id``
+that is not a tenant ID GUID raises
+:class:`~sigantry_core.auth.errors.InvalidTenantIdError` at construction.
+Without ``tenant_id`` the credential is used as it is.
+
 Thread-safe, in-process cache. No persistent storage (Pitfall 12).
 """
 
@@ -32,7 +41,8 @@ from sigantry_core.auth.audiences import (
     POWERBI_SCOPE,
     PURVIEW_SCOPE,
 )
-from sigantry_core.auth.errors import TokenAcquisitionError
+from sigantry_core.auth.errors import TenantMismatchError, TokenAcquisitionError
+from sigantry_core.auth.tenant import normalize_tenant_id, pin_credential, require_tenant_guid
 
 if TYPE_CHECKING:
     from azure.core.credentials import TokenCredential
@@ -77,7 +87,11 @@ class TokenProviderProtocol(Protocol):
 
 
 class TokenProvider:
-    """Thread-safe in-process token cache backed by DefaultAzureCredential."""
+    """Thread-safe in-process token cache backed by DefaultAzureCredential.
+
+    With ``tenant_id``, every token comes from that tenant or is refused (see
+    the module docstring); this holds for an injected ``credential`` too.
+    """
 
     _SKEW_SECONDS = 300  # refresh when remaining lifetime < 5 minutes
 
@@ -87,19 +101,26 @@ class TokenProvider:
         *,
         tenant_id: str | None = None,
     ) -> None:
+        # Checked before any credential is built, so a value that can never
+        # match a token's tid claim is refused before a token is requested.
+        pinned = require_tenant_guid(tenant_id) if tenant_id is not None else None
         if credential is None:
             kwargs: dict[str, Any] = {
                 "exclude_interactive_browser_credential": True,
                 "exclude_visual_studio_code_credential": True,
             }
-            if tenant_id is not None:
-                # Pitfall P1-6 mitigation: pin the expected tenant so
-                # AzureCliCredential does not silently succeed with the
-                # engineer's personal subscription.
-                kwargs["additionally_allowed_tenants"] = [tenant_id]
+            if pinned is not None:
+                # A credential configured for one tenant (AZURE_TENANT_ID)
+                # refuses a request for another unless that one is allowed.
+                kwargs["additionally_allowed_tenants"] = [pinned]
             credential = DefaultAzureCredential(**kwargs)
-        self._credential = credential
-        self._tenant_id = tenant_id
+        # Only the class name is kept (for logs and errors): the provider holds
+        # no reference to an unpinned credential beside the pinned one.
+        self._credential_class = type(credential).__name__
+        # Pitfall P1-6: the pin is enforced by the credential itself, so it
+        # also holds for callers that take the credential (fabric-cicd).
+        self._credential = credential if pinned is None else pin_credential(credential, pinned)
+        self._tenant_id = pinned
         self._cache: dict[str, _CachedToken] = {}
         self._lock = threading.Lock()
 
@@ -112,13 +133,15 @@ class TokenProvider:
         return self._tenant_id
 
     def get_credential(self) -> TokenCredential:
-        """Return the underlying TokenCredential.
+        """Return the TokenCredential the provider gets its tokens from.
 
         Required by `fabric_cicd.FabricWorkspace(token_credential=...)` (1.0.0
-        breaking change). Callers that need the raw credential object (rather
+        breaking change). Callers that need the credential object (rather
         than a bearer token via `get_token`) should use this entry point — it
         mirrors the `credential` property as a method so callers can pass
-        `token_provider.get_credential` as a factory.
+        `token_provider.get_credential` as a factory. With a pinned tenant it
+        is the pinned credential, so a caller that requests tokens itself
+        gets the same pin.
         """
         return self._credential
 
@@ -145,11 +168,13 @@ class TokenProvider:
 
             try:
                 tok = self._credential.get_token(scope)
+            except TenantMismatchError:
+                raise
             except Exception as exc:  # wrap + re-raise
                 raise TokenAcquisitionError(
                     f"chain failed to acquire token for scope {scope!r}: {exc}",
                     scope=scope,
-                    credential_used=type(self._credential).__name__,
+                    credential_used=self._credential_class,
                     remediation=(
                         "Check that az login is active (laptop) OR "
                         "AZURE_FEDERATED_TOKEN_FILE is set (ADO pipeline) OR "
@@ -158,7 +183,7 @@ class TokenProvider:
                     ),
                 ) from exc
 
-            credential_class = type(self._credential).__name__
+            credential_class = self._credential_class
             self._cache[scope] = _CachedToken(
                 access_token=tok.token,
                 expires_on=tok.expires_on,
@@ -202,13 +227,17 @@ def get_token_provider(tenant_id: str | None = None) -> TokenProvider:
     Each distinct ``tenant_id`` (including ``None``) maps to its own
     singleton TokenProvider with an isolated token cache. Re-invoking with
     the same ``tenant_id`` returns the same instance, preserving cache
-    semantics within a tenant.
+    semantics within a tenant. Tenant ids are keyed stripped and
+    case-folded, so two spellings of one tenant share a provider; a
+    ``tenant_id`` that is not a tenant ID GUID raises
+    :class:`~sigantry_core.auth.errors.InvalidTenantIdError`.
     """
+    key = None if tenant_id is None else normalize_tenant_id(require_tenant_guid(tenant_id))
     with _provider_lock:
-        provider = _default_providers.get(tenant_id)
+        provider = _default_providers.get(key)
         if provider is None:
             provider = TokenProvider(tenant_id=tenant_id)
-            _default_providers[tenant_id] = provider
+            _default_providers[key] = provider
         return provider
 
 

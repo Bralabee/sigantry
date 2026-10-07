@@ -357,6 +357,7 @@ def diff_workspace_against_manifest(
     *,
     client: FabricRestClient | None = None,
     snapshot: WorkspaceSnapshot | None = None,
+    tenant_id: str | None = None,
 ) -> DriftReport:
     """Compute drift between a ``sync.yml`` manifest and a live workspace.
 
@@ -378,6 +379,10 @@ def diff_workspace_against_manifest(
         exercising the REST surface. Production callers (CLI) should
         leave this ``None`` so the function builds a fresh snapshot
         per invocation (D-09 / INTROSPECT-03).
+    tenant_id:
+        Tenant ID (GUID) the snapshot's own client is pinned to (see
+        :func:`snapshot_workspace`). Ignored when ``client`` or
+        ``snapshot`` is given.
 
     Returns
     -------
@@ -391,7 +396,11 @@ def diff_workspace_against_manifest(
     invocation and dropped on return -- no module-level cache.
     """
     manifest = load_manifest(manifest_path)
-    snap = snapshot if snapshot is not None else snapshot_workspace(workspace_id, client=client)
+    snap = (
+        snapshot
+        if snapshot is not None
+        else snapshot_workspace(workspace_id, client=client, tenant_id=tenant_id)
+    )
 
     manifest_index = _build_manifest_index(manifest)
     workspace_index = _build_workspace_index(snap)

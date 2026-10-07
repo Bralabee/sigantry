@@ -137,7 +137,7 @@ sigantry preflight --manifest sync.yml --environment prod \
 
 The preflight engine runs 3 probes:
 1. **Schema Syntax**: the manifest loads as a `sync.yml` or a `workspace.yml`; every sync item's `local_path` exists and its `.platform`/`.ipynb` files parse; `--params parameters.yml` passes the same rules as `sigantry config validate`.
-2. **Entra Scope**: a Fabric token is acquired through the credential chain (the same chain a deploy uses). With `--tenant-id`, the token's `tid` must match. Credential variables alone prove nothing: a configured credential that gets no token is a FAIL.
+2. **Entra Scope**: a Fabric token is acquired through the credential chain (the same chain a deploy uses). With `--tenant-id`, or `core.tenant_id` in `.sigantry.toml`, the tenant is pinned and a token whose `tid` names another tenant fails the probe. Credential variables alone prove nothing: a configured credential that gets no token is a FAIL.
 3. **Capacity State**: with `--workspace-id`, the workspace's capacity is read and must be Active; paused or missing fails.
 
 A probe that lacks what it needs (no credential, no `--workspace-id`) reports `SKIP` with a `not checked:` message and the summary names it. Without `--strict` that run still exits 0; with `--strict` it exits 1. The run never reports success for a probe that did not look.

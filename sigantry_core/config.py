@@ -9,7 +9,8 @@ is responsible for validating those.
 
 Env-var overrides use the ``SIGANTRY_`` prefix with nested-delimiter ``__``:
 
-    SIGANTRY_CORE__TENANT_ID=abc-123  -> settings.core.tenant_id == "abc-123"
+    SIGANTRY_CORE__TENANT_ID=00000000-0000-0000-0000-00000000000a
+        -> settings.core.tenant_id == "00000000-0000-0000-0000-00000000000a"
 
 Only ``<PREFIX><SECTION>__<KEY>`` forms are honoured, and ``<SECTION>`` must
 name a real settings section -- see :func:`_apply_env_overrides` for why that
@@ -216,7 +217,10 @@ def _case_message(names: Iterable[str]) -> str:
 class CoreSettings(_SeamSubSettings):
     # Optional at the base level -- a greenfield consumer doing telemetry
     # only does not need a tenant_id. Plugins that require it (an AuthProvider,
-    # a DeployProfile, etc.) validate it themselves at resolve time.
+    # a DeployProfile, etc.) validate it themselves at resolve time. The
+    # commands that get an Azure token for Fabric pin it when run without
+    # --tenant-id (sigantry_core._cli_tenant), and refuse a value that is not
+    # a tenant ID GUID.
     tenant_id: str | None = None
 
 

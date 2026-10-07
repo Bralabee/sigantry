@@ -357,8 +357,12 @@ shell ─▶ sigantry workspace list --tenant-id <...>
             │
             ▼  app.add_typer(workspace_app, name="workspace")
      workspace.cli.list_cmd
+       ├─ _cli_tenant.resolve_tenant_id(--tenant-id)
+       │    └─ else core.tenant_id from the settings; a GUID or refused
        ├─ FabricRestClient.from_defaults(tenant_id=…)
-       │    └─ azure-identity DefaultAzureCredential chain
+       │    └─ azure-identity DefaultAzureCredential chain; with a tenant,
+       │       wrapped so every token is requested from it and a token
+       │       whose tid names another tenant is refused (auth/tenant.py)
        ├─ paginate(GET /v1/workspaces [?roles=…])
        └─ rich.Table | json output
 

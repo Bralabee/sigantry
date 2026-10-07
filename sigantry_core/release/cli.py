@@ -64,6 +64,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
+from sigantry_core._cli_tenant import stops_on_tenant_error
 from sigantry_core.governance.audit import emit_deploy_record
 from sigantry_core.governance.audit_io import (
     _DEFAULT_AUDIT_DIR,
@@ -167,6 +168,7 @@ def _build_provider(
 
 
 @release_app.command("record")
+@stops_on_tenant_error(exit_code=1)
 def record_cmd(
     provider: str = typer.Option(
         ...,
@@ -209,7 +211,10 @@ def record_cmd(
     ado_tenant_id: str | None = typer.Option(
         None,
         "--ado-tenant-id",
-        help="Optional AAD tenant id for the ADO TokenProvider.",
+        help=(
+            "Entra tenant ID (GUID) to pin for the Azure DevOps token: a token from "
+            "any other tenant is refused."
+        ),
     ),
     github_owner: str | None = typer.Option(
         None,

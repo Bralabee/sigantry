@@ -75,8 +75,9 @@ class PurviewRestClient(BaseRestClient):
         Args:
             base_url: The Purview account URL
                 (e.g. ``https://contoso.purview.azure.net``). **Required.**
-            tenant_id: Optional tenant id forwarded to
-                :func:`sigantry_core.auth.get_token_provider`.
+            tenant_id: Optional tenant ID GUID forwarded to
+                :func:`sigantry_core.auth.get_token_provider`, which pins
+                every token to that tenant.
             default_timeout: Per-request timeout in seconds (default 30s).
         """
         return cls(

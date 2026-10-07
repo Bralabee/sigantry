@@ -325,8 +325,12 @@ Use `--force` per the destructive-op gate. The toolkit's
 `delete_workspace` function (Python API only; the CLI has no flag for it)
 accepts `pbi_fallback=True`: when Fabric `DELETE /v1/workspaces/{id}` fails
 with `UnknownError`, the delete is tried again once through
-`https://api.powerbi.com/v1.0/myorg/groups/{id}`, using the process default
-credential.
+`https://api.powerbi.com/v1.0/myorg/groups/{id}`, with the caller's token
+provider (the `token_provider` argument, else the Fabric client's own), so as
+the same principal under the same tenant pin. A `tenant_id` argument must name
+that pin; an unpinned provider is pinned to it for the retry. The retry always
+goes to `api.powerbi.com`, whatever base URL the Fabric client uses, and the
+audit record does not show that it ran (issue #62).
 
 ---
 

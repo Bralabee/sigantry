@@ -32,7 +32,7 @@ still accept an ``httpx.Client`` from a caller without naming the symbol
 in this file.
 
 Source patterns:
-    - sigantry_core/client/fabric.py:40-92 (subclass + from_defaults factory).
+    - sigantry_core/client/fabric.py:42-106 (subclass + from_defaults factory).
     - 11-RESEARCH.md Pattern 1 (composition, not subclassing).
     - 11-PATTERNS.md lines 96-167 (workitems/ado.py mapping).
 """

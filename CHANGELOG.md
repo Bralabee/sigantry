@@ -10,6 +10,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`--tenant-id` on `diff`, `sync apply`, `sync pull` and `sync snapshot`,
+  and `core.tenant_id` as the default of every `--tenant-id`.** These four
+  commands call Fabric and could not choose a tenant. Every command that gets
+  an Azure token for Fabric, Power BI, ARM or Microsoft Graph (the 35
+  `sigantry` commands with `--tenant-id`) and `diagnose-auth` now pin
+  `core.tenant_id` from the settings (`[core] tenant_id` in `.sigantry.toml`,
+  `SIGANTRY_CORE__TENANT_ID`, or the legacy file and `FDT_` names, ranked as
+  the settings loader ranks them) when run without `--tenant-id`; the flag
+  wins, and an empty flag counts as not given. The key was documented and
+  loaded, but no command read it. `tenant-settings export` records the
+  pinned tenant in the baseline's `tenantId` when the settings supply it.
+  `snapshot_workspace`, `pull_workspace`, `diff_workspace_against_manifest`
+  and `apply_sync` take a keyword-only `tenant_id` for the clients and
+  credentials they build themselves. `sigantry_core.auth` exports `TenantMismatchError` (a
+  `TokenAcquisitionError`) and `InvalidTenantIdError` (a `ValueError`).
 - **Raw GUIDs on request, either file spelling, and per-environment
   validation.** A stock fabric-cicd `parameter.yml` carries raw GUIDs by
   design and was refused outright; validating demanded every environment's
@@ -53,8 +68,85 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The class stays importable for manifests that carry `items[].depends_on`.
   `BaseProbe.run` gains `token_provider`, `workspace_id` and `tenant_id`
   keyword arguments; a subclass must accept them.
+- **`diagnose-auth --tenant-id`: a token from another tenant fails the run
+  instead of printing a WARNING.** It is reported as no usable token, exit 3,
+  with one stderr line naming both tenants; the token is not sent to the
+  Fabric probe.
+- **A tenant that is not a GUID, or a token from another tenant, now stops
+  a command where it was ignored.**
+  - `--tenant-id`, `core.tenant_id`, `release record --ado-tenant-id`,
+    `TokenProvider(tenant_id=...)` and `get_token_provider(...)` refuse a
+    value that is not a tenant ID GUID (`InvalidTenantIdError`) before any
+    token is requested. A domain name such as `contoso.onmicrosoft.com` was
+    accepted and is refused now: it can never match a token's `tid` claim.
+  - A pinned command that is handed a token from another tenant ends with
+    one stderr line naming both tenants and its exit code for an auth
+    failure: 1, or 2 for `diff`, or 3 for `diagnose-auth`; it used to send
+    requests with that token. `preflight` reports it as a failed Entra
+    probe, as before, and as a failed capacity probe when it reads the
+    workspace. `env sync-all` stops at the first refused token, whatever
+    `--fail-fast` says.
+  - Run without `--tenant-id`, these commands stop with one line when the
+    settings cannot be loaded, because the settings may hold the tenant to
+    pin. `sync apply` and `sync pull` logged that failure and carried on;
+    `diagnose-auth --scope fabric` reported it as a group-check error
+    (exit 2) and now stops with exit 3. The line names each failing setting
+    and its error, never the setting's value.
+  - The `fdt_settings_toml` test fixture still writes
+    `core.tenant_id = "test-tenant"` by default, so a test that runs one of
+    these commands where that file is read now gets the GUID refusal.
 
 ### Fixed
+- **`--tenant-id` pins the tenant.** Measured at 1.0.1:
+  `TokenProvider(tenant_id=X)` only added X to `DefaultAzureCredential`'s
+  `additionally_allowed_tenants` and requested every token without a tenant,
+  so the token came from the credential's default tenant (after `az login`,
+  that login's default tenant) and was used whatever its tenant. fabric-cicd
+  requests its own token on the credential `get_credential()` returns, so
+  `deploy run` and `sync apply --with-publish` were not pinned either. Now a
+  provider with a tenant holds a credential that requests every token
+  (`get_token`, and `get_token_info` where the credential has it) from that
+  tenant and raises `TenantMismatchError` for a token whose `tid` claim names
+  another tenant, carries none, or cannot be decoded, and for a caller that
+  asks it for another tenant. That credential is the one handed to
+  fabric-cicd and to every REST client; an injected credential is wrapped
+  the same way; a managed identity, which ignores the requested tenant, is
+  held by the `tid` check. Without a tenant, the credential is called as
+  before. `rbac-audit` expands group members through a Microsoft Graph
+  client pinned to the same tenant; it used the unpinned default. The
+  provider pool keys a tenant without regard to case or surrounding spaces.
+- **`governance.rbac.audit()` without `graph_client` reads Microsoft Graph
+  as the Fabric client's caller.** Measured at 1.0.1: with no
+  `graph_client`, `audit()` built its Graph client with
+  `_GraphClient.from_defaults()`, so the group-member requests carried a
+  token from the process default credential chain, not from the credential
+  of the Fabric client it was given. Now that Graph client is built on the
+  Fabric client's token provider (read through a new
+  `FabricRestClient.token_provider` property): the same credential, and the
+  same tenant pin when that provider is pinned. A `graph_client` passed in
+  is used as before; `sigantry rbac-audit` passes its own.
+- **`apply_sync(..., with_publish=True)` given a client and no `tenant_id`
+  publishes as that client's caller.** Measured at 1.0.1: with no
+  `token_provider`, the publish built `TokenProvider.from_defaults()`, a new
+  default credential chain, so a client pinned to a tenant ran the reconcile
+  under that pin and the publish without it. Now, with no `token_provider`
+  and no `tenant_id`, the publish uses the token provider of the client the
+  reconcile ran on; with a `tenant_id`, a provider pinned to it, as before.
+- **The Power BI retry of `delete_workspace(..., pbi_fallback=True)`
+  authenticates as the caller.** This addresses the credential part of
+  issue #62 only. Measured at 1.0.1: the retry built
+  `PowerBIRestClient.from_defaults(tenant_id=tenant_id)`, so its request
+  carried a token from the process default credential chain, not one from
+  the `token_provider` argument or the Fabric client's credential. Now the
+  retry is built on the `token_provider` argument, else on the Fabric
+  client's own provider, so it runs as the same principal under the same
+  tenant pin. `tenant_id`, which was the retry's only credential input, now
+  has to agree with that provider's pin: an unpinned provider's credential
+  is pinned to it for the retry, and a provider pinned to another tenant
+  raises `TenantMismatchError` before the retry is sent. The rest of
+  issue #62 still stands: the retry always goes to `api.powerbi.com`,
+  whatever base URL the Fabric client uses, and the audit record does not
+  show that it ran.
 - **CD and drift templates: sign in, pin, approve before publishing, record
   the real approver.** Measured at 1.0.1: the GitHub reusable workflows
   (`.github/workflows/sigantry-cd.yml`, `drift-check.yml`) had no Azure

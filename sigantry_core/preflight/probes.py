@@ -19,6 +19,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from sigantry_core.auth.tenant import same_guid
 from sigantry_core.preflight.models import ProbeResult, ProbeStatus
 
 #: Environment variables that say an operator configured a credential on
@@ -39,11 +40,6 @@ _CAPACITY_DOWN_STATES: frozenset[str] = frozenset(
 
 def _elapsed_ms(start: float) -> float:
     return (time.perf_counter() - start) * 1000
-
-
-def _same_guid(left: str, right: str) -> bool:
-    """Compare two GUIDs as Entra and Fabric do: case does not matter."""
-    return left.strip().casefold() == right.strip().casefold()
 
 
 class BaseProbe:
@@ -345,9 +341,11 @@ class EntraScopeProbe(BaseProbe):
 
     A token is acquired, never assumed: an environment variable that names a
     client id proves nothing. When ``tenant_id`` is given the token's ``tid``
-    claim must match it. When no token can be acquired the result is a
-    ``FAIL`` if the operator configured a credential (``AZURE_CLIENT_ID`` and
-    friends are set) and a ``SKIP`` otherwise. The token itself is never
+    claim must match it. A tenant-pinned provider refuses a token from
+    another tenant itself (``TenantMismatchError``); that refusal is a
+    ``FAIL`` naming both tenants. When no token can be acquired the result is
+    a ``FAIL`` if the operator configured a credential (``AZURE_CLIENT_ID``
+    and friends are set) and a ``SKIP`` otherwise. The token itself is never
     returned, logged or printed.
     """
 
@@ -366,7 +364,7 @@ class EntraScopeProbe(BaseProbe):
     ) -> ProbeResult:
         from sigantry_core.auth.audiences import FABRIC_SCOPE
         from sigantry_core.auth.diagnose import decode_token_claims
-        from sigantry_core.auth.errors import TokenAcquisitionError
+        from sigantry_core.auth.errors import TenantMismatchError, TokenAcquisitionError
 
         start_time = time.perf_counter()
 
@@ -381,6 +379,23 @@ class EntraScopeProbe(BaseProbe):
         configured = sorted(v for v in _EXPLICIT_CREDENTIAL_VARS if os.getenv(v))
         try:
             token = token_provider.get_token(FABRIC_SCOPE)
+        except TenantMismatchError as exc:
+            return ProbeResult(
+                name=self.name,
+                status=ProbeStatus.FAIL,
+                message=(
+                    f"Fabric token is for tenant {exc.token_tenant}, not the expected "
+                    f"{exc.expected_tenant}: the credential chain ({exc.credential_used}) "
+                    "signed in elsewhere, and the pinned provider refused the token"
+                ),
+                details={
+                    "credential": exc.credential_used,
+                    "tenant_id": exc.token_tenant,
+                    "expected_tenant_id": exc.expected_tenant,
+                    "tenant_refused": True,
+                },
+                duration_ms=_elapsed_ms(start_time),
+            )
         except TokenAcquisitionError as exc:
             details: dict[str, Any] = {
                 "credential": exc.credential_used,
@@ -432,7 +447,7 @@ class EntraScopeProbe(BaseProbe):
                     details=details,
                     duration_ms=_elapsed_ms(start_time),
                 )
-            if not _same_guid(str(token_tenant), tenant_id):
+            if not same_guid(str(token_tenant), tenant_id):
                 return ProbeResult(
                     name=self.name,
                     status=ProbeStatus.FAIL,
@@ -463,7 +478,8 @@ class CapacityStateProbe(BaseProbe):
     state unknown). Without a client or a workspace id the probe is ``SKIP``.
     When no credential in the chain can acquire a token the probe is ``SKIP``
     as well, or ``FAIL`` when the operator configured one (the same rule as
-    the Entra probe): it read nothing, so it reports nothing as checked.
+    the Entra probe): it read nothing, so it reports nothing as checked. A
+    token a tenant-pinned provider refused as another tenant's is a ``FAIL``.
     """
 
     name = "capacity_state"
@@ -496,12 +512,29 @@ class CapacityStateProbe(BaseProbe):
                 duration_ms=_elapsed_ms(start_time),
             )
 
-        from sigantry_core.auth.errors import TokenAcquisitionError
+        from sigantry_core.auth.errors import TenantMismatchError, TokenAcquisitionError
         from sigantry_core.capacity.core import list_capacities
         from sigantry_core.workspace.core import get_workspace
 
         try:
             workspace = get_workspace(client, workspace_id)
+        except TenantMismatchError as ex:
+            return ProbeResult(
+                name=self.name,
+                status=ProbeStatus.FAIL,
+                message=(
+                    f"workspace {workspace_id} was not read: the Fabric token is for tenant "
+                    f"{ex.token_tenant}, not the expected {ex.expected_tenant}"
+                ),
+                details={
+                    "workspace_id": workspace_id,
+                    "credential": ex.credential_used,
+                    "tenant_id": ex.token_tenant,
+                    "expected_tenant_id": ex.expected_tenant,
+                    "tenant_refused": True,
+                },
+                duration_ms=_elapsed_ms(start_time),
+            )
         except TokenAcquisitionError as ex:
             configured = sorted(v for v in _EXPLICIT_CREDENTIAL_VARS if os.getenv(v))
             cred_details: dict[str, Any] = {
@@ -558,7 +591,7 @@ class CapacityStateProbe(BaseProbe):
                 (
                     c
                     for c in list_capacities(client)
-                    if _same_guid(str(c.id), str(workspace.capacity_id))
+                    if same_guid(str(c.id), str(workspace.capacity_id))
                 ),
                 None,
             )

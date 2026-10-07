@@ -38,9 +38,10 @@ parameter"). The 202 Accepted long-running-operation flow is handled
 transparently by :meth:`sigantry_core.client.base.BaseRestClient.send_lro`.
 
 D-31: every REST call routes through
-:class:`sigantry_core.client.FabricRestClient` using
-``TokenProvider.from_defaults()``. There is no direct ``httpx`` usage
-in this module.
+:class:`sigantry_core.client.FabricRestClient`, built by
+:meth:`FabricRestClient.from_defaults` (pinned to ``tenant_id`` when one is
+given) unless the caller passes a client. There is no direct ``httpx``
+usage in this module.
 """
 
 from __future__ import annotations
@@ -485,6 +486,7 @@ def pull_workspace(
     item_types: list[str] | None = None,
     force: bool = False,
     client: FabricRestClient | None = None,
+    tenant_id: str | None = None,
 ) -> SyncPullReport:
     """Pull a workspace's items into a local IaC tree (SYNC-05 / D-20).
 
@@ -509,6 +511,11 @@ def pull_workspace(
         constructs one via :meth:`FabricRestClient.from_defaults` and
         uses it as a context manager so the connection pool closes
         on exit.
+    tenant_id:
+        Tenant ID (GUID) the constructed client is pinned to: a token from
+        any other tenant raises
+        :class:`~sigantry_core.auth.errors.TenantMismatchError`. Ignored
+        when ``client`` is given.
 
     Returns
     -------
@@ -533,7 +540,12 @@ def pull_workspace(
     into_path.mkdir(parents=True, exist_ok=True)
 
     if client is None:
-        with FabricRestClient.from_defaults() as owned_client:
+        owned = (
+            FabricRestClient.from_defaults()
+            if tenant_id is None
+            else FabricRestClient.from_defaults(tenant_id=tenant_id)
+        )
+        with owned as owned_client:
             return _pull_with_client(
                 workspace_id,
                 into_path=into_path,

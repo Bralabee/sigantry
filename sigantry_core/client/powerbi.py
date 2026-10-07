@@ -12,8 +12,10 @@ Usage::
     client = PowerBIRestClient.from_defaults()
     groups = list(client.list_paginated("/v1.0/myorg/groups"))
 
-For multi-tenant callers, pass ``tenant_id`` to ``from_defaults()``; it threads
-through to :func:`sigantry_core.auth.get_token_provider`.
+For multi-tenant callers, pass ``tenant_id`` (a tenant ID GUID) to
+``from_defaults()``; it threads through to
+:func:`sigantry_core.auth.get_token_provider`, whose credential refuses a token
+from any other tenant.
 """
 
 from __future__ import annotations
@@ -67,8 +69,9 @@ class PowerBIRestClient(BaseRestClient):
         """Construct with the process-wide ``TokenProvider`` singleton.
 
         Args:
-            tenant_id: Optional tenant id forwarded to
-                :func:`sigantry_core.auth.get_token_provider`.
+            tenant_id: Optional tenant ID GUID forwarded to
+                :func:`sigantry_core.auth.get_token_provider`, which pins
+                every token to that tenant.
             base_url: Override the Power BI root (defaults to
                 ``https://api.powerbi.com``). Useful for sovereign clouds.
             default_timeout: Per-request timeout in seconds (default 30s).

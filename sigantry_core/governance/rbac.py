@@ -197,8 +197,13 @@ def audit(
     Rows are NEVER flattened. Placeholder rows (forbidden-admin-only,
     not-accessible-via-rest) make missing data visible to auditors instead
     of silently dropping the layer.
+
+    Group members are read from Microsoft Graph through ``graph_client``.
+    Without one, the Graph client is built on ``fabric``'s own token
+    provider, so it uses the same credential under the same tenant pin as
+    the Fabric calls; it never falls back to the process default chain.
     """
-    gc = graph_client or _GraphClient.from_defaults()
+    gc = graph_client or _GraphClient(token_provider=fabric.token_provider)
 
     scoped_capacity_ids: list[str] = []
     workspaces: Iterable[dict[str, Any]]

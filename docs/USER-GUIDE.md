@@ -450,7 +450,8 @@ installed alongside `sigantry`, not a subcommand:
 ```bash
 diagnose-auth
 # exit 0 = healthy; 2 = degraded (token works but a prerequisite such
-# as the tenant toggle is missing); 3 = no credential produced a token
+# as the tenant toggle is missing); 3 = no credential produced a token,
+# or none from the pinned tenant (section 6.3)
 ```
 
 Only a run with the Fabric scope (the default, `--scope fabric`) checks
@@ -465,6 +466,43 @@ group check reported as `error` carries an `entra_groups.classification`, such
 as `permission_denied` or `token_unavailable`, and a detail. `names_hidden`
 means some memberships came back without their names and none of the named
 ones is the group; its detail asks for `GroupMember.Read.All`.
+
+### 6.3 Pinning the tenant
+
+A laptop signed in with `az login` gets tokens from that login's default
+tenant, which is not always the tenant you mean to change. Pin the tenant and
+every token is requested from it, and a token from any other tenant is
+refused before a request is sent with it.
+
+Every command that calls Fabric, Power BI, ARM or Microsoft Graph takes
+`--tenant-id GUID`, and so does `diagnose-auth`. Without the flag the command
+uses `core.tenant_id` from the settings:
+
+```toml
+# .sigantry.toml
+[core]
+tenant_id = "00000000-0000-0000-0000-000000000000"
+```
+
+or `SIGANTRY_CORE__TENANT_ID` (the legacy `FDT_CORE__TENANT_ID` and
+`.fabric-dataops.toml` are still read, in the order the installation guide's
+Configuration section describes). The flag wins over the settings. With
+neither, nothing is pinned and the credential chain's own tenant is used.
+
+- The value must be the directory (tenant) ID, a GUID. A domain name such as
+  `contoso.onmicrosoft.com` is refused before any token is requested, because
+  it can never match the `tid` claim of a token.
+- A token whose `tid` claim names another tenant, or has no readable `tid`, is
+  refused. The command prints one line naming the pinned tenant and the
+  token's tenant, and exits with its usual code for an auth failure: 1 for
+  most commands, 2 for `sigantry diff`, 3 for `diagnose-auth`. `sigantry
+  preflight` reports it as a failed Entra probe (exit 1).
+- The pin holds for tokens fabric-cicd requests itself during `deploy run`
+  and `sync apply --with-publish`, and for a managed identity, which ignores
+  the requested tenant: its token's `tid` is still checked.
+- If the settings cannot be loaded and no `--tenant-id` is given, the command
+  stops with one line saying so, rather than running without a pin the file
+  may hold. An empty `--tenant-id ""` counts as not given.
 
 ## 7. First steps
 
@@ -1231,6 +1269,12 @@ sigantry <verb> [args] [flags]
  `python -c "import sigantry_core; print(sigantry_core.__version__)"`.)
 
 Verbs (18 subcommands; run `sigantry <verb> --help` for the full flag set):
+  Every verb that calls Fabric, Power BI, ARM or Graph (workspace, capacity,
+  sync, diff, deploy run, env, git, variable-library, fabric-item set-binding,
+  rbac-audit, label-sync, tenant-settings, preflight) also takes
+      --tenant-id GUID                   tenant to pin; a token from another
+                                            tenant is refused [default:
+                                            core.tenant_id in the settings]
   doctor                                 -- list discovered plugins per seam
     --strict                             exit 1 if any plugin failed to import
     --strict-trust                       exit 1 if any plugin is untrusted
@@ -1312,7 +1356,6 @@ Verbs (18 subcommands; run `sigantry <verb> --help` for the full flag set):
       --lakehouse-id GUID                default lakehouse
       --lakehouse-name TEXT              default lakehouse by name
       --lakehouse-workspace-id GUID      workspace owning the lakehouse
-      --tenant-id GUID                   override tenant for auth
   git                                    -- workspace <-> ADO Git integration surface
   variable-library                       -- Fabric Variable Library CRUD
   env                                    -- Fabric Environment wheel upload
@@ -1330,7 +1373,7 @@ Verbs (18 subcommands; run `sigantry <verb> --help` for the full flag set):
     --environment LABEL / -e             target environment [default dev]
     --workspace-id GUID                  target workspace; the capacity probe
                                             is not checked without it
-    --tenant-id GUID                     expected tenant; the Entra probe fails
+    --tenant-id GUID                     tenant to pin; the Entra probe fails
                                             when the token's tid differs
     --strict                             fail on a warning and on a probe that
                                             could not check (the CI gate)
@@ -1338,7 +1381,9 @@ Verbs (18 subcommands; run `sigantry <verb> --help` for the full flag set):
 
 Standalone console script (not a sigantry subcommand):
   diagnose-auth                          -- credential/tenant-toggle doctor
-                                            (exit 0 healthy / 2 degraded / 3 no token)
+                                            (exit 0 healthy / 2 degraded / 3 no token,
+                                            or none from the pinned tenant)
+    --tenant-id GUID                     tenant to pin [default: core.tenant_id]
 ```
 
 ## Appendix D. Glossary

@@ -13,7 +13,8 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass
 
-from sigantry_core.auth import TokenProvider
+from sigantry_core.auth import POWERBI_SCOPE, TenantMismatchError, TokenProvider
+from sigantry_core.auth.tenant import require_tenant_guid, same_guid
 from sigantry_core.client import FabricRestClient
 from sigantry_core.client.errors import HttpError
 from sigantry_core.governance.audit import destructive_op
@@ -108,23 +109,58 @@ def delete_workspace(
     With ``pbi_fallback=True``, when the Fabric DELETE raises an ``HttpError``
     whose body carries ``UnknownError`` (the status code is not checked), the
     delete is tried again once through
-    ``DELETE https://api.powerbi.com/v1.0/myorg/groups/{id}``. That retry
-    authenticates with the process default credential for ``tenant_id``, not
-    with ``token_provider`` or the Fabric client's credential, and the audit
-    record does not show that it ran. Default ``False`` preserves the strict
-    single-API behaviour.
+    ``DELETE https://api.powerbi.com/v1.0/myorg/groups/{id}``, whatever base
+    URL the Fabric client uses. That retry authenticates with the caller's
+    token provider: ``token_provider`` when given, else the Fabric client's
+    own, so it runs as the same principal under the same tenant pin.
+    ``tenant_id``, when given, must agree with that pin: a provider pinned to
+    another tenant is refused with ``TenantMismatchError`` before the retry,
+    and an unpinned provider's credential is pinned to ``tenant_id`` for the
+    retry. The audit record does not show that the retry ran. Default
+    ``False`` preserves the strict single-API behaviour.
     """
     try:
         client.send("DELETE", f"/v1/workspaces/{workspace_id}")
     except HttpError as exc:
         if not pbi_fallback or not _is_unknown_error(exc):
             raise
-        # Lazy import: PowerBIRestClient drags httpx + token-provider singleton
-        # construction; only pay that on the rare fallback path.
+        provider = _fallback_token_provider(client, token_provider, tenant_id)
+        # Lazy import: only pay for the Power BI client on the rare fallback path.
         from sigantry_core.client.powerbi import PowerBIRestClient
 
-        with PowerBIRestClient.from_defaults(tenant_id=tenant_id) as pbi:
+        with PowerBIRestClient(token_provider=provider) as pbi:
             pbi.send("DELETE", f"/v1.0/myorg/groups/{workspace_id}")
+
+
+def _fallback_token_provider(
+    client: FabricRestClient,
+    token_provider: TokenProvider | None,
+    tenant_id: str | None,
+) -> TokenProvider:
+    """The provider the Power BI retry of :func:`delete_workspace` uses.
+
+    The caller's own (``token_provider``, else the Fabric client's), never
+    the process default chain. ``tenant_id`` must agree with its pin: an
+    unpinned provider's credential is pinned to ``tenant_id``, and a provider
+    pinned to another tenant raises :class:`TenantMismatchError`.
+    """
+    provider = token_provider if token_provider is not None else client.token_provider
+    if tenant_id is None:
+        return provider
+    wanted = require_tenant_guid(tenant_id)
+    pinned = provider.tenant_id
+    if pinned is None:
+        return TokenProvider(credential=provider.credential, tenant_id=wanted)
+    if same_guid(pinned, wanted):
+        return provider
+    raise TenantMismatchError(
+        f"refused the Power BI retry of the workspace delete for tenant {wanted}: "
+        f"the caller's token provider is pinned to tenant {pinned}",
+        expected_tenant=pinned,
+        token_tenant=wanted,
+        scope=POWERBI_SCOPE,
+        remediation=f"Pass tenant_id={pinned}, or a client and token provider pinned to {wanted}.",
+    )
 
 
 def _is_unknown_error(exc: HttpError) -> bool:
