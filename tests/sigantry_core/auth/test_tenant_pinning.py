@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import json
+import sys
 import time
 from typing import Any
 from unittest.mock import patch
@@ -235,8 +236,81 @@ def test_fabric_cicd_endpoint_refuses_a_token_from_another_tenant() -> None:
 # ---- no tenant: unchanged --------------------------------------------------
 
 
-def test_without_a_tenant_the_credential_is_called_as_before() -> None:
-    cred = _FakeCredential(tid=TENANT_B)
+class _TokenReads:
+    """Every read of a token's claims or content, by the decoder or by hand.
+
+    ``decodes`` records each call of ``decode_token_claims``, patched under
+    every name any loaded module binds it to, so it is seen however a caller
+    imported it (at module level, inside a function, under an alias).
+    ``content`` records each method
+    call, index or iteration on a token made by :meth:`token`, so a decode
+    that does not use ``decode_token_claims`` (a ``split`` by hand, base64 of
+    ``encode()``) is seen too. A swallowed exception hides neither.
+    """
+
+    def __init__(self) -> None:
+        self.decodes: list[str] = []
+        self.content: list[str] = []
+
+    def token(self, value: str) -> str:
+        content = self.content
+
+        class _Watched(str):
+            def __getattribute__(self, name: str) -> Any:
+                if not (name.startswith("__") and name.endswith("__")):
+                    content.append(name)
+                return super().__getattribute__(name)
+
+            def __getitem__(self, key: Any) -> str:
+                content.append("__getitem__")
+                return super().__getitem__(key)
+
+            def __iter__(self) -> Any:
+                content.append("__iter__")
+                return super().__iter__()
+
+            def __contains__(self, key: Any) -> bool:
+                content.append("__contains__")
+                return super().__contains__(key)
+
+        return _Watched(value)
+
+
+@pytest.fixture
+def token_reads(monkeypatch: pytest.MonkeyPatch) -> _TokenReads:
+    from sigantry_core.auth import diagnose
+
+    reads = _TokenReads()
+    original = diagnose.decode_token_claims
+
+    def spy(token: str) -> dict[str, Any]:
+        reads.decodes.append("decode_token_claims")
+        return original(token)
+
+    patched = [
+        (module, name)
+        for module in list(sys.modules.values())
+        for name, value in list(getattr(module, "__dict__", {}).items())
+        if value is original
+    ]
+    for module, name in patched:
+        monkeypatch.setattr(module, name, spy)
+    assert (diagnose, "decode_token_claims") in patched
+    return reads
+
+
+def test_the_token_read_spies_see_the_pinned_decode(token_reads: _TokenReads) -> None:
+    """Control for the no-decode test below: the spies see a decode that happens."""
+    token = token_reads.token(fake_jwt(tid=TENANT_A))
+    tp = TokenProvider(credential=_FakeCredential(token=token), tenant_id=TENANT_A)
+    assert tp.get_token(FABRIC_SCOPE) == fake_jwt(tid=TENANT_A)
+    assert token_reads.decodes == ["decode_token_claims"]
+    assert "split" in token_reads.content
+
+
+def test_without_a_tenant_the_credential_is_called_as_before(token_reads: _TokenReads) -> None:
+    token = token_reads.token(fake_jwt(tid=TENANT_B))
+    cred = _FakeCredential(token=token)
     tp = TokenProvider(credential=cred)
     assert tp.credential is cred
     assert tp.get_credential() is cred
@@ -246,6 +320,9 @@ def test_without_a_tenant_the_credential_is_called_as_before() -> None:
         ("get_token", (FABRIC_SCOPE,), {}),
         ("get_token", (GRAPH_SCOPE,), {}),
     ]
+    # R9: no tenant, no decode -- of the claims or of the token itself.
+    assert token_reads.decodes == []
+    assert token_reads.content == []
 
 
 # ---- the tenant id must be a GUID ------------------------------------------
