@@ -16,6 +16,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from sigantry_core._cli_tenant import TENANT_ID_HELP, resolve_tenant_id, stops_on_tenant_error
 from sigantry_core.capacity.core import list_capacities
 from sigantry_core.capacity.lifecycle import resume_capacity, suspend_capacity
 from sigantry_core.client import FabricArmRestClient, FabricRestClient
@@ -28,16 +29,19 @@ _console = Console()
 
 
 def _fabric_client_factory(tenant_id: str | None) -> FabricRestClient:
-    return FabricRestClient.from_defaults(tenant_id=tenant_id)
+    """A Fabric client pinned to ``--tenant-id``, else to ``core.tenant_id``."""
+    return FabricRestClient.from_defaults(tenant_id=resolve_tenant_id(tenant_id))
 
 
 def _arm_client_factory(tenant_id: str | None) -> FabricArmRestClient:
-    return FabricArmRestClient.from_defaults(tenant_id=tenant_id)
+    """An ARM client pinned to ``--tenant-id``, else to ``core.tenant_id``."""
+    return FabricArmRestClient.from_defaults(tenant_id=resolve_tenant_id(tenant_id))
 
 
 @capacity_app.command("list")
+@stops_on_tenant_error(exit_code=1)
 def list_cmd(
-    tenant_id: str = typer.Option(None, "--tenant-id", help="Optional AAD tenant id."),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
     output: str = typer.Option("table", "--output", "-o", help="table|json"),
 ) -> None:
     """List every capacity visible to the caller (GET /v1/capacities)."""
@@ -77,6 +81,7 @@ def list_cmd(
 
 
 @capacity_app.command("pause")
+@stops_on_tenant_error(exit_code=1)
 def pause_cmd(
     subscription_id: str = typer.Argument(..., help="Azure subscription id."),
     resource_group: str = typer.Argument(..., help="Resource group name."),
@@ -87,7 +92,7 @@ def pause_cmd(
         "--runbook-id",
         help="REQUIRED incident reference (e.g. INC-1234).",
     ),
-    tenant_id: str = typer.Option(None, "--tenant-id"),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
 ) -> None:
     """Suspend a Fabric capacity (ARM 202 LRO, destructive_op gated)."""
     with _arm_client_factory(tenant_id) as client:
@@ -103,6 +108,7 @@ def pause_cmd(
 
 
 @capacity_app.command("resume")
+@stops_on_tenant_error(exit_code=1)
 def resume_cmd(
     subscription_id: str = typer.Argument(..., help="Azure subscription id."),
     resource_group: str = typer.Argument(..., help="Resource group name."),
@@ -113,7 +119,7 @@ def resume_cmd(
         "--runbook-id",
         help="REQUIRED incident reference (e.g. INC-2000).",
     ),
-    tenant_id: str = typer.Option(None, "--tenant-id"),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
 ) -> None:
     """Resume a suspended Fabric capacity (ARM 202 LRO, destructive_op gated)."""
     with _arm_client_factory(tenant_id) as client:

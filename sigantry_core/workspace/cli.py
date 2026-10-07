@@ -6,6 +6,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from sigantry_core._cli_tenant import TENANT_ID_HELP, resolve_tenant_id, stops_on_tenant_error
 from sigantry_core.client import FabricRestClient
 from sigantry_core.workspace.bootstrap import (
     BootstrapValidationError,
@@ -29,7 +30,8 @@ _console = Console()
 
 
 def _client_factory(tenant_id: str | None) -> FabricRestClient:
-    return FabricRestClient.from_defaults(tenant_id=tenant_id)
+    """A Fabric client pinned to ``--tenant-id``, else to ``core.tenant_id``."""
+    return FabricRestClient.from_defaults(tenant_id=resolve_tenant_id(tenant_id))
 
 
 def _print_warning(message: str) -> None:
@@ -38,8 +40,9 @@ def _print_warning(message: str) -> None:
 
 
 @workspace_app.command("list")
+@stops_on_tenant_error(exit_code=1)
 def list_cmd(
-    tenant_id: str = typer.Option(None, "--tenant-id", help="Optional AAD tenant id."),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
     roles: str = typer.Option(None, "--roles", help="Filter by caller role (e.g. Admin)."),
     output: str = typer.Option("table", "--output", "-o", help="table|json"),
 ) -> None:
@@ -71,9 +74,10 @@ def list_cmd(
 
 
 @workspace_app.command("get")
+@stops_on_tenant_error(exit_code=1)
 def get_cmd(
     workspace_id: str = typer.Argument(..., help="Workspace id (UUID)."),
-    tenant_id: str = typer.Option(None, "--tenant-id"),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
 ) -> None:
     with _client_factory(tenant_id) as client:
         ws = get_workspace(client, workspace_id)
@@ -90,12 +94,13 @@ def get_cmd(
 
 
 @workspace_app.command("create")
+@stops_on_tenant_error(exit_code=1)
 def create_cmd(
     name: str = typer.Option(..., "--name", help="Display name."),
     capacity_id: str = typer.Option(None, "--capacity-id"),
     description: str = typer.Option(None, "--description"),
     domain_id: str = typer.Option(None, "--domain-id"),
-    tenant_id: str = typer.Option(None, "--tenant-id"),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
 ) -> None:
     with _client_factory(tenant_id) as client:
         ws = create_workspace(
@@ -109,11 +114,12 @@ def create_cmd(
 
 
 @workspace_app.command("delete")
+@stops_on_tenant_error(exit_code=1)
 def delete_cmd(
     workspace_id: str = typer.Argument(..., help="Workspace id."),
     force: bool = typer.Option(False, "--force", help="REQUIRED: acknowledges destruction."),
     runbook_id: str = typer.Option(None, "--runbook-id", help="Optional incident id."),
-    tenant_id: str = typer.Option(None, "--tenant-id"),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
 ) -> None:
     with _client_factory(tenant_id) as client:
         delete_workspace(
@@ -127,10 +133,11 @@ def delete_cmd(
 
 
 @workspace_app.command("assign-capacity")
+@stops_on_tenant_error(exit_code=1)
 def assign_capacity_cmd(
     workspace_id: str = typer.Argument(...),
     capacity_id: str = typer.Argument(...),
-    tenant_id: str = typer.Option(None, "--tenant-id"),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
 ) -> None:
     with _client_factory(tenant_id) as client:
         assign_to_capacity(client, workspace_id, capacity_id)
@@ -138,11 +145,12 @@ def assign_capacity_cmd(
 
 
 @workspace_app.command("list-items")
+@stops_on_tenant_error(exit_code=1)
 def list_items_cmd(
     workspace_id: str = typer.Argument(...),
     item_type: str = typer.Option(None, "--type", help="Filter by item type."),
     output: str = typer.Option("table", "--output", "-o"),
-    tenant_id: str = typer.Option(None, "--tenant-id"),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
 ) -> None:
     with _client_factory(tenant_id) as client:
         rows = [
@@ -168,15 +176,12 @@ def list_items_cmd(
 
 
 @workspace_app.command("bootstrap")
+@stops_on_tenant_error(exit_code=1)
 def bootstrap_cmd(
     config_path: str = typer.Argument(
         ..., help="Path to workspace.yml manifest (BOOTSTRAP-XX, Phase 13.5)."
     ),
-    tenant_id: str = typer.Option(
-        None,
-        "--tenant-id",
-        help="Optional AAD tenant id (overrides DefaultAzureCredential default).",
-    ),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
     audit_dir: str = typer.Option(
         None,
         "--audit-dir",

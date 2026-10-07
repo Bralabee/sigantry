@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from sigantry_core.auth.errors import TenantMismatchError
 from sigantry_core.client import FabricRestClient
 from sigantry_core.deploy.environment import (
     WheelUploadResult,
@@ -218,6 +219,10 @@ def sync_environments(
                         installed_library_name=result.installed_library_name,
                     )
                 )
+            except TenantMismatchError:
+                # Not this wheel's failure: every request would be refused the
+                # same way, so the run stops instead of recording each wheel.
+                raise
             except Exception as exc:  # isolate one wheel's failure; record + continue
                 wheel_outcomes.append(WheelOutcome(wheel=name, action=WHEEL_FAILED, error=str(exc)))
                 if fail_fast:

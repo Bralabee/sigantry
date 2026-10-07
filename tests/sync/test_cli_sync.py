@@ -59,7 +59,7 @@ def test_sync_pull_invokes_pull_workspace(tmp_path: Path, monkeypatch) -> None:
 
     captured: dict[str, object] = {}
 
-    def fake_pull(workspace_id, *, into, item_types=None, force=False, client=None):
+    def fake_pull(workspace_id, *, into, item_types=None, force=False, client=None, tenant_id=None):
         captured["workspace_id"] = workspace_id
         captured["into"] = into
         captured["item_types"] = item_types
@@ -120,7 +120,7 @@ def test_sync_pull_force_flag_threads_through(tmp_path: Path, monkeypatch) -> No
 
     captured: dict[str, object] = {}
 
-    def fake_pull(workspace_id, *, into, item_types=None, force=False, client=None):
+    def fake_pull(workspace_id, *, into, item_types=None, force=False, client=None, tenant_id=None):
         captured["force"] = force
         snap = WorkspaceSnapshot(
             workspace_id=workspace_id,
@@ -213,7 +213,7 @@ def test_sync_snapshot_cli_emits_json(tmp_path: Path, monkeypatch) -> None:
         item_to_folder={"i1": "f1"},
     )
 
-    def fake_snapshot_workspace(workspace_id: str, *, client=None):
+    def fake_snapshot_workspace(workspace_id: str, *, client=None, tenant_id=None):
         assert workspace_id == "ws-x"
         return fake_snap
 

@@ -11,6 +11,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
+from sigantry_core._cli_tenant import resolve_tenant_id, stops_on_tenant_error
 from sigantry_core.auth.token_provider import TokenProvider
 from sigantry_core.client import FabricRestClient
 from sigantry_core.preflight.engine import PreflightEngine
@@ -34,6 +35,7 @@ def _make_token_provider(tenant_id: str | None) -> TokenProvider:
 
 
 @preflight_app.callback(invoke_without_command=True)
+@stops_on_tenant_error(exit_code=1)
 def main(
     ctx: typer.Context,
     manifest: Annotated[
@@ -59,7 +61,10 @@ def main(
         str | None,
         typer.Option(
             "--tenant-id",
-            help="Expected Entra tenant; the Entra probe fails when the token's tid differs",
+            help=(
+                "Entra tenant ID (GUID) to pin: a token from any other tenant is "
+                "refused and the Entra probe fails. Default: core.tenant_id in the settings"
+            ),
         ),
     ] = None,
     strict: Annotated[
@@ -77,11 +82,14 @@ def main(
     """Execute pre-deployment safety probes against configuration and artifacts.
 
     Exit 1 on any failed probe. With --strict, also on any warning and on any
-    probe that checked nothing (no credential, no --workspace-id).
+    probe that checked nothing (no credential, no --workspace-id). Exit 1 as
+    well, with one line on stderr, for a tenant that is not a GUID or settings
+    that cannot be loaded when no --tenant-id is given.
     """
     if ctx.invoked_subcommand is not None:
         return
 
+    tenant_id = resolve_tenant_id(tenant_id)
     provider = _make_token_provider(tenant_id)
     engine = PreflightEngine()
     with FabricRestClient(token_provider=provider) as client:
@@ -95,6 +103,12 @@ def main(
             tenant_id=tenant_id,
             strict=strict,
         )
+
+    # A token refused as another tenant's is named on one stderr line too:
+    # a table cell wraps the probe message, and stdout carries the JSON.
+    for res in report.results:
+        if res.details.get("tenant_refused"):
+            typer.echo(f"sigantry: error: {res.name}: {' '.join(res.message.split())}", err=True)
 
     if output_json:
         typer.echo(json.dumps(report.model_dump(), indent=2))

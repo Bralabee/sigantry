@@ -23,13 +23,17 @@ Surface (single command via ``invoke_without_command=True`` callback):
   ``json`` emits the SemVer-pinned wire contract via
   :meth:`DriftReport.to_json`.
 * ``--fail-on-drift`` -- exit 1 on any detected drift (D-26).
+* ``--tenant-id`` -- tenant ID (GUID) to pin; default ``core.tenant_id`` in
+  the settings (see :mod:`sigantry_core._cli_tenant`).
 
 Exit codes (D-26):
 
 * ``0`` -- no drift, OR drift but ``--fail-on-drift`` not set.
 * ``1`` -- drift detected AND ``--fail-on-drift`` set.
 * ``2`` -- operational error (manifest validation, workspace not
-  found, auth failure, pending Git Sync).
+  found, auth failure, pending Git Sync, a token from another tenant, a
+  tenant that is not a GUID, settings that cannot be loaded when no
+  ``--tenant-id`` is given). A tenant refusal is one line on stderr.
 
 Human output (D-25): a Rich :class:`rich.table.Table` with columns
 ``Status | Type | Display Name | Folder | Detail`` and colorised
@@ -46,6 +50,12 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
+from sigantry_core._cli_tenant import (
+    TENANT_ID_HELP,
+    exit_on_tenant_error,
+    resolve_tenant_id,
+    stops_on_tenant_error,
+)
 from sigantry_core.sync.diff import (
     DriftReport,
     diff_workspace_against_manifest,
@@ -145,6 +155,7 @@ def _render_human_table(report: DriftReport, *, environment: str) -> None:
 
 
 @diff_app.callback(invoke_without_command=True)
+@stops_on_tenant_error(exit_code=2)
 def diff_cmd(
     environment: str = typer.Option(
         "prod",
@@ -185,6 +196,7 @@ def diff_cmd(
         "--no-hint",
         help="Suppress operator hint trailer (CI-friendly).",
     ),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
 ) -> None:
     """Compute drift between ``--manifest`` and ``--workspace-id``.
 
@@ -211,7 +223,9 @@ def diff_cmd(
     errors = _console if output == "human" else _err_console
 
     try:
-        report = diff_workspace_against_manifest(manifest, workspace_id)
+        report = diff_workspace_against_manifest(
+            manifest, workspace_id, tenant_id=resolve_tenant_id(tenant_id)
+        )
     except ManifestValidationError as exc:
         errors.print(Text.assemble(("Manifest validation failed:", "red"), " ", _data(exc)))
         for v in exc.violations:
@@ -225,6 +239,7 @@ def diff_cmd(
         # network issue, or any unexpected SyncEngineError subclass. Exit
         # 2 (D-26) so CI runners can branch the same way they do for
         # WorkspacePendingGitUpdateError.
+        exit_on_tenant_error(exc, exit_code=2)
         errors.print(Text.assemble(("sigantry diff failed:", "red"), " ", _data(exc)))
         raise typer.Exit(code=2) from exc
 

@@ -25,9 +25,10 @@ fails CI if any literal display-name equality compare leaks into this
 module.
 
 D-31: every REST call routes through
-:class:`sigantry_core.client.FabricRestClient` using
-``TokenProvider.from_defaults()``. There is no direct ``httpx`` usage
-in this module.
+:class:`sigantry_core.client.FabricRestClient`, built by
+:meth:`FabricRestClient.from_defaults` (pinned to ``tenant_id`` when one is
+given) unless the caller passes a client. There is no direct ``httpx``
+usage in this module.
 """
 
 from __future__ import annotations
@@ -132,6 +133,7 @@ def snapshot_workspace(
     workspace_id: str,
     *,
     client: FabricRestClient | None = None,
+    tenant_id: str | None = None,
 ) -> WorkspaceSnapshot:
     """Build a fresh :class:`WorkspaceSnapshot` via two paginated REST calls.
 
@@ -145,6 +147,11 @@ def snapshot_workspace(
         intercepted. When ``None`` the function constructs one via
         :meth:`FabricRestClient.from_defaults` and uses it as a context
         manager so the connection pool closes on exit.
+    tenant_id:
+        Tenant ID (GUID) the constructed client is pinned to: a token from
+        any other tenant raises
+        :class:`~sigantry_core.auth.errors.TenantMismatchError`. Ignored
+        when ``client`` is given (that client carries its own provider).
 
     Returns
     -------
@@ -161,7 +168,12 @@ def snapshot_workspace(
     which already exercises Fabric's ``continuationToken`` semantics.
     """
     if client is None:
-        with FabricRestClient.from_defaults() as owned_client:
+        owned = (
+            FabricRestClient.from_defaults()
+            if tenant_id is None
+            else FabricRestClient.from_defaults(tenant_id=tenant_id)
+        )
+        with owned as owned_client:
             return _snapshot_with_client(workspace_id, owned_client)
     return _snapshot_with_client(workspace_id, client)
 

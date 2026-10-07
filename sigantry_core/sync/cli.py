@@ -21,6 +21,11 @@ Exit-code conventions:
 * ``snapshot``:
     - ``0`` on success.
     - Bubbles SyncEngineError as exit ``1`` via Typer.
+
+All three take ``--tenant-id`` (default ``core.tenant_id`` in the settings;
+see :mod:`sigantry_core._cli_tenant`). A token from another tenant, a tenant
+that is not a GUID, or settings that cannot be loaded when no ``--tenant-id``
+is given end the command with exit ``1`` and one line on stderr.
 * ``pull``:
     - ``0`` on success.
     - ``1`` on :class:`PullTargetNotEmptyError` (non-empty ``--into``
@@ -49,6 +54,12 @@ from rich.console import Console
 from rich.text import Text
 
 from sigantry_core._cli_settings import load_settings_for_cli, settings_warnings_dropped
+from sigantry_core._cli_tenant import (
+    TENANT_ID_HELP,
+    exit_on_tenant_error,
+    resolve_tenant_id,
+    stops_on_tenant_error,
+)
 from sigantry_core.config import ToolkitSettings
 from sigantry_core.deploy.parameters import (
     HardcodedGuidError,
@@ -217,6 +228,7 @@ _console = Console()
 
 
 @sync_app.command("apply")
+@stops_on_tenant_error(exit_code=1)
 def apply_cmd(
     manifest: str = typer.Option(
         ...,
@@ -288,6 +300,7 @@ def apply_cmd(
             "docs/runbooks/sync/folder-preservation.md."
         ),
     ),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
 ) -> None:
     """Push manifest items into ``--workspace-id``.
 
@@ -355,6 +368,7 @@ def apply_cmd(
             )
 
     _emit_preview_warning_once()
+    pinned = resolve_tenant_id(tenant_id)
     try:
         report = apply_sync(
             manifest_path=manifest,
@@ -367,6 +381,7 @@ def apply_cmd(
             bulk=bulk,
             params_path=params,
             unpublish_orphans=unpublish_orphans,
+            tenant_id=pinned,
         )
     except ManifestValidationError as exc:
         _console.print(f"[red]Manifest validation failed:[/red] {exc}")
@@ -377,6 +392,7 @@ def apply_cmd(
         _console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=2) from exc
     except SyncEngineError as exc:
+        exit_on_tenant_error(exc, exit_code=1)
         _console.print(f"[red]sync apply failed:[/red] {exc}")
         raise typer.Exit(code=1) from exc
 
@@ -444,6 +460,7 @@ def apply_cmd(
 
 
 @sync_app.command("snapshot")
+@stops_on_tenant_error(exit_code=1)
 def snapshot_cmd(
     workspace_id: str = typer.Option(
         ...,
@@ -455,6 +472,7 @@ def snapshot_cmd(
         "--output",
         help="Optional path; when omitted, prints JSON to stdout.",
     ),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
 ) -> None:
     """Emit a workspace topology JSON snapshot (INTROSPECT-01).
 
@@ -464,7 +482,7 @@ def snapshot_cmd(
     representation of ``arbitrary_types_allowed=True`` types is the
     ``repr()`` string, which would leak implementation details.
     """
-    snap = snapshot_workspace(workspace_id)
+    snap = snapshot_workspace(workspace_id, tenant_id=resolve_tenant_id(tenant_id))
     payload = {
         "schema_version": snap.schema_version,
         "workspace_id": snap.workspace_id,
@@ -501,6 +519,7 @@ def snapshot_cmd(
 
 
 @sync_app.command("pull")
+@stops_on_tenant_error(exit_code=1)
 def pull_cmd(
     workspace_id: str = typer.Option(
         ...,
@@ -530,6 +549,7 @@ def pull_cmd(
         "--no-hint",
         help="Suppress operator hint trailer (CI-friendly).",
     ),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
 ) -> None:
     """Pull workspace items into a local sync.yml + sources tree (SYNC-05).
 
@@ -553,18 +573,21 @@ def pull_cmd(
     """
     _emit_preview_warning_once()
     types_list = _split_csv(item_types)
+    pinned = resolve_tenant_id(tenant_id)
     try:
         report = pull_workspace(
             workspace_id=workspace_id,
             into=into,
             item_types=types_list or None,
             force=force,
+            tenant_id=pinned,
         )
     except PullTargetNotEmptyError as exc:
         # Messages quote workspace item names and paths; Text is not read as markup.
         _console.print(Text.assemble(("sync pull refused:", "red"), f" {exc}"))
         raise typer.Exit(code=1) from exc
     except SyncEngineError as exc:
+        exit_on_tenant_error(exc, exit_code=1)
         _console.print(Text.assemble(("sync pull failed:", "red"), f" {exc}"))
         raise typer.Exit(code=1) from exc
 

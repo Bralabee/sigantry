@@ -1252,3 +1252,80 @@ def test_publish_phase_scopes_parameters_to_the_environment(
         tmpdir.cleanup()
     assert existing == set()
     assert "dev" in text and "PROD" not in text and "$ENV:" not in text
+
+
+# ---------------------------------------------------------------------------
+# Tenant pinning -- the publish credential carries the pin
+# ---------------------------------------------------------------------------
+
+
+def test_with_publish_hands_publish_a_tenant_pinned_credential(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """fabric-cicd gets its tokens from this credential itself: it must be pinned."""
+    import base64
+    import time
+
+    from azure.core.credentials import AccessToken
+
+    from sigantry_core.auth import TenantMismatchError
+    from sigantry_core.auth.audiences import FABRIC_SCOPE
+
+    pinned = "00000000-0000-0000-0000-00000000000a"
+    other = "00000000-0000-0000-0000-00000000000b"
+
+    def _jwt(tid: str) -> str:
+        body = base64.urlsafe_b64encode(json.dumps({"tid": tid}).encode()).rstrip(b"=")
+        return f"e30.{body.decode()}.sig"
+
+    requested: list[str | None] = []
+
+    class _OtherTenantCredential:
+        def get_token(self, *scopes: str, tenant_id: str | None = None, **_: object):
+            requested.append(tenant_id)
+            return AccessToken(_jwt(other), int(time.time()) + 3600)
+
+    monkeypatch.setattr(
+        "sigantry_core.auth.token_provider.DefaultAzureCredential",
+        lambda **_: _OtherTenantCredential(),
+    )
+    nb = tmp_path / "nb.ipynb"
+    _write_minimal_ipynb(nb)
+    sync_yml = tmp_path / "sync.yml"
+    _write_sync_yml(
+        sync_yml,
+        items_yaml=(
+            f"  - local_path: '{nb}'\n"
+            "    type: Notebook\n"
+            "    target_folder: '/raw'\n"
+            "    display_name: 'A'\n"
+        ),
+    )
+    params = tmp_path / "parameters.yml"
+    _write_minimal_parameters_yml(params)
+    audit_dir = tmp_path / "audit"
+    audit_dir.mkdir()
+    fake_publish, _, _, doubles_kwargs = _patch_publish_path(monkeypatch, snapshot_items=[])
+
+    workspace_id = "ws-pinned"
+    with respx.mock(base_url=FABRIC_AUDIENCE) as router:
+        router.get(f"/v1/workspaces/{workspace_id}").mock(
+            return_value=httpx.Response(200, json={"id": workspace_id, "gitConnection": None})
+        )
+        with _client_with_mock_token() as client:
+            apply_sync(
+                manifest_path=sync_yml,
+                workspace_id=workspace_id,
+                client=client,
+                audit_dir=audit_dir,
+                with_publish=True,
+                params_path=params,
+                tenant_id=pinned,
+                **doubles_kwargs,
+            )
+
+    provider = fake_publish.call_args.kwargs["token_provider"]
+    assert provider.tenant_id == pinned
+    with pytest.raises(TenantMismatchError):
+        provider.get_credential().get_token(FABRIC_SCOPE)
+    assert requested == [pinned]

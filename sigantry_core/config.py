@@ -216,7 +216,10 @@ def _case_message(names: Iterable[str]) -> str:
 class CoreSettings(_SeamSubSettings):
     # Optional at the base level -- a greenfield consumer doing telemetry
     # only does not need a tenant_id. Plugins that require it (an AuthProvider,
-    # a DeployProfile, etc.) validate it themselves at resolve time.
+    # a DeployProfile, etc.) validate it themselves at resolve time. The
+    # commands that get an Azure token for Fabric pin it when run without
+    # --tenant-id (sigantry_core._cli_tenant), and refuse a value that is not
+    # a tenant ID GUID.
     tenant_id: str | None = None
 
 

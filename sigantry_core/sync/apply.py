@@ -278,6 +278,7 @@ def _emit_combined_publish_record_phase(
     publish_fn,
     republish_existing: bool = False,
     bulk: bool = False,
+    tenant_id: str | None = None,
 ) -> SyncApplyReport:
     """W4.2 phase: drive ``publish_fn`` + emit the ONE combined DeployRecord.
 
@@ -319,7 +320,12 @@ def _emit_combined_publish_record_phase(
         "absent_items": items_to_publish,
         "item_type_in_scope": item_type_in_scope,
         "parameters_path": substituted_params_path,
-        "token_provider": token_provider or TokenProvider.from_defaults(),
+        "token_provider": token_provider
+        or (
+            TokenProvider.from_defaults()
+            if tenant_id is None
+            else TokenProvider.from_defaults(tenant_id=tenant_id)
+        ),
     }
     if bulk:
         try:
@@ -622,6 +628,7 @@ def apply_sync(
     unpublish_orphans: bool = False,
     client: FabricRestClient | None = None,
     token_provider: TokenProvider | None = None,
+    tenant_id: str | None = None,
     # Audit-2026-05-07 W4.4: constructor-injectable seams for the
     # three internal collaborators (snapshot, reconcile, publish).
     # Defaults are the real implementations; tests pass fakes here
@@ -700,6 +707,11 @@ def apply_sync(
         Optional :class:`TokenProvider` forwarded to the reconciler's
         destructive-op gate (used only when orphan cleanup fires --
         ``apply_sync`` does NOT enable orphan cleanup).
+    tenant_id:
+        Tenant ID (GUID) the client and the publish credential this
+        function builds itself are pinned to: a token from any other
+        tenant raises :class:`~sigantry_core.auth.errors.TenantMismatchError`.
+        A ``client`` or ``token_provider`` passed in is used as it is.
 
     Compose-mode notes (Phase 17 / SYNC-PUBLISH)
     --------------------------------------------
@@ -745,9 +757,13 @@ def apply_sync(
     # Build (or borrow) a client. When we own it, we must close it in
     # the ``finally`` block; when the caller passed one in, we leave it
     # alone.
-    owned_client_cm: FabricRestClient | None = (
-        FabricRestClient.from_defaults() if client is None else None
-    )
+    owned_client_cm: FabricRestClient | None = None
+    if client is None:
+        owned_client_cm = (
+            FabricRestClient.from_defaults()
+            if tenant_id is None
+            else FabricRestClient.from_defaults(tenant_id=tenant_id)
+        )
     client_obj = owned_client_cm if owned_client_cm is not None else client
     assert client_obj is not None  # narrows for mypy; one of the two must exist
 
@@ -902,6 +918,7 @@ def apply_sync(
                 publish_fn=publish_fn,
                 republish_existing=republish_existing,
                 bulk=bulk,
+                tenant_id=tenant_id,
             )
         return _emit_default_record_phase(
             workspace_id=workspace_id,

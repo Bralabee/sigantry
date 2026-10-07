@@ -32,6 +32,12 @@ import typer
 from rich.console import Console
 from rich.text import Text
 
+from sigantry_core._cli_tenant import (
+    TENANT_ID_HELP,
+    exit_on_tenant_error,
+    resolve_tenant_id,
+    stops_on_tenant_error,
+)
 from sigantry_core.client import FabricRestClient
 from sigantry_core.deploy.core import deploy_workspace
 from sigantry_core.deploy.dependency import DependencyCycleError, validate_order
@@ -57,6 +63,7 @@ _console = Console()
 
 
 @deploy_app.command("run")
+@stops_on_tenant_error(exit_code=1)
 def deploy_cmd(
     source: str = typer.Option(
         ...,
@@ -153,11 +160,7 @@ def deploy_cmd(
         "--shortcut-exclude-regex",
         help="Skip shortcuts whose name matches this regex (publish only).",
     ),
-    tenant_id: str = typer.Option(
-        None,
-        "--tenant-id",
-        help="Explicit Azure tenant id (overrides az-login / WIF default).",
-    ),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
     audit_dir: str | None = typer.Option(
         None,
         "--audit-dir",
@@ -218,10 +221,11 @@ def deploy_cmd(
             )
             raise typer.Exit(code=2)
 
+        pinned = resolve_tenant_id(tenant_id)
         tp = (
             TokenProvider.from_defaults()
-            if tenant_id is None
-            else TokenProvider.from_defaults(tenant_id=tenant_id)
+            if pinned is None
+            else TokenProvider.from_defaults(tenant_id=pinned)
         )
 
         original = find_by_release_id(to_release, audit_dir=audit_dir_path)
@@ -261,6 +265,7 @@ def deploy_cmd(
                 allow_raw_guids=opt_in_from_flags(allow_raw_guids, no_allow_raw_guids),
             )
         except Exception as exc:
+            exit_on_tenant_error(exc, exit_code=1)
             _console.print(Text.assemble(("rollback failed", "red"), f": {exc}"))
             raise typer.Exit(code=1) from exc
 
@@ -314,10 +319,11 @@ def deploy_cmd(
 
     from sigantry_core.auth import TokenProvider
 
+    pinned = resolve_tenant_id(tenant_id)
     tp = (
         TokenProvider.from_defaults()
-        if tenant_id is None
-        else TokenProvider.from_defaults(tenant_id=tenant_id)
+        if pinned is None
+        else TokenProvider.from_defaults(tenant_id=pinned)
     )
     types = [t.strip() for t in item_types.split(",") if t.strip()]
     # Typer passes an empty list when the flag isn't supplied; normalise to None
@@ -346,6 +352,7 @@ def deploy_cmd(
             ),
         )
     except Exception as exc:  # CLI boundary: surface anything to the user.
+        exit_on_tenant_error(exc, exit_code=1)
         _console.print(Text.assemble(("deploy failed", "red"), f": {exc}"))
         raise typer.Exit(code=1) from exc
     _console.print_json(
@@ -583,13 +590,15 @@ def copy_cmd(
 
 
 def _client(tenant_id: str | None) -> FabricRestClient:
-    """Construct a FabricRestClient honouring ``--tenant-id`` if supplied."""
-    if tenant_id is None:
+    """A FabricRestClient pinned to ``--tenant-id``, else to ``core.tenant_id``."""
+    pinned = resolve_tenant_id(tenant_id)
+    if pinned is None:
         return FabricRestClient.from_defaults()
-    return FabricRestClient.from_defaults(tenant_id=tenant_id)
+    return FabricRestClient.from_defaults(tenant_id=pinned)
 
 
 @fabric_item_app.command("set-binding")
+@stops_on_tenant_error(exit_code=1)
 def set_binding_cmd(
     workspace_id: str = typer.Option(
         ..., "--workspace-id", help="Workspace GUID holding the notebook."
@@ -608,7 +617,7 @@ def set_binding_cmd(
     lakehouse_workspace_id: str = typer.Option(
         None, "--lakehouse-workspace-id", help="Workspace GUID that owns the lakehouse (optional)."
     ),
-    tenant_id: str = typer.Option(None, "--tenant-id", help="Override tenant for auth."),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
 ) -> None:
     """Attach an Environment and/or default Lakehouse to a notebook.
 
@@ -632,6 +641,7 @@ def set_binding_cmd(
                 lakehouse_workspace_id=lakehouse_workspace_id,
             )
     except NotebookBindingError as exc:
+        exit_on_tenant_error(exc, exit_code=1)
         _console.print(Text.assemble(("fabric-item set-binding failed", "red"), f": {exc}"))
         raise typer.Exit(code=1) from exc
 
@@ -671,6 +681,7 @@ git_app = typer.Typer(
 
 
 @git_app.command("connect")
+@stops_on_tenant_error(exit_code=1)
 def git_connect_cmd(
     workspace_id: str = typer.Option(..., "--workspace-id"),
     organization_name: str = typer.Option(..., "--ado-organization"),
@@ -686,7 +697,7 @@ def git_connect_cmd(
             "(SP-compatible ConfiguredConnection path; T-4-06 / Pitfall 4C)."
         ),
     ),
-    tenant_id: str = typer.Option(None, "--tenant-id"),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
 ) -> None:
     """Attach a Fabric workspace to an ADO repo via ConfiguredConnection."""
     with _client(tenant_id) as c:
@@ -709,10 +720,11 @@ def git_connect_cmd(
 
 
 @git_app.command("init")
+@stops_on_tenant_error(exit_code=1)
 def git_init_cmd(
     workspace_id: str = typer.Option(..., "--workspace-id"),
     strategy: str = typer.Option("PreferRemote", "--strategy"),
-    tenant_id: str = typer.Option(None, "--tenant-id"),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
 ) -> None:
     """Initialise the connection between workspace and remote Git."""
     with _client(tenant_id) as c:
@@ -721,11 +733,12 @@ def git_init_cmd(
 
 
 @git_app.command("update")
+@stops_on_tenant_error(exit_code=1)
 def git_update_cmd(
     workspace_id: str = typer.Option(..., "--workspace-id"),
     workspace_head: str = typer.Option(..., "--workspace-head"),
     remote_commit_hash: str = typer.Option(..., "--remote-commit"),
-    tenant_id: str = typer.Option(None, "--tenant-id"),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
 ) -> None:
     """Pull remote commits into the workspace."""
     with _client(tenant_id) as c:
@@ -739,12 +752,13 @@ def git_update_cmd(
 
 
 @git_app.command("commit")
+@stops_on_tenant_error(exit_code=1)
 def git_commit_cmd(
     workspace_id: str = typer.Option(..., "--workspace-id"),
     workspace_head: str = typer.Option(..., "--workspace-head"),
     comment: str = typer.Option(..., "--comment"),
     mode: str = typer.Option("All", "--mode"),
-    tenant_id: str = typer.Option(None, "--tenant-id"),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
 ) -> None:
     """Commit workspace changes back to the connected Git branch."""
     with _client(tenant_id) as c:
@@ -759,9 +773,10 @@ def git_commit_cmd(
 
 
 @git_app.command("status")
+@stops_on_tenant_error(exit_code=1)
 def git_status_cmd(
     workspace_id: str = typer.Option(..., "--workspace-id"),
-    tenant_id: str = typer.Option(None, "--tenant-id"),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
 ) -> None:
     """Dump the current Git status for the workspace."""
     with _client(tenant_id) as c:
@@ -770,9 +785,10 @@ def git_status_cmd(
 
 
 @git_app.command("connection")
+@stops_on_tenant_error(exit_code=1)
 def git_connection_cmd(
     workspace_id: str = typer.Option(..., "--workspace-id"),
-    tenant_id: str = typer.Option(None, "--tenant-id"),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
 ) -> None:
     """Describe the workspace's Git connection (state + provider details)."""
     with _client(tenant_id) as c:
@@ -791,11 +807,12 @@ def git_connection_cmd(
 
 
 @git_app.command("disconnect")
+@stops_on_tenant_error(exit_code=1)
 def git_disconnect_cmd(
     workspace_id: str = typer.Option(..., "--workspace-id"),
     force: bool = typer.Option(False, "--force", help="REQUIRED: acknowledges destruction."),
     runbook_id: str = typer.Option(None, "--runbook-id"),
-    tenant_id: str = typer.Option(None, "--tenant-id"),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
 ) -> None:
     """Disconnect the workspace from Git (destructive; requires --force)."""
     with _client(tenant_id) as c:
@@ -828,11 +845,12 @@ variable_library_app = typer.Typer(
 
 
 @variable_library_app.command("create")
+@stops_on_tenant_error(exit_code=1)
 def vl_create_cmd(
     workspace_id: str = typer.Option(..., "--workspace-id"),
     display_name: str = typer.Option(..., "--name"),
     description: str = typer.Option(None, "--description"),
-    tenant_id: str = typer.Option(None, "--tenant-id"),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
 ) -> None:
     """Create a Variable Library (display-name only; no bundled definition)."""
     with _client(tenant_id) as c:
@@ -852,9 +870,10 @@ def vl_create_cmd(
 
 
 @variable_library_app.command("list")
+@stops_on_tenant_error(exit_code=1)
 def vl_list_cmd(
     workspace_id: str = typer.Option(..., "--workspace-id"),
-    tenant_id: str = typer.Option(None, "--tenant-id"),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
 ) -> None:
     """List all Variable Libraries in a workspace."""
     with _client(tenant_id) as c:
@@ -870,10 +889,11 @@ def vl_list_cmd(
 
 
 @variable_library_app.command("get")
+@stops_on_tenant_error(exit_code=1)
 def vl_get_cmd(
     variable_library_id: str = typer.Argument(...),
     workspace_id: str = typer.Option(..., "--workspace-id"),
-    tenant_id: str = typer.Option(None, "--tenant-id"),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
 ) -> None:
     """Fetch a single Variable Library by id."""
     with _client(tenant_id) as c:
@@ -889,12 +909,13 @@ def vl_get_cmd(
 
 
 @variable_library_app.command("update")
+@stops_on_tenant_error(exit_code=1)
 def vl_update_cmd(
     variable_library_id: str = typer.Argument(...),
     workspace_id: str = typer.Option(..., "--workspace-id"),
     display_name: str = typer.Option(None, "--name"),
     description: str = typer.Option(None, "--description"),
-    tenant_id: str = typer.Option(None, "--tenant-id"),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
 ) -> None:
     """Patch a Variable Library's display-name / description."""
     with _client(tenant_id) as c:
@@ -909,12 +930,13 @@ def vl_update_cmd(
 
 
 @variable_library_app.command("delete")
+@stops_on_tenant_error(exit_code=1)
 def vl_delete_cmd(
     variable_library_id: str = typer.Argument(...),
     workspace_id: str = typer.Option(..., "--workspace-id"),
     force: bool = typer.Option(False, "--force", help="REQUIRED: acknowledges destruction."),
     runbook_id: str = typer.Option(None, "--runbook-id"),
-    tenant_id: str = typer.Option(None, "--tenant-id"),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
 ) -> None:
     """Delete a Variable Library (destructive; requires --force)."""
     with _client(tenant_id) as c:
@@ -942,12 +964,13 @@ env_app = typer.Typer(
 
 
 @env_app.command("sync")
+@stops_on_tenant_error(exit_code=1)
 def env_sync_cmd(
     workspace_id: str = typer.Option(..., "--workspace-id"),
     environment_id: str = typer.Option(..., "--environment-id"),
     wheel: str = typer.Option(..., "--wheel", help="Path to the .whl file."),
     expected_sha256: str = typer.Option(None, "--expected-sha256"),
-    tenant_id: str = typer.Option(None, "--tenant-id"),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
 ) -> None:
     """Upload + publish a wheel to a Fabric Environment."""
     with _client(tenant_id) as c:
@@ -971,6 +994,7 @@ def env_sync_cmd(
 
 
 @env_app.command("sync-all")
+@stops_on_tenant_error(exit_code=1)
 def env_sync_all_cmd(
     manifest: str = typer.Option(..., "--manifest", help="Path to the environments.yml manifest."),
     include_gated: bool = typer.Option(
@@ -995,7 +1019,7 @@ def env_sync_all_cmd(
         "--fail-fast",
         help="Stop at the first failure (default: isolate and continue).",
     ),
-    tenant_id: str = typer.Option(None, "--tenant-id"),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
 ) -> None:
     """Fan a wheel set out across many Fabric Environments from a config manifest.
 
@@ -1029,6 +1053,7 @@ def env_sync_all_cmd(
 
 
 @env_app.command("reconcile")
+@stops_on_tenant_error(exit_code=1)
 def env_reconcile_cmd(
     workspace_id: str = typer.Option(..., "--workspace-id"),
     environment_id: str = typer.Option(..., "--environment-id"),
@@ -1036,7 +1061,7 @@ def env_reconcile_cmd(
         ..., "--wheel", help="Path to a desired .whl (repeatable; one per package)."
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Plan only; no delete/upload/publish."),
-    tenant_id: str = typer.Option(None, "--tenant-id"),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
 ) -> None:
     """Reconcile an Environment's custom libraries to the desired wheel versions.
 

@@ -8,8 +8,9 @@ CLI conventions (carried from Plan 03-01 / 03-02):
 - Default output mode is opt-in by command (``label-sync`` defaults to
   JSON; ``rbac-audit`` defaults to CSV) since auditors want CSV out of
   the box and label-sync output is more readable as JSON.
-- ``--tenant-id`` threads through to ``get_token_provider`` so multi-tenant
-  callers pin the credential chain (Pitfall P1-6).
+- ``--tenant-id`` (default ``core.tenant_id`` in the settings, see
+  :mod:`sigantry_core._cli_tenant`) threads through to ``get_token_provider``,
+  whose credential refuses a token from any other tenant (Pitfall P1-6).
 - SP detection probes ``TokenProvider.last_credential_class(FABRIC_SCOPE)``;
   ``--sp`` / ``--user`` overrides the auto-detection.
 """
@@ -24,9 +25,11 @@ from typing import Any
 import typer
 from rich.console import Console
 
+from sigantry_core._cli_tenant import TENANT_ID_HELP, resolve_tenant_id, stops_on_tenant_error
 from sigantry_core.auth import FABRIC_SCOPE, get_token_provider
 from sigantry_core.client import FabricRestClient, PowerBIRestClient
 from sigantry_core.governance.labels import apply_label_to_workspace_items
+from sigantry_core.governance.principal_expansion import _GraphClient
 from sigantry_core.governance.rbac import audit, write_csv
 
 label_sync_app = typer.Typer(
@@ -75,10 +78,11 @@ def _detect_sp(tenant_id: str | None) -> bool:
 
 
 @label_sync_app.callback()
+@stops_on_tenant_error(exit_code=1)
 def label_sync(
     workspace_id: str = typer.Option(..., "--workspace-id", help="Workspace id (UUID)."),
     label_id: str = typer.Option(..., "--label-id", help="Sensitivity label id (GUID)."),
-    tenant_id: str = typer.Option(None, "--tenant-id"),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
     sp: bool = typer.Option(
         None,
         "--sp/--user",
@@ -98,6 +102,7 @@ def label_sync(
     sub-command, which prevents subsequent options from being parsed
     correctly. Documented as Rule 1 deviation in SUMMARY.
     """
+    tenant_id = resolve_tenant_id(tenant_id)
     running_as_sp = sp if sp is not None else _detect_sp(tenant_id)
 
     with (
@@ -137,8 +142,9 @@ def _rbac_row_dict(r: Any) -> dict[str, Any]:
 
 
 @rbac_audit_app.callback()
+@stops_on_tenant_error(exit_code=1)
 def rbac_audit(
-    tenant_id: str = typer.Option(None, "--tenant-id"),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
     output: str = typer.Option("csv", "--output", "-o", help="csv|json"),
     workspace_id: list[str] = typer.Option(  # noqa: B008 -- typer convention: Option() lives in the default
         None,
@@ -181,15 +187,18 @@ def rbac_audit(
     if out and out_dir:
         raise typer.BadParameter("--out and --out-dir are mutually exclusive")
     scope_ids = list(workspace_id) if workspace_id else None
+    tenant_id = resolve_tenant_id(tenant_id)
 
     with (
         FabricRestClient.from_defaults(tenant_id=tenant_id) as fabric,
         PowerBIRestClient.from_defaults(tenant_id=tenant_id) as powerbi,
+        # Group expansion reads Microsoft Graph: same tenant pin.
+        _GraphClient.from_defaults(tenant_id=tenant_id) as graph,
     ):
         try:
             # Materialise before any file is created: a typo'd workspace id
             # (ValueError from the 404 resolve) must not leave a partial file.
-            rows = list(audit(fabric, powerbi, workspace_ids=scope_ids))
+            rows = list(audit(fabric, powerbi, graph_client=graph, workspace_ids=scope_ids))
         except ValueError as e:
             raise typer.BadParameter(str(e)) from e
 
@@ -220,13 +229,12 @@ def rbac_audit(
 
 
 @tenant_settings_app.command("export")
+@stops_on_tenant_error(exit_code=1)
 def tenant_settings_export(
     output: str = typer.Option(
         None, "--output", help="File path to write baseline (default: stdout)."
     ),
-    tenant_id: str = typer.Option(
-        None, "--tenant-id", help="Optional AAD tenant id pinning the credential chain."
-    ),
+    tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
 ) -> None:
     """Export Fabric admin tenant-settings baseline (GOV-05).
 
@@ -245,6 +253,7 @@ def tenant_settings_export(
         write_baseline,
     )
 
+    tenant_id = resolve_tenant_id(tenant_id)
     with FabricRestClient.from_defaults(tenant_id=tenant_id) as fabric:
         envelope: TenantSettingBaseline = export_baseline(fabric, tenant_id=tenant_id or "")
     payload = envelope.to_dict()
