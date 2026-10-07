@@ -135,8 +135,23 @@ stages:
           - template: ../steps/sigantry-install.yml
             parameters:
               sigantryVersion: ${{ parameters.sigantryVersion }}
-          - script: ${{ parameters.integrationCommand }}
+          - script: |
+              set -e
+              # The default integrationCommand is pytest, which sigantry does not
+              # depend on: install it and the consumer repo's test extras, as the
+              # GHA half does. A repo without a package skips the extras.
+              python -m pip install pytest
+              if [ -f pyproject.toml ] || [ -f setup.py ]; then python -m pip install '.[dev,test]'; fi
+            displayName: 'pip install the test extras'
+          - task: AzureCLI@2
             displayName: 'Run integration command'
+            # Under the service connection, so a sigantry_pipeline test that
+            # reaches Fabric has a credential (the GHA half logs in for this job).
+            inputs:
+              azureSubscription: ${{ parameters.serviceConnection }}
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: ${{ parameters.integrationCommand }}
 
   - stage: promote
     displayName: 'Promote (record release)'

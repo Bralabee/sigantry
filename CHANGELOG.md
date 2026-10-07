@@ -74,7 +74,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the actor; and `templates/steps/sigantry-install.yml` installs sigantry
   in every ADO stage that runs it. A `workflow_call:` caller must grant
   `id-token: write` (and `actions: read` for CD) itself; the runbooks show
-  the caller block.
+  the caller block. Review round 1 on the change: the deploy and
+  integration jobs declare `environment: <environment>` as promote does, so
+  every Fabric job's OIDC subject is `repo:<org>/<repo>:environment:<environment>`,
+  the one subject the runbook's federated credential names (a ref-based
+  subject failed the login); that environment carries no reviewers. The
+  approver lookup keeps only approvals for `ghApprovalEnvironment`, reports
+  an API error instead of hiding it, and outranks the `approver` input
+  (which is now the fallback before the actor, each with a warning). The
+  ADO integration stage installs `pytest` and the consumer's `[dev,test]`
+  extras and runs the command under the service connection, as the GHA half
+  does; the ADO deploy step pins the version through `env:` too.
 - **Contract canaries follow fabric-cicd 1.4.0.** CI resolves
   `fabric-cicd>=1.0,<2.0` to 1.4.0, whose flag-gated `$ENV:` replacement
   now reads the plain variable name (`$ENV:FOO` -> `os.environ["FOO"]`)

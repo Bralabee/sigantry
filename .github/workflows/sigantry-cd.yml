@@ -20,7 +20,11 @@
 # chain. Only those jobs hold `id-token: write`, and only promote holds
 # `actions: read` to read the run's approval record; a caller using
 # `workflow_call:` must grant both in its own `permissions:` block, or
-# GitHub caps them. `sigantryVersion` pins the package in every job
+# GitHub caps them. Those jobs also declare `environment: inputs.environment`
+# so their OIDC token subject is `repo:<org>/<repo>:environment:<environment>`,
+# the one subject the federated credential names; that environment carries
+# no required reviewers (the reviewers sit on `ghApprovalEnvironment`).
+# `sigantryVersion` pins the package in every job
 # (empty = latest). Operator inputs reach bash through `env:` only
 # (WR-05), never interpolated into a script.
 #
@@ -107,6 +111,7 @@ jobs:
     name: Deploy
     runs-on: ubuntu-latest
     needs: [approval]
+    environment: ${{ inputs.environment }}   # OIDC subject; no reviewers on this environment
     permissions:
       contents: read
       id-token: write   # azure/login OIDC token, this job only
@@ -152,6 +157,7 @@ jobs:
     name: Integration
     runs-on: ubuntu-latest
     needs: [smoke]
+    environment: ${{ inputs.environment }}   # OIDC subject; no reviewers on this environment
     permissions:
       contents: read
       id-token: write   # azure/login OIDC token, this job only
@@ -200,28 +206,40 @@ jobs:
         run: pip install "sigantry${SIGANTRY_VERSION:+==$SIGANTRY_VERSION}"
       - name: Resolve the approver from the run's approval record
         id: approver
-        # The ledger's approver is whoever cleared the approval gate, which
-        # GitHub records per run; the actor who started the run is only a
-        # fallback, and the step says so when it has to use it.
+        # The ledger's approver is whoever cleared the approval gate
+        # (`ghApprovalEnvironment`), which GitHub records per run. That record
+        # is authoritative: the operator-typed `approver` input is only a
+        # fallback, the actor who started the run the last one, and the step
+        # says so whenever it falls back or ignores the input. An API error
+        # (a caller that did not grant `actions: read`) is reported, not hidden.
         env:
           GH_TOKEN: ${{ github.token }}
           SIGANTRY_APPROVER_INPUT: ${{ inputs.approver }}
+          SIGANTRY_GATE_ENVIRONMENT: ${{ inputs.ghApprovalEnvironment }}
           SIGANTRY_RUN_ID: ${{ github.run_id }}
           SIGANTRY_REPOSITORY: ${{ github.repository }}
           SIGANTRY_ACTOR: ${{ github.actor }}
         run: |
           set -e
-          if [ -n "$SIGANTRY_APPROVER_INPUT" ]; then
+          login=""
+          if approvals=$(gh api "repos/$SIGANTRY_REPOSITORY/actions/runs/$SIGANTRY_RUN_ID/approvals" 2>&1); then
+            login=$(jq -r --arg env "$SIGANTRY_GATE_ENVIRONMENT" \
+              '[.[] | select(.state == "approved") | select(any(.environments[]?; .name == $env))] | last | .user.login // empty' \
+              <<< "$approvals")
+          else
+            echo "::warning::could not read the approval record for run $SIGANTRY_RUN_ID (does the caller grant actions: read?): $approvals"
+          fi
+          if [ -n "$login" ]; then
+            approver="${login}@users.noreply.github.com"
+            if [ -n "$SIGANTRY_APPROVER_INPUT" ] && [ "$SIGANTRY_APPROVER_INPUT" != "$approver" ]; then
+              echo "::warning::approver input ignored: the approval record for $SIGANTRY_GATE_ENVIRONMENT names $login"
+            fi
+          elif [ -n "$SIGANTRY_APPROVER_INPUT" ]; then
+            echo "::warning::no approval record for $SIGANTRY_GATE_ENVIRONMENT in run $SIGANTRY_RUN_ID; recording the operator-supplied approver"
             approver="$SIGANTRY_APPROVER_INPUT"
           else
-            login=$(gh api "repos/$SIGANTRY_REPOSITORY/actions/runs/$SIGANTRY_RUN_ID/approvals" \
-              --jq '[.[] | select(.state == "approved")] | last | .user.login // empty' 2>/dev/null || true)
-            if [ -n "$login" ]; then
-              approver="${login}@users.noreply.github.com"
-            else
-              echo "::warning::no approval record for run $SIGANTRY_RUN_ID; recording the run actor, who may not be the approver"
-              approver="${SIGANTRY_ACTOR}@users.noreply.github.com"
-            fi
+            echo "::warning::no approval record for $SIGANTRY_GATE_ENVIRONMENT in run $SIGANTRY_RUN_ID; recording the run actor, who may not be the approver"
+            approver="${SIGANTRY_ACTOR}@users.noreply.github.com"
           fi
           echo "approver=$approver" >> "$GITHUB_OUTPUT"
       - name: sigantry release record

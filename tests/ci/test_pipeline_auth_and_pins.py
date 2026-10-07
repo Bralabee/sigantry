@@ -205,3 +205,54 @@ def test_gha_promote_records_the_reviewer_from_the_approval_record() -> None:
     record = next(s for s in steps if s.get("name") == "sigantry release record")
     assert record["env"]["SIGANTRY_APPROVER"] == "${{ steps.approver.outputs.approver }}"
     assert steps.index(resolve) < steps.index(record)
+
+
+# ---------------------------------------------------------------------------
+# Review round 1 on PR #87: one OIDC subject for every Fabric job, the approver
+# record scoped to the gate and above the input, the ADO integration stage
+# able to run its default command, the deploy step pinned through env.
+# ---------------------------------------------------------------------------
+
+ADO_DEPLOY_STEP = ADO_INSTALL.with_name("fabric-deploy.yml")
+
+
+def test_gha_fabric_jobs_declare_the_environment_for_the_oidc_subject() -> None:
+    """deploy and integration logged in with a ref-based token subject while the
+    runbook's one federated credential names the environment (AADSTS700213)."""
+    doc = _load(GHA_CD)
+    for job in ("deploy", "integration", "promote"):
+        assert doc["jobs"][job].get("environment") == "${{ inputs.environment }}", job
+    assert doc["jobs"]["approval"]["environment"] == "${{ inputs.ghApprovalEnvironment }}"
+    assert "environment" not in doc["jobs"]["smoke"], "smoke reaches no Fabric endpoint"
+
+
+def test_gha_approver_record_is_scoped_to_the_gate_and_outranks_the_input() -> None:
+    doc = _load(GHA_CD)
+    resolve = next(s for s in _steps(doc, "promote") if s.get("id") == "approver")
+    run = resolve["run"]
+    assert resolve["env"]["SIGANTRY_GATE_ENVIRONMENT"] == "${{ inputs.ghApprovalEnvironment }}"
+    assert "--arg env" in run and ".name == $env" in run, "filter on the gate environment"
+    assert "2>/dev/null" not in run and "|| true" not in run, "an API error must be said"
+    assert run.index("/approvals") < run.index('-n "$SIGANTRY_APPROVER_INPUT"'), (
+        "the record is read first; the input is a fallback"
+    )
+    assert run.count("::warning::") >= 3
+
+
+def test_ado_integration_stage_installs_pytest_and_runs_under_the_service_connection() -> None:
+    doc = _load(ADO_CD)
+    steps = _ado_job_steps(_ado_stage(doc, "integration"))
+    extras = next(s for s in steps if "pip install pytest" in s.get("script", ""))
+    assert "'.[dev,test]'" in extras["script"]
+    run = next(s for s in steps if s.get("task") == "AzureCLI@2")
+    assert run["inputs"]["azureSubscription"] == "${{ parameters.serviceConnection }}"
+    assert run["inputs"]["inlineScript"] == "${{ parameters.integrationCommand }}"
+    assert steps.index(extras) < steps.index(run)
+
+
+def test_ado_deploy_step_template_pins_through_env() -> None:
+    doc = _load(ADO_DEPLOY_STEP)
+    script = next(s for s in doc["steps"] if "script" in s)
+    assert "${{" not in script["script"], "the version must not be interpolated (WR-05)"
+    assert script["env"]["SIGANTRY_VERSION"] == "${{ parameters.fabricDataopsVersion }}"
+    assert _INSTALL in script["script"]

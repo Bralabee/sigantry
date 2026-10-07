@@ -80,7 +80,9 @@ This is the boundary the five-stage pipeline enforces -- ADR-0012 formalises the
      in causal order.
 
 3. Confirm the workload-identity-federation service connection is granted
-   access to the environment.
+   access to the environment. The deploy, integration and promote stages run
+   under it (`AzureCLI@2`); the integration stage also installs `pytest` and
+   the consumer repo's `[dev,test]` extras before the `integrationCommand`.
 
 ## 3. Operator setup -- GHA side
 
@@ -89,11 +91,16 @@ This is the boundary the five-stage pipeline enforces -- ADR-0012 formalises the
    - Name: e.g. `production`.
    - Required reviewers -> Add the named reviewer(s).
 
-2. The Sigantry GHA workflow declares the protected
-   `environment:` on the **`approval` job only**, NOT on `promote`.
-   This is intentional: a single approval prompt covers the workflow.
-   If you attach the same protected environment to `promote` in your
-   own consumer workflow, your reviewers will be prompted twice.
+2. The Sigantry GHA workflow declares the protected environment
+   (`ghApprovalEnvironment`) on the **`approval` job only**. This is
+   intentional: a single approval prompt covers the workflow. The `deploy`,
+   `integration` and `promote` jobs declare `environment: <environment>`
+   (the `environment` input, the parameters.yml key) so their OIDC token
+   subject is `repo:<org>/<repo>:environment:<environment>`; create that
+   GitHub environment too, **without required reviewers**, or your
+   reviewers will be prompted three more times. `promote` reads the
+   approver from the run's approval record for `ghApprovalEnvironment`;
+   a reviewer on the deploy environment would not be the one recorded.
 
 3. The GHA equivalent of the exclusive lock: the workflow already carries
    `concurrency: { group: deploy-${{ inputs.environment }}, cancel-in-progress: false }`
@@ -106,7 +113,8 @@ Both halves accept the same parameter surface, with intentional
 per-platform divergences for authentication (the parameters marked ADO or
 GHA below). GHA signs in with `azure/login` through OIDC (no secret: a
 federated credential on the app registration, subject
-`repo:<org>/<repo>:environment:<ghApprovalEnvironment or environment>`);
+`repo:<org>/<repo>:environment:<environment>`, one credential for the three
+jobs that reach Fabric);
 ADO uses the workload-identity service connection.
 
 | Parameter | Required | Default | Purpose |
@@ -126,7 +134,7 @@ ADO uses the workload-identity service connection.
 | `ghApprovalEnvironment` (GHA) | yes | -- | GitHub env with required_reviewers |
 | `releaseId` | no | `$(Build.BuildId)` (ADO) / `${{ github.run_id }}` (GHA) | See section 7 (collision guidance) |
 | `workItems` | no | `''` | Comma-separated WI ids |
-| `approver` | no | `$(Build.RequestedForEmail)` (ADO) / GitHub actor (GHA) | Recorded on the DeployRecord |
+| `approver` | no | `$(Build.RequestedForEmail)` (ADO) / the run's approval record for `ghApprovalEnvironment` (GHA) | Recorded on the DeployRecord. GHA: the record wins; this input is the fallback when no record is found, then the run actor, each with a warning |
 
 Override per-env in `parameters.yml` (consumer-repo-owned) or per-run
 via the platform's pipeline/workflow inputs.
