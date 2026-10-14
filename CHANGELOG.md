@@ -112,6 +112,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     these commands where that file is read now gets the GUID refusal.
 
 ### Fixed
+- **The starter and demo PR-bot workflows no longer fail at "Set up
+  Python" (#72).** `templates/starter/.github/workflows/pr-bot.yml` and its
+  byte-equal demo copy set `cache: 'pip'` on `actions/setup-python`, which
+  needs a `requirements.txt` or `pyproject.toml` to key the cache; neither
+  tree ships one, so on a runner with a cache service the step failed and
+  the PR bot never ran. The input is removed from both, as it already was
+  from the demo CI workflow; the workflows install sigantry with
+  `pip install` and have no dependency file to cache. A test now fails for
+  any template workflow that asks for a pip cache in a tree with no
+  dependency file.
 - **Bootstrap folder convergence matches top-level folders only (#65).**
   `workspace bootstrap` creates every blueprint or `folders.list` folder at
   the workspace root, but it matched existing folders by name across the whole
