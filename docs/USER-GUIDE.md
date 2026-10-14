@@ -450,8 +450,9 @@ installed alongside `sigantry`, not a subcommand:
 ```bash
 diagnose-auth
 # exit 0 = healthy; 2 = degraded (token works but a prerequisite such
-# as the tenant toggle is missing); 3 = no credential produced a token,
-# or none from the pinned tenant (section 6.3)
+# as the tenant toggle is missing, or a probe got no response and its
+# result is `error`); 3 = no credential produced a token, or none from
+# the pinned tenant (section 6.3)
 ```
 
 Only a run with the Fabric scope (the default, `--scope fabric`) checks
@@ -466,6 +467,15 @@ group check reported as `error` carries an `entra_groups.classification`, such
 as `permission_denied` or `token_unavailable`, and a detail. `names_hidden`
 means some memberships came back without their names and none of the named
 ones is the group; its detail asks for `GroupMember.Read.All`.
+
+The check reads the principal's direct memberships (Graph `memberOf`). Only
+when the group is not among them does it send a second Graph request, to
+`transitiveMemberOf`. If the principal is in the group only through another
+group, the check reports `missing` with the classification `nested_only`
+(exit 2): Fabric does not document support for nested groups in tenant
+settings, so add the principal to the group directly. If that second request
+fails, the check still reports `missing`, and its detail says nested
+membership could not be checked.
 
 ### 6.3 Pinning the tenant
 

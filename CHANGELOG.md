@@ -57,6 +57,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parameter file", reproduced on a DEV deploy whose binding named only PROD).
 
 ### Changed
+- **The pre-commit mypy hook runs CI's command in the project environment
+  (#21).** The `mirrors-mypy` hook type-checked `sigantry_core/` in an
+  isolated environment that lacked runtime types the project environment
+  has, so `pre-commit run mypy --all-files` reported 11 errors while CI's
+  `mypy sigantry_core/ scripts/` was clean. It is replaced by a `repo: local`,
+  `language: system` hook whose entry is that CI command (both roots,
+  `pass_filenames: false`), with no mirrored dependency list. The hook now
+  needs the project environment active; CONTRIBUTING.md says so.
+- **`diagnose-auth` tells a nested group membership from a missing one
+  (#75).** The Entra group check reads `memberOf`, which Microsoft documents
+  as direct memberships only, so a principal in the expected group through
+  another group read as `missing` with the detail "not in <group>". The check
+  still reads `memberOf` first; only when that would end as `missing` does it
+  send a second Microsoft Graph request, to `transitiveMemberOf` for the same
+  principal (`$count=true` with `ConsistencyLevel: eventual`; the same
+  next-link and page rules). If the group is listed there, the result stays
+  `missing` (exit 2) with the new classification `nested_only`, and the detail
+  says the principal is a member only through another group, that Fabric does
+  not document support for nested groups in tenant settings, and to add the
+  principal to the group directly. If that read fails, the `missing` result
+  is unchanged except that its detail ends "nested membership could not be
+  checked". `GroupCheckClassification` gains `nested_only`; exit codes are
+  unchanged.
 - **Classifier `Development Status :: 4 - Beta`** (was `5 - Production/Stable`).
   The project has one maintainer, every review is by the author, and the
   CHANGELOG's own "Known remaining" list is not empty. The classifier now
@@ -97,6 +120,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     these commands where that file is read now gets the GUID refusal.
 
 ### Fixed
+- **The docs link check fails a link into `.planning/` (#46).**
+  `tests/prereqs/test_wiki_links.py` skipped a broken link whose target was
+  inside `.planning/` whenever that directory was absent. It is gitignored,
+  so it is absent from every fresh clone, CI included, and such a link
+  passed CI although it is dead for every reader. The exemption is removed;
+  a link into any directory missing from the tree now fails like any other
+  dead link, and a test plants one to show it. No tracked doc links into
+  `.planning/` today, so no link needed fixing.
+- **The starter and demo PR-bot workflows no longer fail at "Set up
+  Python" (#72).** `templates/starter/.github/workflows/pr-bot.yml` and its
+  byte-equal demo copy set `cache: 'pip'` on `actions/setup-python`, which
+  needs a `requirements.txt` or `pyproject.toml` to key the cache; neither
+  tree ships one, so on a runner with a cache service the step failed and
+  the PR bot never ran. The input is removed from both, as it already was
+  from the demo CI workflow; the workflows install sigantry with
+  `pip install` and have no dependency file to cache. A test now fails for
+  any template workflow that asks for a pip cache in a tree with no
+  dependency file.
+- **Bootstrap folder convergence matches top-level folders only (#65).**
+  `workspace bootstrap` creates every blueprint or `folders.list` folder at
+  the workspace root, but it matched existing folders by name across the whole
+  listing, so a nested folder with a desired name (for example `99_retired`
+  under another folder) counted as the top-level one: that folder was never
+  created, the nested one was reported in `folders_present` and in the
+  BootstrapRecord, and later runs reported the layout as converged. Now only a
+  folder with no parent can satisfy a desired name, in the real run and in the
+  dry run. A re-run may therefore create top-level folders that earlier runs
+  skipped; the dry run lists them in `folders_created` first.
+- **`diagnose-auth` reports a probe that cannot connect instead of exiting
+  with a traceback (#74).** When the first request of the Fabric
+  tenant-settings probe or of the Entra group check got no response
+  (connection refused, read timeout), the exception escaped and the command
+  exited 1 with a traceback and no report. Now the command prints its normal
+  report and exits 2, and the probe's result is `error`, with a detail that
+  names the exception type and says the result is unknown. Library change:
+  `check_tenant_toggles` and `check_entra_group` no longer raise
+  `httpx.HTTPError`; `check_tenant_toggles` returns `status="error"`,
+  `classification="other"` (a status it did not return before), and
+  `check_entra_group` returns the `error` / `other` result it already
+  returned for a later `memberOf` page.
 - **`--tenant-id` pins the tenant.** Measured at 1.0.1:
   `TokenProvider(tenant_id=X)` only added X to `DefaultAzureCredential`'s
   `additionally_allowed_tenants` and requested every token without a tenant,

@@ -670,9 +670,10 @@ def test_one_blueprint_name_present_does_not_silence_the_warning(
     where: str,
     dry_run: bool,
 ) -> None:
-    """A blueprint name already in the workspace, nested or at the top level,
-    is not created again, but the other seven still land at the top level
-    beside the workspace's other top-level folders, so bootstrap warns."""
+    """A blueprint name already at the top level is not created again, but the
+    other seven still land at the top level beside the workspace's other
+    top-level folders, so bootstrap warns. A nested folder with that name is
+    a different folder (issue #65): all eight are created, and it still warns."""
     cfg = load_and_validate(_write_yaml(tmp_path, _minimal_yaml()))
     caplog.set_level(logging.WARNING, logger=_BOOTSTRAP_LOGGER)
     matched = cfg.folder_list[-1]
@@ -681,7 +682,12 @@ def test_one_blueprint_name_present_does_not_silence_the_warning(
 
     result, cf = _run_on_existing_workspace(tmp_path, stub_client, cfg, listed, dry_run=dry_run)
 
-    to_create = [name for name in cfg.folder_list if name != matched]
+    if where == "nested":
+        to_create = list(cfg.folder_list)
+        created = "all 8 of the blueprint's folders"
+    else:
+        to_create = [name for name in cfg.folder_list if name != matched]
+        created = "7 of the blueprint's 8 folders"
     if dry_run:
         cf.assert_not_called()
     else:
@@ -698,7 +704,7 @@ def test_one_blueprint_name_present_does_not_silence_the_warning(
         in message
     )
     # The count is the one the folder step creates (or would create).
-    assert f"bootstrap {action} 7 of the blueprint's 8 folders at the top level" in message
+    assert f"bootstrap {action} {created} at the top level" in message
     for name in (*_UNRELATED, _NESTED, *cfg.folder_list):
         assert name not in message
     assert _bootstrap_warnings(caplog) == [message]
@@ -949,3 +955,62 @@ def test_cli_prints_the_warning_on_stderr_and_in_the_report_only_when_it_fires(
     cf.assert_not_called()
     assert "sigantry: warning:" not in result.stderr
     assert set(json.loads(result.stdout)) == _REPORT_KEYS_1_0_0
+
+
+# ---------------------------------------------------------------------------
+# Issue #65: a nested folder never stands in for a top-level one
+# ---------------------------------------------------------------------------
+
+
+def _nested_retired_layout(cfg: BootstrapConfig) -> list[Folder]:
+    """Every blueprint folder at the top level except ``99_retired``.
+
+    ``99_retired`` exists only nested under ``old-a``, a top-level folder
+    the blueprint does not know.
+    """
+    top = [n for n in cfg.folder_list if n != "99_retired"]
+    return (
+        _folders(top)
+        + _folders(["old-a"])
+        + [
+            Folder(
+                id="f-old-a-99_retired",
+                display_name="99_retired",
+                parent_folder_id="f-old-a",
+                workspace_id=_VALID_WORKSPACE,
+            )
+        ]
+    )
+
+
+def test_a_nested_folder_with_a_blueprint_name_does_not_satisfy_the_top_level_one(
+    tmp_path: Path, stub_client: MagicMock
+) -> None:
+    cfg = load_and_validate(_write_yaml(tmp_path, _minimal_yaml()))
+    assert "99_retired" in cfg.folder_list
+
+    result, cf = _run_on_existing_workspace(tmp_path, stub_client, cfg, _nested_retired_layout(cfg))
+
+    assert [c.kwargs for c in cf.call_args_list] == [
+        {"display_name": "99_retired", "parent_folder_id": None}
+    ]
+    assert result.step_outcomes["folders"] == "created"
+    assert result.record.folders_created == ["99_retired"]
+    retired = [f for f in result.folders if f.display_name == "99_retired"]
+    assert [(f.id, f.parent_folder_id) for f in retired] == [("f-99_retired", None)]
+
+
+def test_the_dry_run_reports_the_top_level_folder_as_to_be_created(
+    tmp_path: Path, stub_client: MagicMock
+) -> None:
+    cfg = load_and_validate(_write_yaml(tmp_path, _minimal_yaml()))
+
+    result, cf = _run_on_existing_workspace(
+        tmp_path, stub_client, cfg, _nested_retired_layout(cfg), dry_run=True
+    )
+
+    cf.assert_not_called()
+    assert result.step_outcomes["folders"] == "created"
+    assert result.record.folders_created == ["99_retired"]
+    assert all(f.parent_folder_id is None for f in result.folders)
+    assert "f-old-a-99_retired" not in {f.id for f in result.folders}

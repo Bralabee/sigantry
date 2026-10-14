@@ -50,6 +50,12 @@ python -m pytest      # expect a non-zero test count, not just exit 0
 These are the same four commands CI runs; `scripts/` and `mypy` are not
 optional extras, they are required status checks on `main`.
 
+To run the checks at commit time, `pre-commit install` once per clone. The
+mypy hook runs `mypy sigantry_core/ scripts/` with the `mypy` of the active
+environment (`language: system`), the same command CI runs, so activate the
+project environment before you commit; without it the hook cannot find
+`mypy`, or runs another environment's.
+
 Do **not** add `-q`: `pyproject.toml` already sets it in `addopts`, so a
 second one makes `-qq`, which suppresses the pass/fail summary entirely.
 You get `rc=0` and no counts -- indistinguishable from a run that
