@@ -60,6 +60,7 @@ from sigantry_core._cli_tenant import (
     resolve_tenant_id,
     stops_on_tenant_error,
 )
+from sigantry_core._cli_text import plain_text
 from sigantry_core.config import ToolkitSettings
 from sigantry_core.deploy.parameters import (
     HardcodedGuidError,
@@ -384,32 +385,37 @@ def apply_cmd(
             tenant_id=pinned,
         )
     except ManifestValidationError as exc:
-        _console.print(f"[red]Manifest validation failed:[/red] {exc}")
+        # Violations quote manifest names and paths; Text is not read as markup.
+        _console.print(Text.assemble(("Manifest validation failed:", "red"), f" {exc}"))
         for v in exc.violations:
-            _console.print(f"  [yellow]-[/yellow] {v}")
+            _console.print(Text.assemble("  ", ("-", "yellow"), f" {v}"))
         raise typer.Exit(code=1) from exc
     except WorkspacePendingGitUpdateError as exc:
-        _console.print(f"[red]{exc}[/red]")
+        _console.print(plain_text(exc, style="red"))
         raise typer.Exit(code=2) from exc
     except SyncEngineError as exc:
         exit_on_tenant_error(exc, exit_code=1)
-        _console.print(f"[red]sync apply failed:[/red] {exc}")
+        _console.print(Text.assemble(("sync apply failed:", "red"), f" {exc}"))
         raise typer.Exit(code=1) from exc
 
     if report.outcome == "dry_run":
         _console.print(
-            f"[cyan]dry-run[/cyan] would create "
-            f"{report.folders_created} folder(s) and move "
-            f"{report.items_moved} item(s) for {report.items_packaged} "
-            f"manifest item(s)."
+            Text.assemble(
+                ("dry-run", "cyan"),
+                f" would create {report.folders_created} folder(s) and move "
+                f"{report.items_moved} item(s) for {report.items_packaged} "
+                "manifest item(s).",
+            )
         )
     else:
         _console.print(
-            f"[green]sync apply succeeded[/green] "
-            f"release_id={report.deploy_record_release_id} "
-            f"items_packaged={report.items_packaged} "
-            f"folders_created={report.folders_created} "
-            f"items_moved={report.items_moved}"
+            Text.assemble(
+                ("sync apply succeeded", "green"),
+                f" release_id={report.deploy_record_release_id}"
+                f" items_packaged={report.items_packaged}"
+                f" folders_created={report.folders_created}"
+                f" items_moved={report.items_moved}",
+            )
         )
         # D-26-bis: surface the sync-apply-vs-deploy-run boundary at the
         # exact moment an operator is most likely to be confused by it
@@ -429,13 +435,16 @@ def apply_cmd(
             and report.items_moved == 0
         ):
             _console.print(
-                f"[yellow]note:[/yellow] {report.items_packaged} manifest "
-                f"item(s) were staged locally but `sync apply` does not "
-                f"publish new items to the workspace. Run "
-                f"[cyan]sigantry deploy run[/cyan] (or POST "
-                f"`/v1/workspaces/{{id}}/items` directly) to create "
-                f"first-time items. See docs/runbooks/sync/apply.md "
-                f"section 1.1."
+                Text.assemble(
+                    ("note:", "yellow"),
+                    f" {report.items_packaged} manifest "
+                    "item(s) were staged locally but `sync apply` does not "
+                    "publish new items to the workspace. Run ",
+                    ("sigantry deploy run", "cyan"),
+                    " (or POST `/v1/workspaces/{id}/items` directly) to create "
+                    "first-time items. See docs/runbooks/sync/apply.md "
+                    "section 1.1.",
+                )
             )
 
         # S-T1a: the folder reconcile is committed (PUBLISH-05) but the
@@ -451,10 +460,12 @@ def apply_cmd(
         if report.publish_outcome is not None and report.publish_outcome != "succeeded":
             failed_item_note = f" failed_item={report.failed_item}" if report.failed_item else ""
             _console.print(
-                f"[red]publish {report.publish_outcome}[/red] "
-                f"release_id={report.deploy_record_release_id} "
-                f"(reconcile committed; publish did not fully succeed)"
-                f"{failed_item_note}"
+                Text.assemble(
+                    (f"publish {report.publish_outcome}", "red"),
+                    f" release_id={report.deploy_record_release_id}"
+                    " (reconcile committed; publish did not fully succeed)"
+                    f"{failed_item_note}",
+                )
             )
             raise typer.Exit(code=1)
 
@@ -510,9 +521,10 @@ def snapshot_cmd(
     if output:
         Path(output).write_text(text, encoding="utf-8")
         _console.print(
-            f"[green]wrote snapshot[/green] {output} "
-            f"folders={len(snap.folders_by_id)} "
-            f"items={len(snap.items_by_id)}"
+            Text.assemble(
+                ("wrote snapshot", "green"),
+                f" {output} folders={len(snap.folders_by_id)} items={len(snap.items_by_id)}",
+            )
         )
     else:
         sys.stdout.write(text)

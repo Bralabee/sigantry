@@ -233,6 +233,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   closes is an error instead of an empty diff. The name and fence rules apply
   to every file, tabbed or not. Tutorial 09 and the PR-bot runbook no longer
   call tabs a mistake. (#82)
+- **`sync`, `workspace`, `capacity`, `dq`, `doctor`, `preflight`,
+  `rbac-audit`, `tenant-settings` and `diagnose-auth` print data as
+  written.** They printed manifest values, workspace and item names, option
+  values, paths and error text as Rich markup, as `sigantry diff` did before
+  #35. Text holding a closing tag such as `[/old]` raised `MarkupError`: `sync
+  apply --dry-run` on a manifest item named `Sales [/old] v1.2` showed a
+  traceback instead of its validation errors, and `dq gate --gate
+  'nightly[/x]'` and `workspace bootstrap 'cfg[/x]/workspace.yml'` exited 1
+  instead of 2, their exit code for a configuration error. A word in square
+  brackets such as `[draft]` was dropped from the message. Every value now
+  reaches Rich as text; the labels keep their colours. The check that no
+  CLI print site hands Rich data as markup now covers every module that
+  imports Rich, whole, and fails when a module that imports Rich is left out
+  of it. (#80)
 - **Ledger location: respect `[release] audit_dir` and route `@destructive_op`.**
   The audit directory for release ledgers (`deploys.jsonl`, `approvals.jsonl`,
   `secret_changes.jsonl`, `destructive_ops.jsonl`, `bootstraps.jsonl`) now

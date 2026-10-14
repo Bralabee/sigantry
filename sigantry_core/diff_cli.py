@@ -56,6 +56,7 @@ from sigantry_core._cli_tenant import (
     resolve_tenant_id,
     stops_on_tenant_error,
 )
+from sigantry_core._cli_text import plain_text
 from sigantry_core.sync.diff import (
     DriftReport,
     diff_workspace_against_manifest,
@@ -78,16 +79,6 @@ _console = Console()
 _err_console = Console(stderr=True)
 
 
-def _data(value: object) -> Text:
-    """Wrap manifest, workspace or error text so Rich prints it as it is.
-
-    Rich parses ``[...]`` in a printed ``str`` as markup and ``:name:`` as an
-    emoji code. A :class:`~rich.text.Text` is not parsed, so a closing tag
-    such as ``[/old]`` cannot raise ``MarkupError`` and ``[draft]`` is kept.
-    """
-    return Text(str(value))
-
-
 def _render_human_table(report: DriftReport, *, environment: str) -> None:
     """Print the Rich Table view (D-25).
 
@@ -108,18 +99,18 @@ def _render_human_table(report: DriftReport, *, environment: str) -> None:
     for add_entry in report.added:
         table.add_row(
             "[cyan]+[/cyan] added",
-            _data(add_entry.get("type", "")),
-            _data(add_entry.get("display_name", "")),
-            _data(add_entry.get("folder_path", "")),
-            _data(add_entry.get("logical_id", "")),
+            plain_text(add_entry.get("type", "")),
+            plain_text(add_entry.get("display_name", "")),
+            plain_text(add_entry.get("folder_path", "")),
+            plain_text(add_entry.get("logical_id", "")),
         )
     for rem_entry in report.removed:
         table.add_row(
             "[red]-[/red] removed",
-            _data(rem_entry.get("type", "")),
-            _data(rem_entry.get("display_name", "")),
-            _data(rem_entry.get("folder_path", "")),
-            _data(rem_entry.get("logical_id", "")),
+            plain_text(rem_entry.get("type", "")),
+            plain_text(rem_entry.get("display_name", "")),
+            plain_text(rem_entry.get("folder_path", "")),
+            plain_text(rem_entry.get("logical_id", "")),
         )
     for mod_entry in report.modified:
         fields_changed: Any = mod_entry.get("fields_changed", [])
@@ -132,7 +123,7 @@ def _render_human_table(report: DriftReport, *, environment: str) -> None:
             "",
             "",
             "",
-            _data(f"{mod_entry.get('logical_id', '')}: {detail}"),
+            plain_text(f"{mod_entry.get('logical_id', '')}: {detail}"),
         )
     for unch_entry in report.unchanged:
         table.add_row(
@@ -140,7 +131,7 @@ def _render_human_table(report: DriftReport, *, environment: str) -> None:
             "",
             "",
             "",
-            _data(unch_entry.get("logical_id", "")),
+            plain_text(unch_entry.get("logical_id", "")),
         )
 
     _console.print(table)
@@ -227,9 +218,9 @@ def diff_cmd(
             manifest, workspace_id, tenant_id=resolve_tenant_id(tenant_id)
         )
     except ManifestValidationError as exc:
-        errors.print(Text.assemble(("Manifest validation failed:", "red"), " ", _data(exc)))
+        errors.print(Text.assemble(("Manifest validation failed:", "red"), " ", plain_text(exc)))
         for v in exc.violations:
-            errors.print(Text.assemble("  ", ("-", "yellow"), " ", _data(v)))
+            errors.print(Text.assemble("  ", ("-", "yellow"), " ", plain_text(v)))
         raise typer.Exit(code=2) from exc
     except WorkspacePendingGitUpdateError as exc:
         errors.print(Text(str(exc), style="red"))
@@ -240,7 +231,7 @@ def diff_cmd(
         # 2 (D-26) so CI runners can branch the same way they do for
         # WorkspacePendingGitUpdateError.
         exit_on_tenant_error(exc, exit_code=2)
-        errors.print(Text.assemble(("sigantry diff failed:", "red"), " ", _data(exc)))
+        errors.print(Text.assemble(("sigantry diff failed:", "red"), " ", plain_text(exc)))
         raise typer.Exit(code=2) from exc
 
     if output == "json":
@@ -258,7 +249,7 @@ def diff_cmd(
         if html_out:
             Path(html_out).write_text(html_content, encoding="utf-8")
             _console.print(
-                Text.assemble(("HTML drift report written to:", "green"), " ", _data(html_out))
+                Text.assemble(("HTML drift report written to:", "green"), " ", plain_text(html_out))
             )
         else:
             typer.echo(html_content)

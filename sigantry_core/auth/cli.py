@@ -366,7 +366,7 @@ def _emit(output: str, report: dict, *, error: str | None = None) -> None:
     claims = report.get("token_claims") or {}
     for key in ("aud", "tid", "oid", "appid", "exp"):
         if key in claims:
-            tbl.add_row(f"claim.{key}", "-", Text(str(claims[key])))
+            tbl.add_row(Text(f"claim.{key}"), "-", Text(str(claims[key])))
 
     toggles = report.get("tenant_toggles")
     if toggles:
@@ -384,7 +384,7 @@ def _emit(output: str, report: dict, *, error: str | None = None) -> None:
         )
     if error:
         tbl.add_row("error", "broken", Text(error))
-    tbl.add_row("exit_code", str(report["exit_code"]), "")
+    tbl.add_row("exit_code", Text(str(report["exit_code"])), "")
 
     console.print(tbl)
 

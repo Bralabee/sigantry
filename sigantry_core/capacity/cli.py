@@ -15,8 +15,10 @@ from __future__ import annotations
 import typer
 from rich.console import Console
 from rich.table import Table
+from rich.text import Text
 
 from sigantry_core._cli_tenant import TENANT_ID_HELP, resolve_tenant_id, stops_on_tenant_error
+from sigantry_core._cli_text import plain_text
 from sigantry_core.capacity.core import list_capacities
 from sigantry_core.capacity.lifecycle import resume_capacity, suspend_capacity
 from sigantry_core.client import FabricArmRestClient, FabricRestClient
@@ -62,11 +64,11 @@ def list_cmd(
     else:
         table = Table(title="Capacities")
         for col in ("id", "displayName", "skuName", "skuTier", "region", "state"):
-            table.add_column(col)
+            table.add_column(plain_text(col))
         for r in rows:
             table.add_row(
                 *(
-                    str(r.get(c) or "")
+                    plain_text(r.get(c) or "")
                     for c in (
                         "id",
                         "displayName",
@@ -104,7 +106,7 @@ def pause_cmd(
             force=force,
             runbook_id=runbook_id,
         )
-    _console.print(f"capacity {capacity_name} suspended (runbook={runbook_id})")
+    _console.print(Text(f"capacity {capacity_name} suspended (runbook={runbook_id})"))
 
 
 @capacity_app.command("resume")
@@ -131,4 +133,4 @@ def resume_cmd(
             force=force,
             runbook_id=runbook_id,
         )
-    _console.print(f"capacity {capacity_name} resumed (runbook={runbook_id})")
+    _console.print(Text(f"capacity {capacity_name} resumed (runbook={runbook_id})"))

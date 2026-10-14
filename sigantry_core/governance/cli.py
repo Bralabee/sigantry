@@ -24,6 +24,7 @@ from typing import Any
 
 import typer
 from rich.console import Console
+from rich.text import Text
 
 from sigantry_core._cli_tenant import TENANT_ID_HELP, resolve_tenant_id, stops_on_tenant_error
 from sigantry_core.auth import FABRIC_SCOPE, get_token_provider
@@ -221,7 +222,7 @@ def rbac_audit(
                 _json.dump([_rbac_row_dict(r) for r in rows], fh, indent=2)
                 fh.write("\n")
         scope = f"{len(scope_ids)} workspace(s)" if scope_ids else "tenant-wide"
-        _console.print(f"wrote {path} (rows={len(rows)}, scope={scope})")
+        _console.print(Text(f"wrote {path} (rows={len(rows)}, scope={scope})"))
     elif output == "csv":
         write_csv(rows, sys.stdout)
     else:
@@ -260,7 +261,9 @@ def tenant_settings_export(
     if output:
         write_baseline(envelope, Path(output))
         _console.print(
-            f"wrote {output} (settings={len(payload['settings'])}, digest={payload['digest']})"
+            Text(
+                f"wrote {output} (settings={len(payload['settings'])}, digest={payload['digest']})"
+            )
         )
     else:
         _console.print_json(data=payload)

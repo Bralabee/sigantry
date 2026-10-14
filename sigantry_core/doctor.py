@@ -48,7 +48,9 @@ from typing import Literal
 import typer
 from rich.console import Console
 from rich.table import Table
+from rich.text import Text
 
+from sigantry_core._cli_text import plain_text
 from sigantry_core.registry import PluginInfo, Registry, default_registry
 
 doctor_app = typer.Typer(
@@ -194,17 +196,19 @@ def _dist_name_for_plugin(p: PluginInfo) -> str | None:
     return None
 
 
-def _build_table(
+def _fill_table(
+    table: Table,
     plugins: list[PluginInfo],
     trusted_dists: frozenset[str],
-) -> tuple[Table, bool, bool]:
-    """Render ``plugins`` into a rich ``Table``.
+) -> tuple[bool, bool]:
+    """Add the plugin columns and one row per plugin to ``table``.
 
-    Returns ``(table, had_import_errors, had_untrusted)``. The two
-    boolean flags drive ``--strict`` and ``--strict-trust`` exit codes
-    respectively.
+    Returns ``(had_import_errors, had_untrusted)``. The two boolean flags
+    drive ``--strict`` and ``--strict-trust`` exit codes respectively.
+
+    Names, modules, versions and import errors come from installed
+    distributions, so their cells are Text: a ``str`` cell is read as markup.
     """
-    table = Table(title="sigantry plugins", title_style="bold")
     table.add_column("Group", style="cyan", no_wrap=True)
     table.add_column("Name", style="magenta", no_wrap=True)
     table.add_column("Module", style="white")
@@ -222,9 +226,9 @@ def _build_table(
             msg = p.import_error
             if len(msg) > 80:
                 msg = msg[:77] + "..."
-            status = f"[red]error: {msg}[/red]"
+            status = plain_text(f"error: {msg}", style="red")
         else:
-            status = "[green]ok[/green]"
+            status = plain_text("ok", style="green")
         version = p.version or _distribution_for_module(p.module) or ""
         dist = _dist_name_for_plugin(p)
         trust_status = _resolve_trust_status(dist, trusted_dists)
@@ -236,14 +240,14 @@ def _build_table(
         else:
             trust_cell = "[yellow]unknown[/yellow]"
         table.add_row(
-            _short_group(p.group),
-            p.name,
-            p.module or "",
-            version,
+            plain_text(_short_group(p.group)),
+            plain_text(p.name),
+            plain_text(p.module or ""),
+            plain_text(version),
             trust_cell,
             status,
         )
-    return table, had_errors, had_untrusted
+    return had_errors, had_untrusted
 
 
 @doctor_app.callback(invoke_without_command=True)
@@ -288,7 +292,8 @@ def doctor_cmd(
     trusted_dists = _read_trusted_dists()
 
     console = Console()
-    table, had_errors, had_untrusted = _build_table(plugins, trusted_dists)
+    table = Table(title="sigantry plugins", title_style="bold")
+    had_errors, had_untrusted = _fill_table(table, plugins, trusted_dists)
     console.print(table)
     console.print(
         f"\n{len(plugins)} plugin(s) discovered across "
@@ -296,14 +301,18 @@ def doctor_cmd(
     )
     if not trusted_dists:
         console.print(
-            "[yellow]Trust list:[/yellow] not configured -- set "
-            f"${_TRUSTED_DISTS_ENV} (comma-separated) to enable the "
-            "trust column. ADR-0014 documents the model."
+            Text.assemble(
+                ("Trust list:", "yellow"),
+                f" not configured -- set ${_TRUSTED_DISTS_ENV} (comma-separated) "
+                "to enable the trust column. ADR-0014 documents the model.",
+            )
         )
     else:
         console.print(
-            f"[green]Trust list:[/green] {len(trusted_dists)} "
-            f"distribution(s) allowlisted via ${_TRUSTED_DISTS_ENV}."
+            Text.assemble(
+                ("Trust list:", "green"),
+                f" {len(trusted_dists)} distribution(s) allowlisted via ${_TRUSTED_DISTS_ENV}.",
+            )
         )
 
     if strict and had_errors:

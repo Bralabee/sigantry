@@ -116,25 +116,27 @@ def main(
             raise typer.Exit(code=1)
         return
 
-    # Rich table output. Cells are Text so a message holding ``[...]`` is
-    # rendered, not read as markup.
-    table = Table(title=f"Sigantry Preflight Probe Report ({environment})")
+    # Rich table output. The title and cells are Text so a message or an
+    # --environment value holding ``[...]`` is rendered, not read as markup.
+    table = Table(
+        title=Text(f"Sigantry Preflight Probe Report ({environment})", style="table.title")
+    )
     table.add_column("Probe", style="bold cyan")
     table.add_column("Status", justify="center")
     table.add_column("Duration", justify="right", style="dim")
     table.add_column("Message")
 
     status_styles = {
-        ProbeStatus.PASS: Text("PASS", style="bold green"),
-        ProbeStatus.WARN: Text("WARN", style="bold yellow"),
-        ProbeStatus.FAIL: Text("FAIL", style="bold red"),
-        ProbeStatus.SKIP: Text("SKIP", style="dim"),
+        ProbeStatus.PASS: "bold green",
+        ProbeStatus.WARN: "bold yellow",
+        ProbeStatus.FAIL: "bold red",
+        ProbeStatus.SKIP: "dim",
     }
 
     for res in report.results:
         table.add_row(
             Text(res.name),
-            status_styles.get(res.status, Text(str(res.status))),
+            Text(str(res.status), style=status_styles.get(res.status, "")),
             Text(f"{res.duration_ms:.1f}ms"),
             Text(res.message),
         )

@@ -17,6 +17,7 @@ import json
 
 import typer
 from rich.console import Console
+from rich.text import Text
 
 from sigantry_core.dq.dispatcher import run_gate
 from sigantry_core.protocols import DataRef
@@ -50,7 +51,8 @@ def gate_cmd(
     try:
         result = run_gate(suite, data_ref, gate_name=gate_name)
     except (KeyError, ValueError) as exc:
-        _console.print(f"[red]DQ gate config error:[/red] {exc}")
+        # The message quotes the --gate value; Text is not read as markup.
+        _console.print(Text.assemble(("DQ gate config error:", "red"), f" {exc}"))
         raise typer.Exit(code=2) from exc
 
     payload = {
