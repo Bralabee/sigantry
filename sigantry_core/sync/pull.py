@@ -279,10 +279,11 @@ def _plan_items(
     Directory: ``<target_folder>/<display_name>`` (``target_folder``
     mirrored verbatim, without its leading ``/``), or
     ``<target_folder>/<display_name>.<Type>`` for every item whose folder
-    holds another item of the same display name, compared with
-    ``str.casefold`` -- the Fabric Git integration's naming, and the one
-    ``sync apply`` stages items under. A display name cannot hold ``.``, so
-    a suffixed directory never equals an unsuffixed one.
+    holds another item of the same display name, or a pulled item's folder
+    of that name, compared with ``str.casefold`` -- the Fabric Git
+    integration's naming, and the one ``sync apply`` stages items under. A
+    display name or folder name cannot hold ``.``, so a suffixed directory
+    never equals an unsuffixed one or a folder's.
 
     An item is refused when:
 
@@ -319,11 +320,24 @@ def _plan_items(
     name_counts = Counter(
         (target_folder, item.display_name.casefold()) for item, target_folder in candidates
     )
+    # Every folder directory the pull creates: each pulled item's folder and
+    # its ancestors. An item named like one of them would otherwise share it.
+    folder_dirs = {
+        "/".join(parts[:depth]).casefold()
+        for _item, target_folder in candidates
+        for parts in [target_folder.strip("/").split("/")]
+        if parts != [""]
+        for depth in range(1, len(parts) + 1)
+    }
     refused: list[RefusedPullItem] = []
     planned: list[_PlannedItem] = []
     for item, target_folder in candidates:
         dir_name = item.display_name
-        if name_counts[(target_folder, item.display_name.casefold())] > 1:
+        plain_dir = Path(target_folder.lstrip("/"), item.display_name).as_posix().casefold()
+        if (
+            name_counts[(target_folder, item.display_name.casefold())] > 1
+            or plain_dir in folder_dirs
+        ):
             # ``item.type`` is a key of _DEFINITION_ENDPOINTS: canonical.
             dir_name = f"{item.display_name}.{item.type}"
         rel_folder = target_folder.lstrip("/")

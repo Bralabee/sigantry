@@ -208,7 +208,7 @@ sequenceDiagram
 | Verb | Purpose | Source |
 |---|---|---|
 | `sigantry sync apply` | Push manifest items into a workspace; default additive (creates folders, moves items). | `sigantry_core/sync/cli.py:154` |
-| `sigantry sync pull` | IaC-fy a live workspace into `sync.yml` + per-folder item sources at `<folder-path>/<display_name>/`, or `<folder-path>/<display_name>.<Type>/` for items that share a display name in one folder (no separate `sources/` dir; D-22 `logical_id` round-trip). | `cli.py:438` |
+| `sigantry sync pull` | IaC-fy a live workspace into `sync.yml` + per-folder item sources at `<folder-path>/<display_name>/`, or `<folder-path>/<display_name>.<Type>/` for items that share a display name in one folder or are named like a folder beside them (no separate `sources/` dir; D-22 `logical_id` round-trip). | `cli.py:438` |
 | `sigantry sync snapshot` | Emit a `WorkspaceSnapshot` JSON for diffing (INTROSPECT-01). | `cli.py:381` |
 
 **The `sync apply` flag matrix:**

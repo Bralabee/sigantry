@@ -256,7 +256,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in its folder has the same display name; when two or more do, each of
   them goes to `<folder-path>/<display_name>.<Type>/` (`Sales.Report/`,
   `Sales.SemanticModel/`), the Fabric Git integration's naming, and its
-  `sync.yml` `local_path` records that directory. Names are compared
+  `sync.yml` `local_path` records that directory. An item named like a
+  folder the pull creates beside it (a root report `Gold` next to a folder
+  `Gold`) also gets the suffix: it used to share the folder's directory,
+  and packaging copied the folder's items into it. Names are compared
   ignoring case, as Windows and macOS file systems compare them, so `Sales`
   and `sales` count as the same name. A name such as `Sales.v2` or `Q1:
   Sales`, or `..` under a folder, used to be written under `--into` and

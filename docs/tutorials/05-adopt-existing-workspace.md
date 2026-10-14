@@ -64,7 +64,8 @@ ls ./adopted/
 #   sources live at <folder-path>/<display_name>/ (there is no separate
 #   sources/ directory -- the tree mirrors the workspace folder layout).
 #   Items that share a display name in one folder (compared ignoring case),
-#   such as a report and its semantic model both named Sales, each get
+#   such as a report and its semantic model both named Sales, or an item
+#   named like a folder beside it, each get
 #   <folder-path>/<display_name>.<Type>/ instead: Sales.Report/ and
 #   Sales.SemanticModel/
 ```

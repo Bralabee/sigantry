@@ -216,6 +216,53 @@ def test_same_name_in_different_folders_keeps_plain_directories(tmp_path: Path) 
     assert _local_paths(pulled.into) == {"rep-1": "Gold/Sales", "sm-1": "Sales"}
 
 
+@pytest.mark.parametrize(
+    ("label", "items", "folders", "expected"),
+    [
+        (
+            "root item named like a top-level folder",
+            [_Item("rep-1", "Gold", "Report"), _Item("rep-2", "Sales", "Report", "f-gold")],
+            [("f-gold", "Gold", None)],
+            {"rep-1": "Gold.Report", "rep-2": "Gold/Sales"},
+        ),
+        (
+            "item named like a folder only by case",
+            [_Item("rep-1", "gold", "Report"), _Item("rep-2", "Sales", "Report", "f-gold")],
+            [("f-gold", "Gold", None)],
+            {"rep-1": "gold.Report", "rep-2": "Gold/Sales"},
+        ),
+        (
+            "item named like an ancestor folder of a pulled item",
+            [
+                _Item("rep-1", "Silver", "Report", "f-gold"),
+                _Item("rep-2", "Sales", "Report", "f-silver"),
+            ],
+            [("f-gold", "Gold", None), ("f-silver", "Silver", "f-gold")],
+            {"rep-1": "Gold/Silver.Report", "rep-2": "Gold/Silver/Sales"},
+        ),
+    ],
+)
+def test_an_item_named_like_a_pulled_folder_gets_its_own_directory(
+    tmp_path: Path,
+    label: str,
+    items: list[_Item],
+    folders: list[tuple[str, str, str | None]],
+    expected: dict[str, str],
+) -> None:
+    pulled = _pull(tmp_path, items, folders=folders)
+
+    assert pulled.raised is None, f"{label}: {pulled.raised!r}"
+    assert _local_paths(pulled.into) == expected, label
+    for it in items:
+        directory = pulled.into / expected[it.item_id]
+        # Only the item's own parts: no folder (and its items) nested inside,
+        # which packaging would copy into the item.
+        assert sorted(p.name for p in directory.iterdir()) == sorted(
+            [".platform", _CONTENT_FILE[it.type]]
+        ), label
+        assert (directory / ".platform").read_text(encoding="utf-8") == _platform(it), label
+
+
 def test_names_that_differ_only_in_case_count_as_the_same_name(tmp_path: Path) -> None:
     items = [_Item("rep-1", "Sales", "Report"), _Item("sm-1", "sales", "SemanticModel")]
     pulled = _pull(tmp_path, items)
