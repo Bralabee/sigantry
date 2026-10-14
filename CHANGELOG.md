@@ -296,6 +296,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   closes is an error instead of an empty diff. The name and fence rules apply
   to every file, tabbed or not. Tutorial 09 and the PR-bot runbook no longer
   call tabs a mistake. (#82)
+- **`sync`, `workspace`, `capacity`, `dq`, `doctor`, `preflight`,
+  `rbac-audit`, `tenant-settings` and `diagnose-auth` print data as
+  written.** They printed manifest values, workspace and item names, option
+  values, paths and error text as Rich markup, as `sigantry diff` did before
+  #35. Text holding a closing tag such as `[/old]` raised `MarkupError`: `sync
+  apply --dry-run` on a manifest item named `Sales [/old] v1.2` showed a
+  traceback instead of its validation errors, and `dq gate --gate
+  'nightly[/x]'` and `workspace bootstrap 'cfg[/x]/workspace.yml'` exited 1
+  instead of 2, their exit code for a configuration error. A word in square
+  brackets such as `[draft]` was dropped from the message. Every value now
+  reaches Rich as text; the labels keep their colours. The check that no
+  CLI print site hands Rich data as markup now covers every module that
+  imports Rich, whole, and fails when a module that imports Rich is left out
+  of it. (#80)
+- **`sync pull` gives same-name items a directory each, and refuses names
+  `sync.yml` refuses before it fetches anything.** A Report and a
+  SemanticModel both named `Sales` in one folder were written to one
+  directory, the second item's `.platform` and parts overwriting the
+  first's, and both `sync.yml` entries pointed at it; the pull reported
+  success. An item keeps `<folder-path>/<display_name>/` when no other item
+  in its folder has the same display name; when two or more do, each of
+  them goes to `<folder-path>/<display_name>.<Type>/` (`Sales.Report/`,
+  `Sales.SemanticModel/`), the Fabric Git integration's naming, and its
+  `sync.yml` `local_path` records that directory. An item named like a
+  folder the pull creates beside it (a root report `Gold` next to a folder
+  `Gold`) also gets the suffix: it used to share the folder's directory,
+  and packaging copied the folder's items into it. Names and folder paths
+  are compared as Windows and macOS file systems compare them: ignoring
+  case, with composed and decomposed accents equal (`ß` and `ss` stay
+  two names), so `Sales` and `sales` count as the same name. The layout is
+  decided over every item the pull can fetch, so `--type` never changes an
+  item's directory. A name such as `Sales.v2` or `Q1: Sales`, or `..` under
+  a folder, used to be written under `--into` and only then fail with a raw
+  pydantic error and no `sync.yml`. Every item, and every workspace folder
+  (all of them are listed under `folders` in `sync.yml`, even one no pulled
+  item sits in), is now checked against the `sync.yml` rules before the
+  first definition is fetched; one those rules refuse, or two items still
+  left with one directory (two reports `Sales` and `sales` in one folder,
+  or two reports `Sales` in folders `Gold` and `gold`), refuse the pull
+  with `PullItemNameRefusedError` and nothing is fetched or written. The
+  error names every refused item and folder (a folder by its id):
+  `refused` lists them as `sigantry_core.sync.errors.RefusedPullItem`
+  records, and `item_id` / `display_name` name the first. (#67)
 - **Ledger location: respect `[release] audit_dir` and route `@destructive_op`.**
   The audit directory for release ledgers (`deploys.jsonl`, `approvals.jsonl`,
   `secret_changes.jsonl`, `destructive_ops.jsonl`, `bootstraps.jsonl`) now

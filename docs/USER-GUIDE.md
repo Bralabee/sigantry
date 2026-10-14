@@ -853,7 +853,10 @@ sigantry sync pull \
   --workspace-id <guid> \
   --into ./my-workspace-as-code/
 # produces ./my-workspace-as-code/sync.yml + item sources at
-# <folder-path>/<display_name>/ mirroring the workspace folder tree
+# <folder-path>/<display_name>/ mirroring the workspace folder tree, or
+# <folder-path>/<display_name>.<Type>/ for items that share a display
+# name in one folder, or are named like a folder beside them (compared
+# ignoring case)
 ```
 
 The target directory must be empty (pass `--force` to deliberately

@@ -5,8 +5,10 @@ from __future__ import annotations
 import typer
 from rich.console import Console
 from rich.table import Table
+from rich.text import Text
 
 from sigantry_core._cli_tenant import TENANT_ID_HELP, resolve_tenant_id, stops_on_tenant_error
+from sigantry_core._cli_text import plain_text
 from sigantry_core.client import FabricRestClient
 from sigantry_core.workspace.bootstrap import (
     BootstrapValidationError,
@@ -60,13 +62,14 @@ def list_cmd(
     if output == "json":
         _console.print_json(data=rows)
     else:
+        # Workspace names come from the tenant; cells are Text, not markup.
         table = Table(title="Workspaces")
         for col in ("id", "displayName", "type", "capacityId", "domainId"):
-            table.add_column(col)
+            table.add_column(plain_text(col))
         for r in rows:
             table.add_row(
                 *(
-                    str(r.get(c) or "")
+                    plain_text(r.get(c) or "")
                     for c in ("id", "displayName", "type", "capacityId", "domainId")
                 )
             )
@@ -129,7 +132,7 @@ def delete_cmd(
             runbook_id=runbook_id,
             resource_id=workspace_id,
         )
-    _console.print(f"workspace {workspace_id} deleted")
+    _console.print(Text(f"workspace {workspace_id} deleted"))
 
 
 @workspace_app.command("assign-capacity")
@@ -141,7 +144,7 @@ def assign_capacity_cmd(
 ) -> None:
     with _client_factory(tenant_id) as client:
         assign_to_capacity(client, workspace_id, capacity_id)
-    _console.print(f"workspace {workspace_id} assigned to capacity {capacity_id}")
+    _console.print(Text(f"workspace {workspace_id} assigned to capacity {capacity_id}"))
 
 
 @workspace_app.command("list-items")
@@ -165,12 +168,15 @@ def list_items_cmd(
     if output == "json":
         _console.print_json(data=rows)
     else:
-        table = Table(title=f"Items in {workspace_id}")
+        table = Table(title=Text(f"Items in {workspace_id}", style="table.title"))
         for col in ("id", "displayName", "type", "sensitivityLabelId"):
-            table.add_column(col)
+            table.add_column(plain_text(col))
         for r in rows:
             table.add_row(
-                *(str(r.get(c) or "") for c in ("id", "displayName", "type", "sensitivityLabelId"))
+                *(
+                    plain_text(r.get(c) or "")
+                    for c in ("id", "displayName", "type", "sensitivityLabelId")
+                )
             )
         _console.print(table)
 
@@ -215,16 +221,17 @@ def bootstrap_cmd(
       - 1 runtime error from the underlying primitives (network, auth, etc.)
       - 2 schema validation error in workspace.yml
     """
+    # The messages quote the path and the YAML; Text is not read as markup.
     try:
         config = load_and_validate(config_path)
     except FileNotFoundError as exc:
-        _console.print(f"[red]ERROR[/red] {exc}")
+        _console.print(Text.assemble(("ERROR", "red"), f" {exc}"))
         raise typer.Exit(code=2) from exc
     except BootstrapValidationError as exc:
-        _console.print(f"[red]ERROR[/red] {exc}")
+        _console.print(Text.assemble(("ERROR", "red"), f" {exc}"))
         raise typer.Exit(code=2) from exc
     except ValueError as exc:
-        _console.print(f"[red]ERROR[/red] {exc}")
+        _console.print(Text.assemble(("ERROR", "red"), f" {exc}"))
         raise typer.Exit(code=2) from exc
 
     with _client_factory(tenant_id) as client:

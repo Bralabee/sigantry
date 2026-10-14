@@ -1,12 +1,17 @@
-"""CLI print sites in the modules and functions SCOPE lists hand Rich no data as markup.
+"""CLI print sites in the modules SCOPE lists hand Rich no data as markup.
 
 Rich reads ``[...]`` in a ``str`` it prints (or puts in a table cell, a
 title or a column header) as markup and ``:name:`` as an emoji code. Data
 that reaches such a ``str`` -- an item name, a release id, a path, an
 exception message -- can raise ``MarkupError`` (``[/old]``) or lose text
 (``[draft]``). A :class:`rich.text.Text` is not parsed, so data goes to
-Rich wrapped in ``Text(...)``, ``Text.assemble(...)`` or a helper that
-returns one, or escaped with ``rich.markup.escape``.
+Rich wrapped in ``Text(...)``, ``Text.assemble(...)`` or
+``sigantry_core._cli_text.plain_text``, or escaped with
+``rich.markup.escape``.
+
+SCOPE lists every module under ``sigantry_core`` that imports Rich, whole;
+:func:`test_scope_covers_every_module_that_imports_rich` fails when a module
+that imports Rich is missing from it.
 
 This test reads the modules' syntax trees. The sinks it checks are:
 
@@ -30,10 +35,12 @@ Every argument a checked sink receives must be one of:
 * an f-string, ``%``-format, ``.format()`` call or ``+`` concatenation whose
   every interpolated value is a literal, provably an ``int`` (an int
   literal, ``len(...)``, arithmetic on those) or escaped;
-* a ``Text`` (or a helper returning one); a ``Table``, ``Panel``, ``Tree``
+* a ``Text`` (or ``plain_text``, which returns one); a ``Table``, ``Panel``, ``Tree``
   or ``Rule``, whose arguments are checked as sinks as listed above; or a
   ``Syntax``, ``JSON`` or ``Console``, which Rich does not read as markup;
-* a local name every assignment of which is one of the above.
+* a local name every assignment of which is one of the above;
+* ``*`` applied to one of the above, or to a generator expression or list
+  comprehension whose element is one of the above.
 
 Anything else -- an attribute, a parameter, a loop variable, a call
 result, another renderable such as ``Columns`` or ``Group`` -- is reported
@@ -54,10 +61,18 @@ ROOT = Path(__file__).resolve().parents[2]
 
 #: Module -> the functions checked in it (``None``: the whole module).
 SCOPE: dict[str, frozenset[str] | None] = {
-    "sigantry_core/diff_cli.py": None,
-    "sigantry_core/release/cli.py": None,
+    "sigantry_core/_cli_text.py": None,
+    "sigantry_core/auth/cli.py": None,
+    "sigantry_core/capacity/cli.py": None,
     "sigantry_core/deploy/cli.py": None,
-    "sigantry_core/sync/cli.py": frozenset({"pull_cmd", "_emit_preview_warning_once"}),
+    "sigantry_core/diff_cli.py": None,
+    "sigantry_core/doctor.py": None,
+    "sigantry_core/dq/cli.py": None,
+    "sigantry_core/governance/cli.py": None,
+    "sigantry_core/preflight/cli.py": None,
+    "sigantry_core/release/cli.py": None,
+    "sigantry_core/sync/cli.py": None,
+    "sigantry_core/workspace/cli.py": None,
 }
 
 #: Console methods whose positional arguments Rich reads as markup.
@@ -68,7 +83,7 @@ _TABLE_SINKS = frozenset({"add_row", "add_column"})
 _RENDERABLE_SINKS = frozenset({"Table", "Panel", "Tree", "Rule"})
 _MARKUP_KEYWORDS = frozenset({"title", "caption", "subtitle", "header", "footer"})
 #: Calls that return a value Rich does not parse.
-_TEXT_CALLS = frozenset({"Text", "_data", "escape"})
+_TEXT_CALLS = frozenset({"Text", "plain_text", "escape"})
 _TEXT_METHODS = frozenset({"assemble", "from_ansi"})  # Text.assemble / Text.from_ansi
 _RENDERABLES = _RENDERABLE_SINKS | frozenset({"Syntax", "JSON", "Console"})
 
@@ -211,6 +226,12 @@ class _Checker:
             )
         if isinstance(node, ast.IfExp):
             return self.is_safe(node.body, func, seen) and self.is_safe(node.orelse, func, seen)
+        if isinstance(node, ast.Starred):
+            return self.is_safe(node.value, func, seen)
+        if isinstance(node, ast.GeneratorExp | ast.ListComp):
+            # The comprehension's own targets resolve as unknown, so an element
+            # built from them passes only when it is wrapped.
+            return self.is_safe(node.elt, func, seen)
         if isinstance(node, ast.Call):
             name = _call_name(node.func)
             if isinstance(node.func, ast.Attribute) and name == "format":
@@ -335,6 +356,37 @@ def test_cli_modules_hand_rich_no_data_as_markup() -> None:
     assert findings == [], "\n".join(str(f) for f in findings)
 
 
+def _imports_rich(tree: ast.Module) -> bool:
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import) and any(
+            a.name == "rich" or a.name.startswith("rich.") for a in node.names
+        ):
+            return True
+        if isinstance(node, ast.ImportFrom) and (
+            node.module == "rich" or (node.module or "").startswith("rich.")
+        ):
+            return True
+    return False
+
+
+def rich_modules(root: Path) -> set[str]:
+    """Every module under ``sigantry_core`` that imports Rich, relative to ``root``."""
+    return {
+        path.relative_to(root).as_posix()
+        for path in (root / "sigantry_core").rglob("*.py")
+        if _imports_rich(ast.parse(path.read_text(encoding="utf-8")))
+    }
+
+
+def test_scope_covers_every_module_that_imports_rich() -> None:
+    found = rich_modules(ROOT)
+    assert found, "no module imports Rich: the walk found nothing"
+    missing = sorted(found - SCOPE.keys())
+    assert missing == [], f"modules that import Rich but are not in SCOPE: {missing}"
+    whole = {rel for rel, functions in SCOPE.items() if functions is None}
+    assert sorted(found - whole) == [], "every module in SCOPE is checked whole"
+
+
 # -- the checker itself: it reports what it must, and only that ---------------
 
 _FLAGGED = [
@@ -352,6 +404,9 @@ _FLAGGED = [
     ("def f(x):\n    c.print(str(x))\n", ["print"]),
     ("def f(x):\n    c.print(Columns([x]))\n", ["print"]),
     ("def f(x):\n    c.print(Group(x))\n", ["print"]),
+    ("def f(t, r):\n    t.add_row(*(str(r[c]) for c in COLS))\n", ["add_row"]),
+    ("def f(t, rows):\n    t.add_row(*[x for x in rows])\n", ["add_row"]),
+    ("def f(t, cells):\n    t.add_row(*cells)\n", ["add_row"]),
 ]
 
 _CLEAN = [
@@ -360,7 +415,10 @@ _CLEAN = [
     'def f(xs):\n    n = len(xs) + 1\n    c.print(f"[y]{n}[/y] item(s)")\n',
     'def f(x):\n    c.print(Text.assemble(("failed", "red"), f": {x}"))\n',
     'def f(x):\n    c.print(Text(f"  + {x}", style="green"))\n',
-    "def f(x):\n    c.print(_data(x))\n",
+    "def f(x):\n    c.print(plain_text(x))\n",
+    'def f(x):\n    c.print(plain_text(x, style="red"))\n',
+    "def f(t, r):\n    t.add_row(*(plain_text(r[c]) for c in COLS))\n",
+    "def f(t, rows):\n    t.add_row(*[Text(x) for x in rows])\n",
     'def f(x):\n    c.print(f"[b]{escape(x)}[/b]")\n',
     "def f(x):\n    c.print(x, markup=False)\n",
     'def f(table, r):\n    table.add_row(Text(r.release_id), str(len(r.items)), "-")\n',

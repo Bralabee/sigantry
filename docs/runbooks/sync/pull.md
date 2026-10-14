@@ -21,11 +21,12 @@ The greenfield `sigantry workspace bootstrap` (Phase 13.5 / BOOTSTRAP-XX) is a s
 `sigantry sync pull` is the inverse of `sync apply`. The flow is:
 
 1. Snapshot the workspace via two paginated REST calls (`list_folders` + `list_items`).
-2. For each item type in scope (default: `Notebook,DataPipeline,SemanticModel,Report,SparkJobDefinition`), call the type-appropriate `Get Item Definition` REST endpoint.
+2. Plan every item in scope before anything is fetched. An item's sources go to `<folder-path>/<display_name>/` under `--into`. When two or more items in one folder share a display name -- compared as Windows and macOS file systems compare names: ignoring case, with composed and decomposed accents equal --  each of them goes to `<folder-path>/<display_name>.<Type>/` instead (the Fabric Git integration's naming); so does an item named like a folder the pull creates beside it (a root report `Gold` next to a folder `Gold` goes to `Gold.Report/`, so the folder's items are never packed into it): a report and a semantic model both named `Sales` land in `Sales.Report/` and `Sales.SemanticModel/`, each with its own `.platform`, and each `sync.yml` entry's `local_path` records its directory. The pull is refused (`PullItemNameRefusedError`, naming every refused item; nothing is fetched or written and no `sync.yml` is emitted) when an item's display name or folder path, or any workspace folder's name (every folder is listed under `folders` in `sync.yml`), breaks a rule `sync.yml` holds them to (a `/` or `\`, a banned character such as `.` or `:`), when its directory would fall outside `--into`, or when two items would still share a directory (two reports `Sales` and `sales` in one folder, or two reports `Sales` in folders `Gold` and `gold`). The layout is decided over every item the pull can fetch, so `--type` never changes an item's directory.
+3. For each planned item (default: `Notebook,DataPipeline,SemanticModel,Report,SparkJobDefinition`), call the type-appropriate `Get Item Definition` REST endpoint.
    - Notebook items use `format=ipynb` (Council A) so the local file is the raw `.ipynb`, not the `.py`-formatted variant.
    - Other types use the default `fabricGitSource` format.
-3. Unwrap the base64-encoded definition parts to local files.
-4. Emit a `sync.yml` adjacent to the pulled sources mirroring the workspace topology -- preserving each item's workspace `logical_id` verbatim.
+4. Unwrap the base64-encoded definition parts to local files.
+5. Emit a `sync.yml` adjacent to the pulled sources mirroring the workspace topology -- preserving each item's workspace `logical_id` verbatim.
 
 `sync pull` is read-only against the source workspace -- no `DeployRecord` is emitted (D-15). Run it whenever, as often as you like; the only side-effect is the local directory you wrote.
 
