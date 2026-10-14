@@ -450,8 +450,9 @@ installed alongside `sigantry`, not a subcommand:
 ```bash
 diagnose-auth
 # exit 0 = healthy; 2 = degraded (token works but a prerequisite such
-# as the tenant toggle is missing); 3 = no credential produced a token,
-# or none from the pinned tenant (section 6.3)
+# as the tenant toggle is missing, or a probe got no response and its
+# result is `error`); 3 = no credential produced a token, or none from
+# the pinned tenant (section 6.3)
 ```
 
 Only a run with the Fabric scope (the default, `--scope fabric`) checks

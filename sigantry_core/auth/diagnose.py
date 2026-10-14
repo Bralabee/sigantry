@@ -184,6 +184,8 @@ def check_tenant_toggles(
     """Probe the Fabric Admin tenantsettings endpoint. Read-only.
 
     Returns: `{"status", "classification", "toggles_visible", "detail"}`.
+    A request that gets no response (``httpx.HTTPError``: connection refused,
+    timeout) is ``status="error"``: the tenant settings are unknown.
     """
     url = f"{FABRIC_AUDIENCE}/v1/admin/tenantsettings"
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
@@ -193,6 +195,16 @@ def check_tenant_toggles(
         close_client = True
     try:
         resp = client.get(url, headers=headers)
+    except httpx.HTTPError as exc:
+        return {
+            "status": "error",
+            "classification": "other",
+            "toggles_visible": 0,
+            "detail": (
+                f"{type(exc).__name__} reaching the Fabric Admin REST API; "
+                "the tenant settings are unknown"
+            ),
+        }
     finally:
         if close_client:
             client.close()
@@ -349,7 +361,9 @@ def check_entra_group(
 
     Returns: `{"status", "classification", "groups", "expected", "detail"}`,
     where status is one of ``ok`` / ``missing`` / ``error`` / ``skipped`` and
-    ``classification`` (a ``GroupCheckClassification``) says why. ``missing``
+    ``classification`` (a ``GroupCheckClassification``) says why. A request
+    that gets no response (``httpx.HTTPError``), on any page, is an ``error``
+    classified ``other``. ``missing``
     means the pages were read to the last one, every group entry had a name and
     none was ``expected_group``. A response other than 200 is an ``error``.
     ``names_hidden`` marks an ``error`` in which some entries had no name and
@@ -390,8 +404,6 @@ def check_entra_group(
             try:
                 resp = client.get(url, headers=headers)
             except httpx.HTTPError as exc:
-                if page == 0:
-                    raise  # the first request fails as it did in 1.0.0
                 return group_check_result(
                     "error",
                     "other",

@@ -114,6 +114,23 @@ class TestCheckTenantToggles:
         assert result["status"] == "blocked"
         assert result["classification"] == "api_not_enabled"
 
+    @pytest.mark.parametrize("error", [httpx.ConnectError("refused"), httpx.ReadTimeout("slow")])
+    def test_no_response_is_an_error_not_a_raise(
+        self, respx_router: respx.MockRouter, error: httpx.HTTPError
+    ) -> None:
+        respx_router.get(f"{FABRIC_AUDIENCE}/v1/admin/tenantsettings").mock(side_effect=error)
+        with httpx.Client() as client:
+            result = check_tenant_toggles("fake-token", client=client)
+        assert result == {
+            "status": "error",
+            "classification": "other",
+            "toggles_visible": 0,
+            "detail": (
+                f"{type(error).__name__} reaching the Fabric Admin REST API; "
+                "the tenant settings are unknown"
+            ),
+        }
+
     def test_500_is_blocked_other(self, respx_router: respx.MockRouter) -> None:
         respx_router.get(f"{FABRIC_AUDIENCE}/v1/admin/tenantsettings").mock(
             return_value=httpx.Response(500)
@@ -521,12 +538,19 @@ class TestCheckEntraGroupGraphToken:
         assert result["classification"] == "other"
         assert result["groups"] == ["sg-other"]
 
-    def test_a_first_page_that_cannot_be_read_raises_as_in_1_0_0(
-        self, respx_router: respx.MockRouter
+    @pytest.mark.parametrize("error", [httpx.ConnectError("refused"), httpx.ReadTimeout("slow")])
+    def test_a_first_page_that_cannot_be_read_is_an_error_not_a_raise(
+        self, respx_router: respx.MockRouter, error: httpx.HTTPError
     ) -> None:
-        respx_router.get(_ME).mock(side_effect=httpx.ConnectError("refused"))
-        with pytest.raises(httpx.ConnectError):
-            _check("fake-token")
+        respx_router.get(_ME).mock(side_effect=error)
+        result = _check("fake-token")
+        assert result["status"] == "error"
+        assert result["classification"] == "other"
+        assert result["groups"] == []
+        assert result["detail"] == (
+            f"{type(error).__name__} reading memberOf page 1 from Microsoft Graph; "
+            "the membership is unknown"
+        )
 
     def test_never_follows_a_next_link_off_graph(self, respx_router: respx.MockRouter) -> None:
         foreign = respx_router.get(url__startswith="https://example.invalid/").mock(

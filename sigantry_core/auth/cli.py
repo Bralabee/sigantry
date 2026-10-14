@@ -7,9 +7,10 @@ Invocation paths:
 
 Exit codes:
 - 0 = healthy
-- 2 = degraded (token works but the tenant toggle is missing, or the Entra
-      group check did not pass); Click also exits 2 on a usage error
-      (unknown `--scope`, malformed arguments)
+- 2 = degraded (token works but the tenant toggle is missing, the Entra
+      group check did not pass, or a probe got no response -- connection
+      refused, timeout -- and its result is `error`); Click also exits 2 on
+      a usage error (unknown `--scope`, malformed arguments)
 - 3 = broken: no credential returned a token, or none usable for the pinned
       tenant (a token from another tenant, a `--tenant-id` / `core.tenant_id`
       that is not a GUID, or settings that cannot be loaded when no

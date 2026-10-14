@@ -196,6 +196,37 @@ class TestLiveMode:
         data = json.loads(result.stdout)
         assert data["tenant_toggles"]["classification"] == "api_not_enabled"
 
+    @pytest.mark.parametrize("output", ["json", "table"])
+    def test_probes_that_cannot_connect_print_the_report_and_exit_2(
+        self,
+        runner: CliRunner,
+        respx_router: respx.MockRouter,
+        cred: _ScopedCredential,
+        output: str,
+    ) -> None:
+        """Issue #74: a transport error is an ``error`` result, not a traceback."""
+        respx_router.get(f"{FABRIC_AUDIENCE}/v1/admin/tenantsettings").mock(
+            side_effect=httpx.ConnectError("refused")
+        )
+        respx_router.get(f"{GRAPH_AUDIENCE}/v1.0/me/memberOf").mock(
+            side_effect=httpx.ReadTimeout("slow")
+        )
+        with patch("sigantry_core.auth.token_provider.DefaultAzureCredential", return_value=cred):
+            result = runner.invoke(app, ["--output", output, "--expected-group", _GROUP])
+        assert result.exit_code == 2, result.output
+        assert isinstance(result.exception, SystemExit), result.exception
+        assert "Traceback" not in result.output
+        if output == "json":
+            data = json.loads(result.stdout)
+            assert data["tenant_toggles"]["status"] == "error"
+            assert data["tenant_toggles"]["detail"].startswith("ConnectError")
+            assert data["entra_groups"]["status"] == "error"
+            assert data["entra_groups"]["detail"].startswith("ReadTimeout")
+        else:
+            assert "ConnectError" in result.stdout
+            assert "ReadTimeout" in result.stdout
+            assert "exit_code" in result.stdout
+
     def test_mismatched_tenant_id_is_refused_with_exit_3(
         self,
         runner: CliRunner,

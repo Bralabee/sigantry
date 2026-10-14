@@ -97,6 +97,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     these commands where that file is read now gets the GUID refusal.
 
 ### Fixed
+- **`diagnose-auth` reports a probe that cannot connect instead of exiting
+  with a traceback (#74).** When the first request of the Fabric
+  tenant-settings probe or of the Entra group check got no response
+  (connection refused, read timeout), the exception escaped and the command
+  exited 1 with a traceback and no report. Now the command prints its normal
+  report and exits 2, and the probe's result is `error`, with a detail that
+  names the exception type and says the result is unknown. Library change:
+  `check_tenant_toggles` and `check_entra_group` no longer raise
+  `httpx.HTTPError`; `check_tenant_toggles` returns `status="error"`,
+  `classification="other"` (a status it did not return before), and
+  `check_entra_group` returns the `error` / `other` result it already
+  returned for a later `memberOf` page.
 - **`--tenant-id` pins the tenant.** Measured at 1.0.1:
   `TokenProvider(tenant_id=X)` only added X to `DefaultAzureCredential`'s
   `additionally_allowed_tenants` and requested every token without a tenant,
