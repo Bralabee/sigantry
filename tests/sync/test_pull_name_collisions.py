@@ -96,7 +96,10 @@ def _b64(text: str) -> str:
 
 
 def _pull(
-    tmp_path: Path, items: list[_Item], folders: list[tuple[str, str, str | None]] = ()
+    tmp_path: Path,
+    items: list[_Item],
+    folders: list[tuple[str, str, str | None]] = (),
+    item_types: list[str] | None = None,
 ) -> _Pulled:
     """Pull ``items`` from a fake workspace holding ``folders`` (id, name, parent id)."""
     into = tmp_path / "into"
@@ -160,7 +163,7 @@ def _pull(
         raised: Exception | None = None
         with _client() as client:
             try:
-                pull_workspace(_WS, into=into, client=client)
+                pull_workspace(_WS, into=into, client=client, item_types=item_types)
             except Exception as exc:
                 raised = exc
     return _Pulled(into, routes, raised)
@@ -341,7 +344,9 @@ def test_a_name_sync_yml_refuses_is_refused_before_any_fetch(
 
     assert isinstance(pulled.raised, PullItemNameRefusedError), repr(pulled.raised)
     assert pulled.raised.item_id == "rep-x"
-    assert [r.item_id for r in pulled.raised.refused] == ["rep-x"]
+    # A folder sync.yml cannot list is refused too, after the items in it.
+    expected = ["rep-x", "f-a"] if "folder path" in label else ["rep-x"]
+    assert [r.item_id for r in pulled.raised.refused] == expected
     assert reason in pulled.raised.refused[0].reason
     assert "No item definition was fetched or written" in str(pulled.raised)
     assert pulled.fetched == []
@@ -393,3 +398,80 @@ def test_pulled_sync_yml_for_same_name_items_packs_for_apply(tmp_path: Path) -> 
             "displayName": "Sales",
         }
         assert (staged / _CONTENT_FILE[it.type]).read_text(encoding="utf-8") == _content(it)
+
+
+# -- review round 1 ------------------------------------------------------------
+
+
+def test_a_folder_sync_yml_cannot_list_is_refused_before_any_fetch(tmp_path: Path) -> None:
+    # The folder holds no pulled item, but every workspace folder is written to
+    # sync.yml's folders list, which holds it to the same segment rules.
+    items = [_Item("rep-1", "Sales", "Report")]
+    pulled = _pull(tmp_path, items, folders=[("f-q1", "Q1: Sales", None)])
+
+    assert isinstance(pulled.raised, PullItemNameRefusedError), repr(pulled.raised)
+    assert [r.item_id for r in pulled.raised.refused] == ["f-q1"]
+    assert "banned characters" in pulled.raised.refused[0].reason
+    assert pulled.fetched == []
+    assert list(pulled.into.iterdir()) == []
+
+
+def test_same_name_items_in_folders_that_differ_only_in_case_get_suffixes(
+    tmp_path: Path,
+) -> None:
+    items = [
+        _Item("rep-1", "Sales", "Report", "f-1"),
+        _Item("sm-1", "Sales", "SemanticModel", "f-2"),
+    ]
+    pulled = _pull(tmp_path, items, folders=[("f-1", "Gold", None), ("f-2", "gold", None)])
+
+    assert pulled.raised is None, repr(pulled.raised)
+    assert _local_paths(pulled.into) == {
+        "rep-1": "Gold/Sales.Report",
+        "sm-1": "gold/Sales.SemanticModel",
+    }
+
+
+@pytest.mark.parametrize(
+    ("label", "items", "expected"),
+    [
+        (
+            "sharp s is not ss",
+            [_Item("rep-1", "Straße", "Report"), _Item("rep-2", "Strasse", "Report")],
+            {"rep-1": "Straße", "rep-2": "Strasse"},
+        ),
+        (
+            "composed and decomposed accents are one name",
+            [
+                _Item("rep-1", "Caf\u00e9", "Report"),
+                _Item("sm-1", "Cafe\u0301", "SemanticModel"),
+            ],
+            {"rep-1": "Caf\u00e9.Report", "sm-1": "Cafe\u0301.SemanticModel"},
+        ),
+    ],
+)
+def test_names_are_compared_as_windows_and_macos_compare_them(
+    tmp_path: Path, label: str, items: list[_Item], expected: dict[str, str]
+) -> None:
+    pulled = _pull(tmp_path, items)
+
+    assert pulled.raised is None, f"{label}: {pulled.raised!r}"
+    assert _local_paths(pulled.into) == expected, label
+
+
+def test_decomposed_and_composed_names_of_one_type_are_refused(tmp_path: Path) -> None:
+    items = [_Item("rep-1", "Caf\u00e9", "Report"), _Item("rep-2", "Cafe\u0301", "Report")]
+    pulled = _pull(tmp_path, items)
+
+    assert isinstance(pulled.raised, PullItemNameRefusedError), repr(pulled.raised)
+    assert sorted(r.item_id for r in pulled.raised.refused) == ["rep-1", "rep-2"]
+    assert pulled.fetched == []
+
+
+def test_type_scope_does_not_move_an_items_directory(tmp_path: Path) -> None:
+    items = [_Item("rep-1", "Sales", "Report"), _Item("sm-1", "Sales", "SemanticModel")]
+    pulled = _pull(tmp_path, items, item_types=["Report"])
+
+    assert pulled.raised is None, repr(pulled.raised)
+    assert pulled.fetched == ["rep-1"]
+    assert _local_paths(pulled.into) == {"rep-1": "Sales.Report"}

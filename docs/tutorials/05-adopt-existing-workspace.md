@@ -153,7 +153,7 @@ workspace is the truth, re-pull and commit.
 | Symptom | Cause | Fix |
 |---|---|---|
 | `PullTargetNotEmptyError` | `--into` dir has files | use an empty dir, or `--force` deliberately |
-| `PullItemNameRefusedError` | an item being pulled has a name or folder path `sync.yml` refuses (a `/` or `\`, a banned character such as `.` or `:`, as in `Sales.v2` or `Q1: Sales`), a directory that does not resolve strictly inside `--into`, or the same directory as another item when names are compared ignoring case (two reports `Sales` and `sales` in one folder, or folders `Gold` and `gold`); the message names every such item, and nothing is fetched or written | rename the items or folders in the workspace, then pull again |
+| `PullItemNameRefusedError` | an item being pulled, or any workspace folder, has a name or folder path `sync.yml` refuses (a `/` or `\`, a banned character such as `.` or `:`, as in `Sales.v2` or `Q1: Sales`), a directory that does not resolve strictly inside `--into`, or the same directory as another item when names are compared ignoring case (two reports `Sales` and `sales` in one folder, or two reports `Sales` in folders `Gold` and `gold`); the message names every such item and folder, and nothing is fetched or written | rename the items or folders in the workspace, then pull again |
 | pulled count < portal count | unsupported item types skipped | check `--type` coverage; unsupported types stay portal-managed |
 | round-trip apply shows moves | workspace changed mid-tutorial, or manifest edited | re-pull into a fresh dir; diff the two manifests |
 | `403` on pull | Viewer role | pull fetches item definitions; you need Contributor+ |

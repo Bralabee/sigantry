@@ -573,7 +573,7 @@ def pull_cmd(
     Each item's sources go to ``<folder-path>/<display_name>/``, or to
     ``<folder-path>/<display_name>.<Type>/`` when another item in the same
     folder, or a folder the pull creates there, has the same name
-    (compared ignoring case).
+    (compared ignoring case, with composed and decomposed accents equal).
 
     Failure modes:
 

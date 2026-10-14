@@ -122,16 +122,19 @@ class PullItemNameRefusedError(SyncEngineError):
     display name or folder path breaks a rule ``sync.yml`` holds an item to
     (the :class:`~sigantry_core.sync.manifest.SyncItem` validators: one name,
     no ``/`` or ``\\``, none of the banned characters such as ``.`` or
-    ``:``, folder depth and segment rules), when ``<into>/<folder
-    path>/<directory>`` does not resolve strictly inside ``--into``, or when
-    two items would be written to the same directory (compared ignoring
-    case). Every item is checked before the first definition is fetched, so
-    when this is raised no item definition has been fetched or written and
-    no ``sync.yml`` exists.
+    ``:``, folder depth and segment rules), when a workspace folder's path
+    breaks the same rules (every folder is listed under ``folders`` in
+    ``sync.yml``), when ``<into>/<folder path>/<directory>`` does not
+    resolve strictly inside ``--into``, or when two items would be written
+    to the same directory (compared ignoring case, with composed and
+    decomposed accents equal). Every item and folder is checked before the
+    first definition is fetched, so when this is raised no item definition
+    has been fetched or written and no ``sync.yml`` exists.
 
-    ``refused`` lists every refused item. ``item_id`` and ``display_name``
-    name the first of them. Rename the items in the workspace (or the folders
-    they sit in) and pull again.
+    ``refused`` lists every refused item, then every refused folder (its
+    ``item_id`` is the folder id). ``item_id`` and ``display_name`` name the
+    first of them. Rename the items or folders in the workspace and pull
+    again.
     """
 
     def __init__(

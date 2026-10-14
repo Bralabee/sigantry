@@ -259,16 +259,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `sync.yml` `local_path` records that directory. An item named like a
   folder the pull creates beside it (a root report `Gold` next to a folder
   `Gold`) also gets the suffix: it used to share the folder's directory,
-  and packaging copied the folder's items into it. Names are compared
-  ignoring case, as Windows and macOS file systems compare them, so `Sales`
-  and `sales` count as the same name. A name such as `Sales.v2` or `Q1:
-  Sales`, or `..` under a folder, used to be written under `--into` and
-  only then fail with a raw pydantic error and no `sync.yml`. Every item is
-  now checked against the `SyncItem` rules before the first definition is
-  fetched; an item those rules refuse, or two items still left with one
-  directory (two reports `Sales` and `sales` in one folder, or folders
-  `Gold` and `gold`), refuse the pull with `PullItemNameRefusedError` and
-  nothing is fetched or written. The error names every refused item:
+  and packaging copied the folder's items into it. Names and folder paths
+  are compared as Windows and macOS file systems compare them: ignoring
+  case, with composed and decomposed accents equal (`ß` and `ss` stay
+  two names), so `Sales` and `sales` count as the same name. The layout is
+  decided over every item the pull can fetch, so `--type` never changes an
+  item's directory. A name such as `Sales.v2` or `Q1: Sales`, or `..` under
+  a folder, used to be written under `--into` and only then fail with a raw
+  pydantic error and no `sync.yml`. Every item, and every workspace folder
+  (all of them are listed under `folders` in `sync.yml`, even one no pulled
+  item sits in), is now checked against the `sync.yml` rules before the
+  first definition is fetched; one those rules refuse, or two items still
+  left with one directory (two reports `Sales` and `sales` in one folder,
+  or two reports `Sales` in folders `Gold` and `gold`), refuse the pull
+  with `PullItemNameRefusedError` and nothing is fetched or written. The
+  error names every refused item and folder (a folder by its id):
   `refused` lists them as `sigantry_core.sync.errors.RefusedPullItem`
   records, and `item_id` / `display_name` name the first. (#67)
 - **Ledger location: respect `[release] audit_dir` and route `@destructive_op`.**

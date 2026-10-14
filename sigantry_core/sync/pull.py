@@ -13,13 +13,14 @@ Execution flow (D-20):
    its directory, and its ``sync.yml`` entry validated by
    :class:`~sigantry_core.sync.manifest.SyncItem`. An item keeps
    ``<into>/<target_folder>/<display_name>/`` unless another item in the
-   same folder has the same display name; then each of them goes to
-   ``<display_name>.<Type>/``, the Fabric Git integration's naming.
-   Names are compared ignoring case (``str.casefold``), because Windows
-   and macOS file systems do. An item ``sync.yml`` would refuse, a
-   directory outside ``--into``, or two items left with one directory
-   refuse the whole pull (:class:`PullItemNameRefusedError`, naming every
-   refused item) with nothing fetched or written.
+   same folder has the same display name, or it is named like a folder
+   beside it; then it goes to ``<display_name>.<Type>/``, the Fabric Git
+   integration's naming. Names are compared NFC-normalised and ignoring
+   case, as Windows and macOS file systems compare them. An item or
+   workspace folder ``sync.yml`` would refuse, a directory outside
+   ``--into``, or two items left with one directory refuse the whole pull
+   (:class:`PullItemNameRefusedError`, naming every refused item) with
+   nothing fetched or written.
 4. For each planned item POST to
    ``/v1/workspaces/{ws}/{url_segment}/{item_id}/getDefinition``
    passing ``format=ipynb`` for Notebooks (Council A) and the default
@@ -60,6 +61,7 @@ from __future__ import annotations
 import base64
 import binascii
 import logging
+import unicodedata
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -267,6 +269,17 @@ def _refusal(refused: list[RefusedPullItem]) -> PullItemNameRefusedError:
     )
 
 
+def _fs_key(name: str) -> str:
+    """The form in which two names name one directory on some file system.
+
+    NFC-normalised (macOS APFS treats composed and decomposed accents as one
+    name) and lower-cased (Windows NTFS and APFS ignore case by default).
+    ``str.lower``, not ``str.casefold``: neither file system folds ``ß`` to
+    ``ss``, so ``Straße`` and ``Strasse`` stay two directories.
+    """
+    return unicodedata.normalize("NFC", name).lower()
+
+
 def _plan_items(
     snapshot: WorkspaceSnapshot, *, into: Path, type_scope: frozenset[str]
 ) -> list[_PlannedItem]:
@@ -279,11 +292,13 @@ def _plan_items(
     Directory: ``<target_folder>/<display_name>`` (``target_folder``
     mirrored verbatim, without its leading ``/``), or
     ``<target_folder>/<display_name>.<Type>`` for every item whose folder
-    holds another item of the same display name, or a pulled item's folder
-    of that name, compared with ``str.casefold`` -- the Fabric Git
+    holds another item of the same display name, or a folder of that name
+    that holds an item, compared by :func:`_fs_key` -- the Fabric Git
     integration's naming, and the one ``sync apply`` stages items under. A
     display name or folder name cannot hold ``.``, so a suffixed directory
-    never equals an unsuffixed one or a folder's.
+    never equals an unsuffixed one or a folder's. The layout is worked out
+    over every item ``sync pull`` can fetch, not only those in
+    ``type_scope``, so ``--type`` never changes an item's directory.
 
     An item is refused when:
 
@@ -294,18 +309,43 @@ def _plan_items(
     * its directory does not resolve strictly inside ``into``
       (:func:`sigantry_core.sync._paths.contained_path`, the rule the
       packagers use for staging); or
-    * its directory is, ignoring case, another item's directory -- two
+    * its directory is, by :func:`_fs_key`, another item's directory -- two
       items of one type whose names differ only in case, or folders whose
       paths differ only in case.
 
+    A workspace folder whose path ``sync.yml``'s ``folders`` list cannot
+    hold (the same segment rules) is refused the same way, with its folder
+    id in ``item_id``: every workspace folder is written to that list.
+
     Raises:
-        PullItemNameRefusedError: naming every refused item.
+        PullItemNameRefusedError: naming every refused item and folder.
     """
-    candidates: list[tuple[Item, str]] = []
+    folder_refused: list[RefusedPullItem] = []
+    for folder_path, folder_id in sorted(snapshot.folder_path_index.items()):
+        try:
+            SyncManifest(schema_version="1.0.0", items=[], folders=[folder_path])
+        except ValidationError as exc:
+            parent, _, name = folder_path.rpartition("/")
+            folder_refused.append(
+                RefusedPullItem(
+                    folder_id,
+                    name,
+                    parent or "/",
+                    f"workspace folder {folder_path!r}, which sync.yml lists under "
+                    f"folders: {_validation_reasons(exc)}",
+                )
+            )
+
+    # The layout is decided over every fetchable item, so that --type does
+    # not move an item's directory between pulls.
+    fetchable = [
+        (item, _resolve_folder_path_from_id(snapshot, item.folder_id))
+        for item in snapshot.items_by_id.values()
+        if item.type in _DEFINITION_ENDPOINTS
+    ]
+    candidates = [(item, folder) for item, folder in fetchable if item.type in type_scope]
     for item in snapshot.items_by_id.values():
-        if item.type not in type_scope:
-            continue
-        if item.type not in _DEFINITION_ENDPOINTS:
+        if item.type in type_scope and item.type not in _DEFINITION_ENDPOINTS:
             logger.info(
                 "pull_skipping_unsupported_type "
                 "item_id=%s type=%s display_name=%s reason="
@@ -314,17 +354,15 @@ def _plan_items(
                 item.type,
                 item.display_name,
             )
-            continue
-        candidates.append((item, _resolve_folder_path_from_id(snapshot, item.folder_id)))
 
     name_counts = Counter(
-        (target_folder, item.display_name.casefold()) for item, target_folder in candidates
+        (_fs_key(target_folder), _fs_key(item.display_name)) for item, target_folder in fetchable
     )
-    # Every folder directory the pull creates: each pulled item's folder and
-    # its ancestors. An item named like one of them would otherwise share it.
+    # Every folder directory a pull can create: each fetchable item's folder
+    # and its ancestors. An item named like one of them would otherwise share it.
     folder_dirs = {
-        "/".join(parts[:depth]).casefold()
-        for _item, target_folder in candidates
+        _fs_key("/".join(parts[:depth]))
+        for _item, target_folder in fetchable
         for parts in [target_folder.strip("/").split("/")]
         if parts != [""]
         for depth in range(1, len(parts) + 1)
@@ -333,9 +371,9 @@ def _plan_items(
     planned: list[_PlannedItem] = []
     for item, target_folder in candidates:
         dir_name = item.display_name
-        plain_dir = Path(target_folder.lstrip("/"), item.display_name).as_posix().casefold()
+        plain_dir = _fs_key(Path(target_folder.lstrip("/"), item.display_name).as_posix())
         if (
-            name_counts[(target_folder, item.display_name.casefold())] > 1
+            name_counts[(_fs_key(target_folder), _fs_key(item.display_name))] > 1
             or plain_dir in folder_dirs
         ):
             # ``item.type`` is a key of _DEFINITION_ENDPOINTS: canonical.
@@ -371,9 +409,9 @@ def _plan_items(
 
     by_directory: defaultdict[str, list[_PlannedItem]] = defaultdict(list)
     for plan in planned:
-        by_directory[plan.local_dir.as_posix().casefold()].append(plan)
+        by_directory[_fs_key(plan.local_dir.as_posix())].append(plan)
     for plan in planned:
-        sharing = by_directory[plan.local_dir.as_posix().casefold()]
+        sharing = by_directory[_fs_key(plan.local_dir.as_posix())]
         if len(sharing) > 1:
             others = ", ".join(
                 f"item_id={o.item.id} ({o.local_dir.as_posix()!r})"
@@ -391,6 +429,8 @@ def _plan_items(
                 )
             )
 
+    # Items first, so ``item_id`` / ``display_name`` name an item when one is refused.
+    refused += folder_refused
     if refused:
         raise _refusal(refused)
     return planned
