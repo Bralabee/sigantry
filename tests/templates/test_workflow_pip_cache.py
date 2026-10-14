@@ -39,7 +39,9 @@ def _uncacheable_pip_steps(root: Path) -> list[str]:
                     and str(inputs.get("cache", "")).strip() == "pip"
                     and not inputs.get("cache-dependency-path")
                 ):
-                    found.append(f"{workflow.relative_to(root)}: {job_name} step {index}")
+                    found.append(
+                        f"{workflow.relative_to(root).as_posix()}: {job_name} step {index}"
+                    )
     return found
 
 

@@ -227,4 +227,5 @@ def test_a_link_to_a_path_absent_from_the_tree_is_reported(
     monkeypatch.setattr(module, "DOCS_ROOT", docs)
     monkeypatch.setattr(module, "PLANNING_ROOT", tmp_path / ".planning", raising=False)
     assert not (tmp_path / ".planning").exists()
-    assert _collect_broken_links() == [f"docs/index.md: [the notes]({target})"]
+    # The collector names a file by its OS path (``docs\\index.md`` on Windows).
+    assert _collect_broken_links() == [f"{Path('docs', 'index.md')}: [the notes]({target})"]
