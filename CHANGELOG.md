@@ -112,6 +112,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     these commands where that file is read now gets the GUID refusal.
 
 ### Fixed
+- **Bootstrap folder convergence matches top-level folders only (#65).**
+  `workspace bootstrap` creates every blueprint or `folders.list` folder at
+  the workspace root, but it matched existing folders by name across the whole
+  listing, so a nested folder with a desired name (for example `99_retired`
+  under another folder) counted as the top-level one: that folder was never
+  created, the nested one was reported in `folders_present` and in the
+  BootstrapRecord, and later runs reported the layout as converged. Now only a
+  folder with no parent can satisfy a desired name, in the real run and in the
+  dry run. A re-run may therefore create top-level folders that earlier runs
+  skipped; the dry run lists them in `folders_created` first.
 - **`diagnose-auth` reports a probe that cannot connect instead of exiting
   with a traceback (#74).** When the first request of the Fabric
   tenant-settings probe or of the Entra group check got no response
