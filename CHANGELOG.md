@@ -112,6 +112,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     these commands where that file is read now gets the GUID refusal.
 
 ### Fixed
+- **The docs link check fails a link into `.planning/` (#46).**
+  `tests/prereqs/test_wiki_links.py` skipped a broken link whose target was
+  inside `.planning/` whenever that directory was absent. It is gitignored,
+  so it is absent from every fresh clone, CI included, and such a link
+  passed CI although it is dead for every reader. The exemption is removed;
+  a link into any directory missing from the tree now fails like any other
+  dead link, and a test plants one to show it. No tracked doc links into
+  `.planning/` today, so no link needed fixing.
 - **The starter and demo PR-bot workflows no longer fail at "Set up
   Python" (#72).** `templates/starter/.github/workflows/pr-bot.yml` and its
   byte-equal demo copy set `cache: 'pip'` on `actions/setup-python`, which
