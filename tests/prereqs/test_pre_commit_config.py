@@ -18,13 +18,15 @@ W3.5 adds:
   ``ruff-format``.
 - ``Yelp/detect-secrets`` v1.5.0: secret detection at commit-time
   with a ``.secrets.baseline`` audit file.
-- ``pre-commit/mirrors-mypy`` v1.13.0: type-check ``sigantry_core/``
-  with ``--ignore-missing-imports --python-version=3.11`` matching
-  ``pyproject.toml [tool.mypy]``.
+- a mypy hook. It began as ``pre-commit/mirrors-mypy``, whose isolated
+  env reported errors CI's mypy did not (issue #21); it is now a
+  ``repo: local`` ``language: system`` hook whose entry is CI's own mypy
+  command, run by the project env.
 - The 2 custom Fabric hooks preserved unchanged.
 
 Falsifiability: this test FAILS if any of the four documented hook
-sets is dropped or renamed.
+sets is dropped or renamed, or if the mypy hook's command drifts from
+CI's.
 """
 
 from __future__ import annotations
@@ -33,10 +35,12 @@ import re
 from pathlib import Path
 
 import pytest
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPO_ROOT / ".pre-commit-config.yaml"
 SECRETS_BASELINE_PATH = REPO_ROOT / ".secrets.baseline"
+CI_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 
 
 def test_pre_commit_config_exists() -> None:
@@ -69,7 +73,7 @@ def test_pre_commit_config_exists() -> None:
             ["detect-secrets"],
         ),
         (
-            "https://github.com/pre-commit/mirrors-mypy",
+            "local",
             ["mypy"],
         ),
     ],
@@ -101,17 +105,46 @@ def test_custom_fabric_hooks_preserved() -> None:
         )
 
 
-def test_mypy_hook_scopes_to_sigantry_core_only() -> None:
-    """mypy hook applies to ``^sigantry_core/`` -- plugin / shim trees skipped."""
-    text = CONFIG_PATH.read_text(encoding="utf-8")
-    # Look for a line ``files: ^sigantry_core/`` in proximity to the
-    # mypy hook id. Block-scoped grep is overkill here; just check the
-    # config carries the regex literal.
-    assert re.search(r"files:\s*\^sigantry_core/", text), (
-        "mypy hook is not scoped to ^sigantry_core/. The W3.5 design "
-        "intentionally excludes plugin directories and shims (shim/) "
-        "which carry their own typing posture."
-    )
+def _ci_mypy_command() -> str:
+    """The ``run`` of the mypy step in CI's ``types`` job."""
+    workflow = yaml.safe_load(CI_WORKFLOW_PATH.read_text(encoding="utf-8"))
+    runs = [
+        step["run"].strip()
+        for step in workflow["jobs"]["types"]["steps"]
+        if str(step.get("run", "")).strip().startswith("mypy ")
+    ]
+    assert len(runs) == 1, f"expected one mypy step in CI's types job, found {runs}"
+    return str(runs[0])
+
+
+def _mypy_hooks() -> list[tuple[str, dict]]:
+    """``(repo, hook)`` for every hook whose id is ``mypy``."""
+    config = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
+    return [
+        (repo["repo"], hook)
+        for repo in config["repos"]
+        for hook in repo.get("hooks", [])
+        if hook.get("id") == "mypy"
+    ]
+
+
+def test_mypy_hook_runs_the_ci_command_in_the_project_env() -> None:
+    """Issue #21: the hook runs CI's mypy command with the project env's mypy.
+
+    An isolated ``mirrors-mypy`` env lacked runtime types the project env has
+    and reported errors CI did not. A ``language: system`` hook whose entry is
+    CI's command, over whole roots, removes that difference.
+    """
+    hooks = _mypy_hooks()
+    assert [repo for repo, _ in hooks] == ["local"], hooks
+    hook = hooks[0][1]
+    assert hook["language"] == "system"
+    assert hook["entry"] == _ci_mypy_command() == "mypy sigantry_core/ scripts/"
+    assert hook["pass_filenames"] is False
+    assert "additional_dependencies" not in hook
+    files = re.compile(hook["files"])
+    for path in ("sigantry_core/auth/diagnose.py", "scripts/docs_freshness.py"):
+        assert files.search(path), f"a change to {path} does not trigger the mypy hook"
 
 
 def test_secrets_baseline_exists_and_is_valid_json() -> None:

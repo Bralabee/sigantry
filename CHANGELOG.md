@@ -57,6 +57,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parameter file", reproduced on a DEV deploy whose binding named only PROD).
 
 ### Changed
+- **The pre-commit mypy hook runs CI's command in the project environment
+  (#21).** The `mirrors-mypy` hook type-checked `sigantry_core/` in an
+  isolated environment that lacked runtime types the project environment
+  has, so `pre-commit run mypy --all-files` reported 11 errors while CI's
+  `mypy sigantry_core/ scripts/` was clean. It is replaced by a `repo: local`,
+  `language: system` hook whose entry is that CI command (both roots,
+  `pass_filenames: false`), with no mirrored dependency list. The hook now
+  needs the project environment active; CONTRIBUTING.md says so.
 - **`diagnose-auth` tells a nested group membership from a missing one
   (#75).** The Entra group check reads `memberOf`, which Microsoft documents
   as direct memberships only, so a principal in the expected group through
