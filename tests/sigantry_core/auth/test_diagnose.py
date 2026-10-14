@@ -21,6 +21,7 @@ from sigantry_core.auth.diagnose import (
 )
 
 _GROUP = "fabric-deployers"
+_ME_TRANSITIVE = f"{GRAPH_AUDIENCE}/v1.0/me/transitiveMemberOf"
 
 #: JWT payloads that are valid JSON but not an object, one per JSON kind.
 #: The string and the array contain a claim name, so a lookup by name reaches
@@ -114,6 +115,23 @@ class TestCheckTenantToggles:
         assert result["status"] == "blocked"
         assert result["classification"] == "api_not_enabled"
 
+    @pytest.mark.parametrize("error", [httpx.ConnectError("refused"), httpx.ReadTimeout("slow")])
+    def test_no_response_is_an_error_not_a_raise(
+        self, respx_router: respx.MockRouter, error: httpx.HTTPError
+    ) -> None:
+        respx_router.get(f"{FABRIC_AUDIENCE}/v1/admin/tenantsettings").mock(side_effect=error)
+        with httpx.Client() as client:
+            result = check_tenant_toggles("fake-token", client=client)
+        assert result == {
+            "status": "error",
+            "classification": "other",
+            "toggles_visible": 0,
+            "detail": (
+                f"{type(error).__name__} reaching the Fabric Admin REST API; "
+                "the tenant settings are unknown"
+            ),
+        }
+
     def test_500_is_blocked_other(self, respx_router: respx.MockRouter) -> None:
         respx_router.get(f"{FABRIC_AUDIENCE}/v1/admin/tenantsettings").mock(
             return_value=httpx.Response(500)
@@ -144,12 +162,16 @@ class TestCheckEntraGroup:
         assert result["expected"] == _GROUP
 
     def test_missing_when_group_not_found(self, respx_router: respx.MockRouter) -> None:
+        body = {"value": [{"displayName": "sg-other"}]}
         respx_router.get(f"{GRAPH_AUDIENCE}/v1.0/me/memberOf").mock(
-            return_value=httpx.Response(200, json={"value": [{"displayName": "sg-other"}]})
+            return_value=httpx.Response(200, json=body)
         )
+        respx_router.get(_ME_TRANSITIVE).mock(return_value=httpx.Response(200, json=body))
         with httpx.Client() as client:
             result = check_entra_group("fake-token", expected_group=_GROUP, client=client)
         assert result["status"] == "missing"
+        assert result["classification"] == "missing"
+        assert result["detail"] == f"not in {_GROUP}"
 
     def test_service_principal_path_with_principal_id(self, respx_router: respx.MockRouter) -> None:
         respx_router.get(
@@ -468,6 +490,9 @@ class TestCheckEntraGroupGraphToken:
                 },
             )
         )
+        respx_router.get(_ME_TRANSITIVE).mock(
+            return_value=httpx.Response(200, json={"value": [{"displayName": "sg-other"}]})
+        )
         result = _check("fake-token")
         assert result["status"] == "missing"
         assert result["classification"] == "missing"
@@ -521,12 +546,19 @@ class TestCheckEntraGroupGraphToken:
         assert result["classification"] == "other"
         assert result["groups"] == ["sg-other"]
 
-    def test_a_first_page_that_cannot_be_read_raises_as_in_1_0_0(
-        self, respx_router: respx.MockRouter
+    @pytest.mark.parametrize("error", [httpx.ConnectError("refused"), httpx.ReadTimeout("slow")])
+    def test_a_first_page_that_cannot_be_read_is_an_error_not_a_raise(
+        self, respx_router: respx.MockRouter, error: httpx.HTTPError
     ) -> None:
-        respx_router.get(_ME).mock(side_effect=httpx.ConnectError("refused"))
-        with pytest.raises(httpx.ConnectError):
-            _check("fake-token")
+        respx_router.get(_ME).mock(side_effect=error)
+        result = _check("fake-token")
+        assert result["status"] == "error"
+        assert result["classification"] == "other"
+        assert result["groups"] == []
+        assert result["detail"] == (
+            f"{type(error).__name__} reading memberOf page 1 from Microsoft Graph; "
+            "the membership is unknown"
+        )
 
     def test_never_follows_a_next_link_off_graph(self, respx_router: respx.MockRouter) -> None:
         foreign = respx_router.get(url__startswith="https://example.invalid/").mock(
@@ -585,3 +617,143 @@ class TestCheckEntraGroupGraphToken:
             f"not decided: none of the named memberships on the first {pages} pages "
             f"is {_GROUP}, and Microsoft Graph returned a link to more pages"
         )
+
+
+_NESTED_DETAIL = (
+    f"not a direct member of {_GROUP}: a member only through another group. Fabric "
+    "does not document support for nested groups in tenant settings; add the "
+    f"principal to {_GROUP} directly."
+)
+_UNCHECKED_DETAIL = f"not in {_GROUP}; nested membership could not be checked"
+
+
+class TestNestedMembership:
+    """Issue #75: memberOf is direct only; transitiveMemberOf is read before ``missing``."""
+
+    @staticmethod
+    def _direct(respx_router: respx.MockRouter, *names: str) -> respx.Route:
+        return respx_router.get(_ME).mock(
+            return_value=httpx.Response(200, json={"value": [{"displayName": n} for n in names]})
+        )
+
+    def test_a_member_only_through_another_group_is_missing_nested_only(
+        self, respx_router: respx.MockRouter
+    ) -> None:
+        self._direct(respx_router, "sg-parent")
+        transitive = respx_router.get(_ME_TRANSITIVE).mock(
+            return_value=httpx.Response(
+                200, json={"value": [{"displayName": "sg-parent"}, {"displayName": _GROUP}]}
+            )
+        )
+        result = _check("fake-token")
+        assert result["status"] == "missing"
+        assert result["classification"] == "nested_only"
+        assert result["detail"] == _NESTED_DETAIL
+        assert result["groups"] == ["sg-parent"]  # the direct memberships only
+        request = transitive.calls.last.request
+        assert request.headers["ConsistencyLevel"] == "eventual"
+        assert request.url.params["$count"] == "true"
+        assert request.url.params["$select"] == "displayName"
+        assert request.headers["Authorization"] == "Bearer fake-token"
+
+    def test_a_direct_member_is_ok_after_one_request(self, respx_router: respx.MockRouter) -> None:
+        graph = respx_router.get(url__startswith=f"{GRAPH_AUDIENCE}/").mock(
+            return_value=httpx.Response(200, json={"value": [{"displayName": _GROUP}]})
+        )
+        result = _check("fake-token")
+        assert result["status"] == "ok"
+        assert result["classification"] == "ok"
+        assert graph.call_count == 1
+        assert graph.calls.last.request.url.path == "/v1.0/me/memberOf"
+
+    def test_service_principal_reads_its_own_transitive_memberships(
+        self, respx_router: respx.MockRouter
+    ) -> None:
+        sp = f"{GRAPH_AUDIENCE}/v1.0/servicePrincipals/oid-xyz"
+        respx_router.get(f"{sp}/memberOf").mock(
+            return_value=httpx.Response(200, json={"value": [{"displayName": "sg-parent"}]})
+        )
+        transitive = respx_router.get(f"{sp}/transitiveMemberOf").mock(
+            return_value=httpx.Response(200, json={"value": [{"displayName": _GROUP}]})
+        )
+        result = _check("fake-token", principal_id="oid-xyz")
+        assert result["classification"] == "nested_only"
+        assert transitive.call_count == 1
+
+    def test_a_later_transitive_page_is_followed(self, respx_router: respx.MockRouter) -> None:
+        self._direct(respx_router, "sg-parent")
+        page2 = f"{_ME_TRANSITIVE}?$skiptoken=abc"
+        respx_router.get(page2).mock(
+            return_value=httpx.Response(200, json={"value": [{"displayName": _GROUP}]})
+        )
+        respx_router.get(_ME_TRANSITIVE, params={"$count": "true"}).mock(
+            return_value=httpx.Response(
+                200, json={"value": [{"displayName": "sg-parent"}], "@odata.nextLink": page2}
+            )
+        )
+        assert _check("fake-token")["classification"] == "nested_only"
+
+    @pytest.mark.parametrize(
+        "transitive",
+        [
+            {"return_value": httpx.Response(403)},
+            {"return_value": httpx.Response(400, json={"error": {"message": "unsupported"}})},
+            {"side_effect": httpx.ConnectError("refused")},
+            {"return_value": httpx.Response(200, text="not json")},
+            {
+                "return_value": httpx.Response(
+                    200,
+                    json={
+                        "value": [{"displayName": "sg-parent"}],
+                        "@odata.nextLink": "https://example.invalid/v1.0/me/transitiveMemberOf",
+                    },
+                )
+            },
+            {
+                "return_value": httpx.Response(
+                    200,
+                    json={
+                        "value": [{"@odata.type": "#microsoft.graph.group", "id": "g1"}],
+                    },
+                )
+            },
+        ],
+        ids=["refused-403", "refused-400", "no-response", "unparseable", "off-graph", "unnamed"],
+    )
+    def test_a_transitive_read_that_cannot_decide_keeps_missing_with_a_suffix(
+        self, respx_router: respx.MockRouter, transitive: dict[str, object]
+    ) -> None:
+        self._direct(respx_router, "sg-parent")
+        respx_router.get(_ME_TRANSITIVE).mock(**transitive)
+        result = _check("fake-token")
+        assert result["status"] == "missing"
+        assert result["classification"] == "missing"
+        assert result["detail"] == _UNCHECKED_DETAIL
+        assert result["groups"] == ["sg-parent"]
+
+    def test_an_endless_transitive_read_is_capped(self, respx_router: respx.MockRouter) -> None:
+        self._direct(respx_router, "sg-parent")
+        route = respx_router.get(_ME_TRANSITIVE).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "value": [{"displayName": "sg-parent"}],
+                    "@odata.nextLink": f"{_ME_TRANSITIVE}?$skiptoken=again",
+                },
+            )
+        )
+        result = _check("fake-token")
+        assert result["detail"] == _UNCHECKED_DETAIL
+        assert route.call_count == diagnose_module._MAX_MEMBER_OF_PAGES
+
+    @pytest.mark.parametrize("status", [403, 500])
+    def test_a_memberof_error_never_reads_transitive(
+        self, respx_router: respx.MockRouter, status: int
+    ) -> None:
+        respx_router.get(_ME).mock(return_value=httpx.Response(status))
+        transitive = respx_router.get(_ME_TRANSITIVE).mock(
+            return_value=httpx.Response(200, json={"value": [{"displayName": _GROUP}]})
+        )
+        result = _check("fake-token")
+        assert result["status"] == "error"
+        assert not transitive.called

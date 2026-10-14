@@ -51,11 +51,12 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           path: head-tree
+      # No `cache: 'pip'`: setup-python's pip cache looks for a
+      # requirements.txt or pyproject.toml, and this tree has neither.
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
       - name: Install sigantry
         run: pip install sigantry
       - name: Run sigantry pr-bot

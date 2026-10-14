@@ -273,13 +273,25 @@ def _log_warning(message: str) -> None:
     logger.warning("%s", message)
 
 
+def _top_level_by_name(listed: Sequence[Folder]) -> dict[str, Folder]:
+    """Map display name to folder over the top-level folders of ``listed``.
+
+    Bootstrap creates every desired folder at the workspace root, so only a
+    root folder (no ``parent_folder_id``) can be the one it would create. A
+    nested folder that carries a desired name is a different folder and
+    never counts as present.
+    """
+    return {f.display_name: f for f in listed if f.parent_folder_id is None}
+
+
 def _folders_to_create(config: BootstrapConfig, existing: Mapping[str, Folder]) -> list[str]:
     """Return the desired folder names that the folder step creates, in order.
 
-    ``existing`` maps display name to folder over the workspace's folder
-    listing. A desired name is missing when no listed folder has it; this
-    is the same test :func:`_ensure_folders` applies before it creates a
-    folder, so the dry run and the warning count what a real run creates.
+    ``existing`` maps display name to folder over the workspace's top-level
+    folders (:func:`_top_level_by_name`). A desired name is missing when no
+    top-level folder has it; this is the same test :func:`_ensure_folders`
+    applies before it creates a folder, so the dry run and the warning count
+    what a real run creates.
     """
     return [name for name in config.folder_list if name not in existing]
 
@@ -531,7 +543,7 @@ def _ensure_folders(
         return (), [], "skipped", ()
 
     listed = list(list_folders(client, workspace.id))
-    existing = {f.display_name: f for f in listed}
+    existing = _top_level_by_name(listed)
     warnings = _report_warnings(
         config,
         listed,
@@ -741,7 +753,7 @@ def _dry_run(
         else:
             ws = existing
             listed = list(list_folders(client, ws.id))
-        existing_folders = {f.display_name: f for f in listed}
+        existing_folders = _top_level_by_name(listed)
         would_create = _folders_to_create(config, existing_folders)
         warnings = _report_warnings(
             config, listed, would_create, dry_run=True, on_warning=on_warning

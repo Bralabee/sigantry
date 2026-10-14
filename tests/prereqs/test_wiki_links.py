@@ -8,12 +8,18 @@ Phase 1 (plan 01-03) extends coverage to docs/index.md, docs/getting-started/,
 and docs/reference/, and teaches the resolver to handle ADO wiki-style links
 that omit the .md suffix.
 
+A link must resolve in a fresh clone. There is no exemption for a directory
+that is absent from the tree: a link into a gitignored, local-only directory
+such as `.planning/` is dead for every reader of the docs (issue #46). To refer
+to a local-only file, write its path in a code span without link syntax.
+
 No network. No external dependencies beyond stdlib + pytest.
 """
 
 from __future__ import annotations
 
 import re
+import sys
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -21,7 +27,6 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DOCS_ROOT = REPO_ROOT / "docs"
-PLANNING_ROOT = REPO_ROOT / ".planning"
 
 # Match markdown links whose target is a relative path (not http/https/mailto/anchor-only).
 # Captures the path part before any anchor. E.g. [text](../foo/bar.md#anchor) -> '../foo/bar.md'.
@@ -70,31 +75,11 @@ def _resolve_target(origin: Path, target: str) -> Path | None:
     return None
 
 
-def _is_absent_planning_target(origin: Path, target: str) -> bool:
-    """True when a link points into `.planning/` and that tree is not checked out.
-
-    `.planning/` holds local-only GSD artefacts and is gitignored by design, so
-    on the GitHub runner every link into it is unresolvable for a reason that
-    says nothing about documentation health. Suppressing exactly that case lets
-    the module run in GitHub CI instead of being `--ignore`d wholesale - which is
-    how a genuinely broken `docs/index.md` link survived ~2 months unnoticed.
-
-    The suppression is conditional, not blanket: wherever `.planning/` IS present
-    - every developer checkout, and the ADO runner - links into it resolve
-    normally, so a typo'd planning path still fails there.
-    """
-    if PLANNING_ROOT.is_dir():
-        return False
-    candidate = (origin.parent / target).resolve()
-    return candidate == PLANNING_ROOT or PLANNING_ROOT in candidate.parents
-
-
 def _collect_broken_links() -> list[str]:
     broken: list[str] = []
     for md in sorted(DOCS_ROOT.rglob("*.md")):
         for link_text, target in _iter_relative_links(md):
-            resolved = _resolve_target(md, target)
-            if resolved is None and not _is_absent_planning_target(md, target):
+            if _resolve_target(md, target) is None:
                 rel = md.relative_to(REPO_ROOT)
                 broken.append(f"{rel}: [{link_text}]({target})")
     return broken
@@ -207,7 +192,40 @@ def test_markdown_links_resolve(md_path: Path) -> None:
     parametrised failure instead of being buried in the aggregate test."""
     broken: list[tuple[str, str]] = []
     for link_text, target in _iter_relative_links(md_path):
-        resolved = _resolve_target(md_path, target)
-        if resolved is None and not _is_absent_planning_target(md_path, target):
+        if _resolve_target(md_path, target) is None:
             broken.append((link_text, target))
     assert not broken, f"broken links in {md_path.relative_to(REPO_ROOT)}: {broken}"
+
+
+# Fail direction ----------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "target",
+    ["../.planning/x.md", "../.planning/", "./no-such-page.md"],
+    ids=["planning-file", "planning-dir", "missing-page"],
+)
+def test_a_link_to_a_path_absent_from_the_tree_is_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str
+) -> None:
+    """Issue #46: a link into an absent `.planning/` fails like any dead link.
+
+    The module's roots are pointed at a scratch repository without a
+    `.planning/` directory, as on a fresh clone. ``PLANNING_ROOT`` is set too
+    (``raising=False``: the module no longer has one), so an exemption keyed
+    on that name, as the removed one was, would hide the planted link and
+    fail this test.
+    """
+    module = sys.modules[__name__]
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "present.md").write_text("# present\n", encoding="utf-8")
+    (docs / "index.md").write_text(
+        f"See [the notes]({target}) and [a page](./present.md).\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(module, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(module, "DOCS_ROOT", docs)
+    monkeypatch.setattr(module, "PLANNING_ROOT", tmp_path / ".planning", raising=False)
+    assert not (tmp_path / ".planning").exists()
+    # The collector names a file by its OS path (``docs\\index.md`` on Windows).
+    assert _collect_broken_links() == [f"{Path('docs', 'index.md')}: [the notes]({target})"]

@@ -48,7 +48,9 @@ runs the **5-call REST sequence** against your Fabric tenant:
 
 1. **Workspace** — probe by name, create if missing.
 2. **Capacity** — verify binding matches manifest, rebind if mismatched.
-3. **Folders** — verify every desired folder exists, create missing ones.
+3. **Folders** — verify every desired folder exists at the top level of the
+   workspace, create missing ones there. A nested folder with the same name
+   does not count.
 4. **Git** — bind the workspace to a Git repo (idempotent
    disconnect-before-reconnect on target mismatch).
 5. **Initialize** — initialise the Git connection so the next deploy can

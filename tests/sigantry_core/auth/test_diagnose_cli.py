@@ -196,6 +196,37 @@ class TestLiveMode:
         data = json.loads(result.stdout)
         assert data["tenant_toggles"]["classification"] == "api_not_enabled"
 
+    @pytest.mark.parametrize("output", ["json", "table"])
+    def test_probes_that_cannot_connect_print_the_report_and_exit_2(
+        self,
+        runner: CliRunner,
+        respx_router: respx.MockRouter,
+        cred: _ScopedCredential,
+        output: str,
+    ) -> None:
+        """Issue #74: a transport error is an ``error`` result, not a traceback."""
+        respx_router.get(f"{FABRIC_AUDIENCE}/v1/admin/tenantsettings").mock(
+            side_effect=httpx.ConnectError("refused")
+        )
+        respx_router.get(f"{GRAPH_AUDIENCE}/v1.0/me/memberOf").mock(
+            side_effect=httpx.ReadTimeout("slow")
+        )
+        with patch("sigantry_core.auth.token_provider.DefaultAzureCredential", return_value=cred):
+            result = runner.invoke(app, ["--output", output, "--expected-group", _GROUP])
+        assert result.exit_code == 2, result.output
+        assert isinstance(result.exception, SystemExit), result.exception
+        assert "Traceback" not in result.output
+        if output == "json":
+            data = json.loads(result.stdout)
+            assert data["tenant_toggles"]["status"] == "error"
+            assert data["tenant_toggles"]["detail"].startswith("ConnectError")
+            assert data["entra_groups"]["status"] == "error"
+            assert data["entra_groups"]["detail"].startswith("ReadTimeout")
+        else:
+            assert "ConnectError" in result.stdout
+            assert "ReadTimeout" in result.stdout
+            assert "exit_code" in result.stdout
+
     def test_mismatched_tenant_id_is_refused_with_exit_3(
         self,
         runner: CliRunner,
@@ -224,12 +255,19 @@ class TestLiveMode:
 
 
 def _member_of(respx_router: respx.MockRouter, groups: list[str]) -> respx.Route:
-    """Mock both live probes: tenant settings 200, memberOf returning ``groups``."""
+    """Mock both live probes: tenant settings 200, memberOf returning ``groups``.
+
+    ``transitiveMemberOf`` returns the same groups: every membership is direct.
+    """
     respx_router.get(f"{FABRIC_AUDIENCE}/v1/admin/tenantsettings").mock(
         return_value=httpx.Response(200, json={"tenantSettings": []})
     )
+    body = {"value": [{"displayName": g} for g in groups]}
+    respx_router.get(f"{GRAPH_AUDIENCE}/v1.0/me/transitiveMemberOf").mock(
+        return_value=httpx.Response(200, json=body)
+    )
     return respx_router.get(f"{GRAPH_AUDIENCE}/v1.0/me/memberOf").mock(
-        return_value=httpx.Response(200, json={"value": [{"displayName": g} for g in groups]})
+        return_value=httpx.Response(200, json=body)
     )
 
 
@@ -276,8 +314,27 @@ class TestExpectedGroup:
         assert result.exit_code == 2, result.output
         groups = json.loads(result.stdout)["entra_groups"]
         assert groups["status"] == "missing"
+        assert groups["classification"] == "missing"
+        assert groups["detail"] == f"not in {_GROUP}"
         assert groups["expected"] == _GROUP
         assert route.called
+
+    def test_a_nested_only_member_is_missing_with_exit_2(
+        self, runner: CliRunner, respx_router: respx.MockRouter, cred: _ScopedCredential
+    ) -> None:
+        """Issue #75: a membership only through another group is not ``ok``."""
+        _member_of(respx_router, ["sg-parent"])
+        respx_router.get(f"{GRAPH_AUDIENCE}/v1.0/me/transitiveMemberOf").mock(
+            return_value=httpx.Response(
+                200, json={"value": [{"displayName": "sg-parent"}, {"displayName": _GROUP}]}
+            )
+        )
+        result = _invoke_live(runner, cred, ["--output", "json", "--expected-group", _GROUP])
+        assert result.exit_code == 2, result.output
+        groups = json.loads(result.stdout)["entra_groups"]
+        assert groups["status"] == "missing"
+        assert groups["classification"] == "nested_only"
+        assert "only through another group" in groups["detail"]
 
     def test_expected_group_from_sigantry_toml(
         self,
