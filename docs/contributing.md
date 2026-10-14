@@ -47,8 +47,10 @@ ruff check sigantry_core/ tests/ scripts/
 ruff format --check sigantry_core/ tests/ scripts/
 mypy sigantry_core/ scripts/
 python -m pytest    # no extra -q: addopts already has one, and -qq hides the counts
-pwsh -c "Invoke-Pester -Configuration ./tests/Pester.config.ps1"
 ```
+
+Pester runs only once a `*.Tests.ps1` file ships (none does today):
+`pwsh -c '$c = & ./tests/Pester.config.ps1; Invoke-Pester -Configuration $c'`.
 
 ## Commit + PR workflow
 
