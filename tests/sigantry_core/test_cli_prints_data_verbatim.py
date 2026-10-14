@@ -85,7 +85,9 @@ def test_dq_gate_unknown_gate_name_is_a_config_error() -> None:
 def test_workspace_bootstrap_missing_config_is_exit_two() -> None:
     result = runner.invoke(app, ["workspace", "bootstrap", "cfg[/x]/workspace.yml", "--dry-run"])
     assert result.exit_code == 2, repr(result.exception)
-    assert "ERROR workspace.yml not found at cfg[/x]/workspace.yml" in _flat(result.stdout)
+    # The command prints the path in the OS's own form (``cfg[\\x]\\workspace.yml`` on Windows).
+    expected = f"ERROR workspace.yml not found at {Path('cfg[/x]/workspace.yml')}"
+    assert expected in _flat(result.stdout)
 
 
 class _BrokenPluginRegistry(Registry):
