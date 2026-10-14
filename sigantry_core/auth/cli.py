@@ -47,6 +47,14 @@ for a user, at least delegated `User.Read`; for a service principal
 `names_hidden` means some memberships came back without their names and none
 of the named ones is the group; its detail asks for `GroupMember.Read.All`.
 
+The check reads the principal's direct memberships (`memberOf`). Only when
+the group is not among them does it make a second Graph request, to
+`transitiveMemberOf`. A principal in the group only through another group is
+reported `missing` with classification `nested_only` (exit 2): Fabric does not
+document support for nested groups in tenant settings, so the detail asks for
+a direct membership. If that second read fails, the result stays `missing`
+and its detail says nested membership could not be checked.
+
 Never logs the raw token. JSON output schema does not include a `token` key.
 """
 
@@ -226,7 +234,9 @@ def diagnose(
                 "Expected Entra group display name, e.g. fabric-deployers. "
                 "Default: auth.expected_group in the loaded settings. Only a "
                 "--scope fabric run checks a group; skipped means neither this "
-                "flag nor the loaded settings named one."
+                "flag nor the loaded settings named one. The principal must be "
+                "a direct member: a membership only through another group is "
+                "reported missing (nested_only)."
             ),
         ),
     ] = None,

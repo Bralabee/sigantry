@@ -255,12 +255,19 @@ class TestLiveMode:
 
 
 def _member_of(respx_router: respx.MockRouter, groups: list[str]) -> respx.Route:
-    """Mock both live probes: tenant settings 200, memberOf returning ``groups``."""
+    """Mock both live probes: tenant settings 200, memberOf returning ``groups``.
+
+    ``transitiveMemberOf`` returns the same groups: every membership is direct.
+    """
     respx_router.get(f"{FABRIC_AUDIENCE}/v1/admin/tenantsettings").mock(
         return_value=httpx.Response(200, json={"tenantSettings": []})
     )
+    body = {"value": [{"displayName": g} for g in groups]}
+    respx_router.get(f"{GRAPH_AUDIENCE}/v1.0/me/transitiveMemberOf").mock(
+        return_value=httpx.Response(200, json=body)
+    )
     return respx_router.get(f"{GRAPH_AUDIENCE}/v1.0/me/memberOf").mock(
-        return_value=httpx.Response(200, json={"value": [{"displayName": g} for g in groups]})
+        return_value=httpx.Response(200, json=body)
     )
 
 
@@ -307,8 +314,27 @@ class TestExpectedGroup:
         assert result.exit_code == 2, result.output
         groups = json.loads(result.stdout)["entra_groups"]
         assert groups["status"] == "missing"
+        assert groups["classification"] == "missing"
+        assert groups["detail"] == f"not in {_GROUP}"
         assert groups["expected"] == _GROUP
         assert route.called
+
+    def test_a_nested_only_member_is_missing_with_exit_2(
+        self, runner: CliRunner, respx_router: respx.MockRouter, cred: _ScopedCredential
+    ) -> None:
+        """Issue #75: a membership only through another group is not ``ok``."""
+        _member_of(respx_router, ["sg-parent"])
+        respx_router.get(f"{GRAPH_AUDIENCE}/v1.0/me/transitiveMemberOf").mock(
+            return_value=httpx.Response(
+                200, json={"value": [{"displayName": "sg-parent"}, {"displayName": _GROUP}]}
+            )
+        )
+        result = _invoke_live(runner, cred, ["--output", "json", "--expected-group", _GROUP])
+        assert result.exit_code == 2, result.output
+        groups = json.loads(result.stdout)["entra_groups"]
+        assert groups["status"] == "missing"
+        assert groups["classification"] == "nested_only"
+        assert "only through another group" in groups["detail"]
 
     def test_expected_group_from_sigantry_toml(
         self,

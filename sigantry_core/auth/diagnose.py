@@ -15,6 +15,8 @@ exceptions are listed in pyproject.toml: the ``httpx`` banned-api message and
   Fabric token used by ``check_tenant_toggles``, and never sends a token
   whose ``aud`` claim names only other resources. A response from Graph
   other than 200 is an ``error`` with a ``classification``, not ``missing``.
+  Before reporting ``missing`` it reads ``transitiveMemberOf``, so a
+  membership only through another group is reported as ``nested_only``.
   Called without ``expected_group`` it emits a ``FutureWarning``: sigantry
   1.0.0 checked a built-in group there, which has been removed.
 - Importing ``ExpectedEntraGroup`` by name, as code written against sigantry
@@ -88,8 +90,12 @@ _GRAPH_TOKEN_AUDIENCES = frozenset(
     {GRAPH_AUDIENCE, f"{GRAPH_AUDIENCE}/", "00000003-0000-0000-c000-000000000000"}
 )
 
-#: Most ``memberOf`` pages ``check_entra_group`` reads before it gives up.
+#: Most ``memberOf`` pages ``check_entra_group`` reads before it gives up; the
+#: same cap applies to its ``transitiveMemberOf`` read.
 _MAX_MEMBER_OF_PAGES = 50
+
+#: Appended to a ``missing`` detail when the ``transitiveMemberOf`` read failed.
+_NESTED_UNCHECKED_SUFFIX = "; nested membership could not be checked"
 
 ErrorClassification = Literal["ok", "token_rejected", "api_not_enabled", "other"]
 
@@ -105,15 +111,19 @@ GroupCheckClassification = Literal[
     "delegated_only",
     "names_hidden",
     "incomplete",
+    "nested_only",
     "other",
 ]
 """Why a group check ended as it did.
 
 ``ok``, ``missing`` and ``skipped`` decide the membership (or say there was
-none to decide); ``missing`` decides only direct membership, because
-``memberOf`` does not list a group joined through another group. Every other
-value has ``status="error"``: the membership is unknown, and the value names
-what stopped the check.
+none to decide). ``memberOf`` lists direct memberships only, so ``ok`` means a
+direct member. Before reporting ``missing``, ``check_entra_group`` reads
+``transitiveMemberOf``: ``nested_only`` (with ``status="missing"``) means the
+principal is in the group only through another group, which Fabric does not
+document as supported in tenant settings. Every other value has
+``status="error"``: the membership is unknown, and the value names what
+stopped the check.
 """
 
 
@@ -333,6 +343,48 @@ def _issued_for_another_resource(audience: object) -> bool:
     return bool(audiences) and _GRAPH_TOKEN_AUDIENCES.isdisjoint(audiences)
 
 
+def _listed_transitively(
+    client: httpx.Client, url: str, *, headers: Mapping[str, str], expected_group: str
+) -> bool | None:
+    """Whether ``transitiveMemberOf`` at ``url`` names ``expected_group``.
+
+    ``None`` means it could not be decided: a request got no response or a
+    status other than 200, a body could not be parsed, a next page was off the
+    Graph host, ``_MAX_MEMBER_OF_PAGES`` pages each linked to a next one, or
+    a group entry had no name and none of the named ones was the group.
+    """
+    unnamed = 0
+    for _page in range(_MAX_MEMBER_OF_PAGES):
+        try:
+            resp = client.get(url, headers=headers)
+        except httpx.HTTPError:
+            return None
+        if resp.status_code != 200:
+            return None
+        try:
+            body = resp.json()
+            names: list[str] = []
+            for entry in body.get("value", []):
+                name = entry.get("displayName")
+                if name:
+                    names.append(name)
+                elif entry.get("@odata.type", "#microsoft.graph.group") == (
+                    "#microsoft.graph.group"
+                ):
+                    unnamed += 1
+            next_link = body.get("@odata.nextLink")
+        except Exception:
+            return None
+        if expected_group in names:
+            return True
+        if not next_link:
+            return False if not unnamed else None
+        if not isinstance(next_link, str) or not next_link.startswith(f"{GRAPH_AUDIENCE}/"):
+            return None
+        url = next_link
+    return None
+
+
 def check_entra_group(
     token: str,
     *,
@@ -358,6 +410,17 @@ def check_entra_group(
     When `principal_id` is provided, use /servicePrincipals/{id}/memberOf.
     Otherwise use /me/memberOf (user token path). Later pages
     (``@odata.nextLink``) are followed on the Graph host only.
+
+    ``memberOf`` lists direct memberships only. When its pages would end as
+    ``missing``, a second read of ``transitiveMemberOf`` for the same
+    principal (``$count=true`` with ``ConsistencyLevel: eventual``, which
+    Microsoft documents for query parameters on that API; same next-link rule
+    and page cap) decides whether the principal is in the group through
+    another group: the result is then ``missing`` with classification
+    ``nested_only``, because Fabric does not document support for nested
+    groups in tenant settings. If that read cannot decide, the ``missing``
+    result is returned with a detail saying nested membership could not be
+    checked.
 
     Returns: `{"status", "classification", "groups", "expected", "detail"}`,
     where status is one of ``ok`` / ``missing`` / ``error`` / ``skipped`` and
@@ -388,9 +451,10 @@ def check_entra_group(
             ),
         )
     if principal_id:
-        url = f"{GRAPH_AUDIENCE}/v1.0/servicePrincipals/{principal_id}/memberOf?$select=displayName"
+        principal = f"{GRAPH_AUDIENCE}/v1.0/servicePrincipals/{principal_id}"
     else:
-        url = f"{GRAPH_AUDIENCE}/v1.0/me/memberOf?$select=displayName"
+        principal = f"{GRAPH_AUDIENCE}/v1.0/me"
+    url = f"{principal}/memberOf?$select=displayName"
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
     close_client = False
     if client is None:
@@ -471,28 +535,46 @@ def check_entra_group(
                 ),
                 groups=groups,
             )
+
+        if unnamed:
+            return group_check_result(
+                "error",
+                "names_hidden",
+                expected=expected_group,
+                detail=(
+                    "not decided: Microsoft Graph returned membership(s) without a name, "
+                    f"so {expected_group} may be one of them. Grant GroupMember.Read.All "
+                    "(or Directory.Read.All) to read group names."
+                ),
+                groups=groups,
+            )
+        nested = _listed_transitively(
+            client,
+            f"{principal}/transitiveMemberOf?$select=displayName&$count=true",
+            headers={**headers, "ConsistencyLevel": "eventual"},
+            expected_group=expected_group,
+        )
     finally:
         if close_client:
             client.close()
 
-    if unnamed:
+    if nested:
         return group_check_result(
-            "error",
-            "names_hidden",
+            "missing",
+            "nested_only",
             expected=expected_group,
             detail=(
-                "not decided: Microsoft Graph returned membership(s) without a name, "
-                f"so {expected_group} may be one of them. Grant GroupMember.Read.All "
-                "(or Directory.Read.All) to read group names."
+                f"not a direct member of {expected_group}: a member only through another "
+                "group. Fabric does not document support for nested groups in tenant "
+                f"settings; add the principal to {expected_group} directly."
             ),
             groups=groups,
         )
+    detail = f"not in {expected_group}"
+    if nested is None:
+        detail += _NESTED_UNCHECKED_SUFFIX
     return group_check_result(
-        "missing",
-        "missing",
-        expected=expected_group,
-        detail=f"not in {expected_group}",
-        groups=groups,
+        "missing", "missing", expected=expected_group, detail=detail, groups=groups
     )
 
 

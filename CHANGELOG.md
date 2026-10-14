@@ -57,6 +57,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parameter file", reproduced on a DEV deploy whose binding named only PROD).
 
 ### Changed
+- **`diagnose-auth` tells a nested group membership from a missing one
+  (#75).** The Entra group check reads `memberOf`, which Microsoft documents
+  as direct memberships only, so a principal in the expected group through
+  another group read as `missing` with the detail "not in <group>". The check
+  still reads `memberOf` first; only when that would end as `missing` does it
+  send a second Microsoft Graph request, to `transitiveMemberOf` for the same
+  principal (`$count=true` with `ConsistencyLevel: eventual`; the same
+  next-link and page rules). If the group is listed there, the result stays
+  `missing` (exit 2) with the new classification `nested_only`, and the detail
+  says the principal is a member only through another group, that Fabric does
+  not document support for nested groups in tenant settings, and to add the
+  principal to the group directly. If that read fails, the `missing` result
+  is unchanged except that its detail ends "nested membership could not be
+  checked". `GroupCheckClassification` gains `nested_only`; exit codes are
+  unchanged.
 - **Classifier `Development Status :: 4 - Beta`** (was `5 - Production/Stable`).
   The project has one maintainer, every review is by the author, and the
   CHANGELOG's own "Known remaining" list is not empty. The classifier now
