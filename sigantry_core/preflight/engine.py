@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import time
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,20 @@ from sigantry_core.preflight.probes import (
     EntraScopeProbe,
     SchemaSyntaxProbe,
 )
+
+
+def _accepted_kwargs(run: Any, **offered: Any) -> dict[str, Any]:
+    """The subset of ``offered`` that ``run`` declares, or all of it for ``**kwargs``.
+
+    A signature that cannot be read gets everything, as before.
+    """
+    try:
+        params = inspect.signature(run).parameters
+    except (TypeError, ValueError):
+        return offered
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return offered
+    return {name: value for name, value in offered.items() if name in params}
 
 
 class PreflightEngine:
@@ -27,6 +42,11 @@ class PreflightEngine:
     A probe that raises instead of reporting is recorded as a ``FAIL`` for
     that probe and the remaining probes still run: one crash never costs the
     whole report, so a ``--json`` consumer always gets a report to read.
+
+    Each probe's ``run`` is passed only the keyword arguments it declares (all
+    of them when it takes ``**kwargs``), so a custom probe written for 1.0.1,
+    whose ``run`` takes ``manifest_path``, ``environment``, ``params_path`` and
+    ``client`` only, still runs.
     """
 
     def __init__(self, probes: list[BaseProbe] | None = None) -> None:
@@ -68,13 +88,16 @@ class PreflightEngine:
             probe_start = time.perf_counter()
             try:
                 res = probe.run(
-                    manifest_path=manifest_path,
-                    environment=environment,
-                    params_path=params_path,
-                    client=client,
-                    token_provider=token_provider,
-                    workspace_id=workspace_id,
-                    tenant_id=tenant_id,
+                    **_accepted_kwargs(
+                        probe.run,
+                        manifest_path=manifest_path,
+                        environment=environment,
+                        params_path=params_path,
+                        client=client,
+                        token_provider=token_provider,
+                        workspace_id=workspace_id,
+                        tenant_id=tenant_id,
+                    )
                 )
             except Exception as exc:
                 res = ProbeResult(

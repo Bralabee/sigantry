@@ -16,7 +16,14 @@ only**; contributors and agents MUST NOT push tags.
 - **v0.x:** pre-v1 snapshots. Breaking changes may ship in minor bumps.
 - **v1.0.0 onwards:** any break to the public Python surface
   (module-level exports), the CLI surface (subapps, flags), or the
-  telemetry schema is a MAJOR bump.
+  telemetry schema is a MAJOR bump. A break is removing or renaming one of
+  them, adding a required argument to one of them, or changing how a documented
+  extension point (such as a custom preflight probe) is called so that code
+  written for the previous release fails. A fix that refuses input which
+  previously had no effect, or that corrects an exit code or result that
+  reported a failure as success (or a crash), is not a break: it ships in a
+  MINOR or PATCH release and is listed under the release's "Upgrading
+  from" notes.
 - **Release window:** on-demand after a milestone completes and CI is
   green. No fixed cadence.
 

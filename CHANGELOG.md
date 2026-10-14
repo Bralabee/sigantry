@@ -77,13 +77,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   there stays `missing` (exit 2) with the new classification `nested_only`
   (see Changed and Fixed).
 - **Preflight.** `sigantry preflight` runs three probes: `DependencyGraphProbe`
-  is no longer a default (it stays importable). `BaseProbe.run` passes
-  `token_provider`, `workspace_id` and `tenant_id` keyword arguments, which a
-  custom probe must accept. The schema probe now loads the manifest itself,
+  is no longer a default (it stays importable). `BaseProbe.run` gains
+  `token_provider`, `workspace_id` and `tenant_id` keyword arguments; the
+  engine passes a probe only the ones its `run` declares, so a custom probe
+  written for 1.0.1 runs unchanged. The schema probe now loads the manifest itself,
   requires each sync item's `local_path` and reads `--params`, and the Entra
   probe acquires a token, so a run that passed on 1.0.1 may now FAIL;
   `--strict` exits 1 when any probe is skipped. The new `--workspace-id`
-  enables the capacity probe (see Changed).
+  enables the capacity probe (see Changed and Fixed).
 - **Parameters files.** Either spelling, `parameters.yml` or `parameter.yml`,
   is read when the one named is absent. `deploy run --environment`, and the
   new `-e` on `config validate` and `deploy validate`, check only that
@@ -97,12 +98,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ignoring case), are written to `<folder-path>/<display_name>.<Type>/`
   instead of one shared directory, and `sync.yml` records that path. Other
   items keep `<folder-path>/<display_name>/`. A tree pulled with 1.0.1 may
-  move on the next pull (see Changed).
+  move on the next pull (see Fixed).
 - **`sync pull` refusals.** Every item and every workspace folder is checked
   against the `sync.yml` rules before anything is fetched; a refused name,
   or two items still left with one directory, stops the pull with
   `PullItemNameRefusedError` (exit 1) and nothing is written. Its `refused`
-  attribute lists `RefusedPullItem` records (see Changed).
+  attribute lists `RefusedPullItem` records (see Fixed).
 - **Workspace bootstrap.** Only a top-level folder satisfies a desired
   folder name, so a re-run may create top-level folders that 1.0.1 skipped
   because a nested folder had the same name; the dry run lists them in
@@ -112,22 +113,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `deploy run`, `sync apply` and `workspace bootstrap`, and
   `@destructive_op` writes to the wrapped function's `audit_dir`. Where it
   is set, records go there instead of `~/.sigantry/audit/`; an explicit
-  `--audit-dir` still wins (see Changed).
+  `--audit-dir` still wins (see Fixed).
 - **Rollback.** A release with no recorded items, or none of the
   `--item-types` in scope, is refused with exit 1 where 1.0.1 exited 0 with
   `itemsPublished: 0`; any runtime error prints `rollback failed: <message>`
   and exits 1 without a traceback; `--tenant-id` is forwarded (see
-  Changed).
+  Fixed).
 - **Printed text.** `sync`, `workspace`, `capacity`, `dq`, `doctor`,
   `preflight`, `rbac-audit`, `tenant-settings` and `diagnose-auth` print
   data as text: a word in square brackets is no longer dropped, and a value
   holding a closing tag such as `[/x]` no longer raises `MarkupError`, so
   `dq gate` and `workspace bootstrap` given such a value exit 2, their
-  configuration-error code, where 1.0.1 exited 1 (see Changed).
+  configuration-error code, where 1.0.1 exited 1 (see Fixed).
 - **PR review bot.** Tab-indented TMDL, GUID-shaped names and flush-left
   expression fences are parsed, so a Power BI Desktop or Fabric export that
   1.0.1 diffed as "no changes" now shows its changes, and an unclosed
-  fence is an error (see Changed).
+  fence is an error (see Fixed).
 - **Pre-commit mypy hook.** The hook is now `language: system` and runs CI's
   `mypy sigantry_core/ scripts/`, so it needs the project environment
   active (see Changed).
@@ -146,7 +147,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ledger as `sigantry-audit-ledger`, and the GitHub promote job takes the
   approver from the run's approval record before the `approver` input and
   the actor. The starter and demo PR-bot workflows drop `cache: 'pip'`
-  (see Changed and Fixed).
+  (see Fixed).
 - **Classifier.** The package declares `Development Status :: 4 - Beta`
   instead of `5 - Production/Stable`; the code is unchanged by this
   (see Changed).
