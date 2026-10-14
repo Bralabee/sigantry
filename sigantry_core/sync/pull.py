@@ -8,21 +8,32 @@ Execution flow (D-20):
 2. Call :func:`sigantry_core.sync.snapshot.snapshot_workspace` to
    obtain the topology map -- folders + items + the
    ``folder_path_index`` and ``item_to_folder`` lookups.
-3. For each item in scope (filtered by ``item_types`` + the per-type
-   :data:`_DEFINITION_ENDPOINTS` mapping), POST to
+3. Plan every item in scope (filtered by ``item_types`` + the per-type
+   :data:`_DEFINITION_ENDPOINTS` mapping) before anything is fetched:
+   its directory, and its ``sync.yml`` entry validated by
+   :class:`~sigantry_core.sync.manifest.SyncItem`. An item keeps
+   ``<into>/<target_folder>/<display_name>/`` unless another item in the
+   same folder has the same display name; then each of them goes to
+   ``<display_name>.<Type>/``, the Fabric Git integration's naming.
+   Names are compared ignoring case (``str.casefold``), because Windows
+   and macOS file systems do. An item ``sync.yml`` would refuse, a
+   directory outside ``--into``, or two items left with one directory
+   refuse the whole pull (:class:`PullItemNameRefusedError`, naming every
+   refused item) with nothing fetched or written.
+4. For each planned item POST to
    ``/v1/workspaces/{ws}/{url_segment}/{item_id}/getDefinition``
    passing ``format=ipynb`` for Notebooks (Council A) and the default
    ``fabricGitSource`` for the other supported types (Council B).
-4. Walk ``body["definition"]["parts"]``; base64-decode each
-   ``InlineBase64`` payload and write it to disk under
-   ``<into>/<target_folder>/<display_name>/<part_path>``. Apply LF
-   normalisation on text suffixes (``.platform`` / ``.py`` / ``.json``
-   / ``.ipynb`` / ``.tmdl`` / ``.bim``) so a subsequent ``sync apply``
-   round-trip stays byte-deterministic.
-5. Emit a ``sync.yml`` adjacent to the pulled tree with the workspace's
-   actual topology mirrored 1:1 -- ``logical_id`` is set to the
-   workspace's GUID for each item so a follow-up ``sync apply`` is a
-   no-op (D-22 round-trip preservation invariant).
+5. Walk ``body["definition"]["parts"]``; base64-decode each
+   ``InlineBase64`` payload and write it to disk under the item's
+   directory. Apply LF normalisation on text suffixes (``.platform`` /
+   ``.py`` / ``.json`` / ``.ipynb`` / ``.tmdl`` / ``.bim``) so a
+   subsequent ``sync apply`` round-trip stays byte-deterministic.
+6. Emit a ``sync.yml`` adjacent to the pulled tree with the workspace's
+   actual topology mirrored 1:1 -- ``local_path`` is the item's real
+   directory and ``logical_id`` is the workspace's GUID for each item so
+   a follow-up ``sync apply`` is a no-op (D-22 round-trip preservation
+   invariant).
 
 D-15 (load-bearing): ``pull_workspace`` does NOT emit a
 :class:`DeployRecord`. Pull is read-only; nothing changed in the
@@ -49,20 +60,23 @@ from __future__ import annotations
 import base64
 import binascii
 import logging
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
 import yaml
+from pydantic import ValidationError
 
 from sigantry_core.client import FabricRestClient
-from sigantry_core.sync._paths import contained_path, has_path_separator
+from sigantry_core.sync._paths import contained_path
 from sigantry_core.sync.errors import (
     PullDefinitionDecodeError,
     PullDefinitionFetchError,
     PullDefinitionPathTraversalError,
     PullItemNameRefusedError,
     PullTargetNotEmptyError,
+    RefusedPullItem,
 )
 from sigantry_core.sync.manifest import SyncItem, SyncManifest
 from sigantry_core.sync.snapshot import WorkspaceSnapshot, snapshot_workspace
@@ -215,38 +229,157 @@ def _resolve_folder_path_from_id(snapshot: WorkspaceSnapshot, folder_id: str | N
     return "/"
 
 
-def _local_source_dir(into: Path, target_folder: str, item: Item) -> Path:
-    """Compute the per-item local source directory, or refuse the item.
+@dataclass(frozen=True, slots=True)
+class _PlannedItem:
+    """An in-scope item, its endpoint, its directory and its ``sync.yml`` entry."""
 
-    ``<into>/<target_folder.lstrip('/')>/<display_name>/`` -- the
-    ``target_folder`` is mirrored verbatim so a follow-up ``sync apply``
-    re-discovers the same topology.
+    item: Item
+    url_segment: str
+    query_format: str | None
+    #: The item's directory relative to ``--into`` (as recorded in sync.yml).
+    local_dir: Path
+    #: The same directory resolved, strictly inside ``--into``.
+    source_dir: Path
+    #: The item's ``sync.yml`` entry, already validated.
+    sync_item: SyncItem
 
-    Both names come from the workspace. The display name must be one name
-    (no ``/`` or ``\\``, the rule ``sync.yml`` is held to), and the joined
-    directory must resolve strictly inside ``into``
-    (:func:`sigantry_core.sync._paths.contained_path`, the rule the
-    packagers use for staging). The resolved directory is returned.
+
+def _validation_reasons(exc: ValidationError) -> str:
+    """The messages of a ``SyncItem`` validation failure, on one line."""
+    return "; ".join(str(err.get("msg", "")).removeprefix("Value error, ") for err in exc.errors())
+
+
+def _refusal(refused: list[RefusedPullItem]) -> PullItemNameRefusedError:
+    described = "; ".join(
+        f"item_id={r.item_id} display_name={r.display_name!r} "
+        f"in folder {r.target_folder!r}: {r.reason}"
+        for r in refused
+    )
+    if len(refused) == 1:
+        head = "sync pull refused workspace item"
+        tail = "rename the item or its folder in the workspace and pull again."
+    else:
+        head = f"sync pull refused {len(refused)} workspace items:"
+        tail = "rename the items or their folders in the workspace and pull again."
+    return PullItemNameRefusedError(
+        f"{head} {described}. No item definition was fetched or written; {tail}",
+        refused=refused,
+    )
+
+
+def _plan_items(
+    snapshot: WorkspaceSnapshot, *, into: Path, type_scope: frozenset[str]
+) -> list[_PlannedItem]:
+    """Work out every in-scope item's directory and ``sync.yml`` entry, or refuse.
+
+    Nothing is fetched or written here; :func:`_pull_with_client` calls this
+    before the first definition request, so a refusal leaves ``--into`` as
+    it found it.
+
+    Directory: ``<target_folder>/<display_name>`` (``target_folder``
+    mirrored verbatim, without its leading ``/``), or
+    ``<target_folder>/<display_name>.<Type>`` for every item whose folder
+    holds another item of the same display name, compared with
+    ``str.casefold`` -- the Fabric Git integration's naming, and the one
+    ``sync apply`` stages items under. A display name cannot hold ``.``, so
+    a suffixed directory never equals an unsuffixed one.
+
+    An item is refused when:
+
+    * its ``sync.yml`` entry fails :class:`SyncItem` validation -- the
+      display name and folder path rules ``sync.yml`` holds every item to
+      (one name, no banned characters such as ``.`` or ``:``, folder depth
+      and segment rules), applied by the manifest's own validators;
+    * its directory does not resolve strictly inside ``into``
+      (:func:`sigantry_core.sync._paths.contained_path`, the rule the
+      packagers use for staging); or
+    * its directory is, ignoring case, another item's directory -- two
+      items of one type whose names differ only in case, or folders whose
+      paths differ only in case.
 
     Raises:
-        PullItemNameRefusedError: either rule fails.
+        PullItemNameRefusedError: naming every refused item.
     """
-    rel = target_folder.lstrip("/") if target_folder != "/" else ""
-    if has_path_separator(item.display_name):
-        reason = "the display name contains a path separator ('/' or '\\'); it must be one name"
-    else:
+    candidates: list[tuple[Item, str]] = []
+    for item in snapshot.items_by_id.values():
+        if item.type not in type_scope:
+            continue
+        if item.type not in _DEFINITION_ENDPOINTS:
+            logger.info(
+                "pull_skipping_unsupported_type "
+                "item_id=%s type=%s display_name=%s reason="
+                "no_definition_endpoint_in_v3",
+                item.id,
+                item.type,
+                item.display_name,
+            )
+            continue
+        candidates.append((item, _resolve_folder_path_from_id(snapshot, item.folder_id)))
+
+    name_counts = Counter(
+        (target_folder, item.display_name.casefold()) for item, target_folder in candidates
+    )
+    refused: list[RefusedPullItem] = []
+    planned: list[_PlannedItem] = []
+    for item, target_folder in candidates:
+        dir_name = item.display_name
+        if name_counts[(target_folder, item.display_name.casefold())] > 1:
+            # ``item.type`` is a key of _DEFINITION_ENDPOINTS: canonical.
+            dir_name = f"{item.display_name}.{item.type}"
+        rel_folder = target_folder.lstrip("/")
+        local_dir = Path(rel_folder, dir_name)
+        # NotebookPackager.pack requires an ``.ipynb`` source, so a Notebook's
+        # local_path is the ``notebook-content.ipynb`` payload pull writes into
+        # its directory; the other types' packagers take the directory.
+        local_path = local_dir / "notebook-content.ipynb" if item.type == "Notebook" else local_dir
         try:
-            return contained_path(into, rel, item.display_name, base_name="the --into directory")
+            sync_item = SyncItem(
+                local_path=local_path,
+                type=item.type,
+                target_folder=target_folder,
+                display_name=item.display_name,
+                logical_id=item.id,
+            )
+            source_dir = contained_path(
+                into, rel_folder, dir_name, base_name="the --into directory"
+            )
+        except ValidationError as exc:
+            reason = _validation_reasons(exc)
         except ValueError as exc:
             reason = str(exc)
-    raise PullItemNameRefusedError(
-        f"sync pull refused workspace item item_id={item.id} "
-        f"display_name={item.display_name!r} in folder {target_folder!r}: {reason}. "
-        "No item definition was fetched or written; rename the item or its folder "
-        "in the workspace and pull again.",
-        item_id=item.id,
-        display_name=item.display_name,
-    )
+        else:
+            url_segment, query_format = _DEFINITION_ENDPOINTS[item.type]
+            planned.append(
+                _PlannedItem(item, url_segment, query_format, local_dir, source_dir, sync_item)
+            )
+            continue
+        refused.append(RefusedPullItem(item.id, item.display_name, target_folder, reason))
+
+    by_directory: defaultdict[str, list[_PlannedItem]] = defaultdict(list)
+    for plan in planned:
+        by_directory[plan.local_dir.as_posix().casefold()].append(plan)
+    for plan in planned:
+        sharing = by_directory[plan.local_dir.as_posix().casefold()]
+        if len(sharing) > 1:
+            others = ", ".join(
+                f"item_id={o.item.id} ({o.local_dir.as_posix()!r})"
+                for o in sharing
+                if o is not plan
+            )
+            reason = (
+                f"its directory {plan.local_dir.as_posix()!r} is also the directory of "
+                f"{others} when names are compared ignoring case, as Windows and macOS "
+                "file systems compare them"
+            )
+            refused.append(
+                RefusedPullItem(
+                    plan.item.id, plan.item.display_name, plan.sync_item.target_folder, reason
+                )
+            )
+
+    if refused:
+        raise _refusal(refused)
+    return planned
 
 
 def _fetch_item_definition(
@@ -401,15 +534,16 @@ def _write_definition_parts(
 def _build_emitted_manifest(
     *,
     snapshot: WorkspaceSnapshot,
-    items_in_scope: list[Item],
-    into: Path,
+    planned: list[_PlannedItem],
 ) -> SyncManifest:
     """Build the ``sync.yml`` payload mirroring workspace topology.
 
-    Per-item fields:
+    Per-item fields (built and validated by :func:`_plan_items`):
 
-    * ``local_path`` -- relative path from ``into`` to the item's
-      source dir, e.g. ``Path("MyFolder/MyNb")``.
+    * ``local_path`` -- the item's directory relative to ``into``, e.g.
+      ``Path("MyFolder/MyReport")`` or, for two items named ``Sales`` in
+      one folder, ``Path("MyFolder/Sales.Report")``; a Notebook's points
+      at the ``notebook-content.ipynb`` inside it.
     * ``type`` -- canonical item type (matches the workspace).
     * ``target_folder`` -- the path string from
       ``snapshot.folder_path_index`` (e.g. ``"/MyFolder"`` or ``"/"``).
@@ -421,45 +555,12 @@ def _build_emitted_manifest(
     folder path so a subsequent ``sync apply`` does not auto-cleanup
     operator-created subfolders.
     """
-    new_items: list[SyncItem] = []
-    for item in items_in_scope:
-        target_folder = _resolve_folder_path_from_id(snapshot, item.folder_id)
-        # Per ``_local_source_dir`` -- the source dir is
-        # ``<target_folder>/<display_name>``, where target_folder is
-        # the leading ``/`` -stripped form (or "" at the root).
-        rel_target = target_folder.lstrip("/") if target_folder != "/" else ""
-        source_dir_rel = (
-            Path(rel_target) / item.display_name if rel_target else Path(item.display_name)
-        )
-        # NotebookPackager.pack requires source to be an ``.ipynb`` file
-        # (notebook.py:111); for the round-trip apply (D-22) to succeed,
-        # the manifest's ``local_path`` must therefore point at the
-        # ``notebook-content.ipynb`` payload that pull wrote into the
-        # source dir (see ``_write_definition_parts`` Notebook branch).
-        # Other v3.0 types (DataPipeline / SemanticModel / Report /
-        # SparkJobDefinition) use the GenericPackager which accepts a
-        # directory source, so for those types the source dir IS the
-        # local_path.
-        if item.type == "Notebook":
-            local_rel = source_dir_rel / "notebook-content.ipynb"
-        else:
-            local_rel = source_dir_rel
-        new_items.append(
-            SyncItem(
-                local_path=local_rel,
-                type=item.type,
-                target_folder=target_folder,
-                display_name=item.display_name,
-                logical_id=item.id,
-            )
-        )
-
     # Sorted snapshot folder paths -- preservation set so apply does not
     # delete folders that exist in the workspace today.
     folders_preservation = sorted(snapshot.folder_path_index.keys())
     return SyncManifest(
         schema_version="1.0.0",
-        items=new_items,
+        items=[plan.sync_item for plan in planned],
         folders=folders_preservation,
     )
 
@@ -576,54 +677,32 @@ def _pull_with_client(
     snapshot = snapshot_workspace(workspace_id, client=client)
 
     type_scope: tuple[str, ...] = tuple(item_types) if item_types else _DEFAULT_PULL_TYPES
-    type_scope_set = frozenset(type_scope)
 
-    # Every in-scope item's directory is worked out (and refused, if its
-    # name cannot name a directory inside ``into``) before the first
-    # definition is fetched, so a refusal leaves nothing behind for any item.
-    planned: list[tuple[Item, str, str | None, Path]] = []
-    for item in snapshot.items_by_id.values():
-        if item.type not in type_scope_set:
-            continue
-        if item.type not in _DEFINITION_ENDPOINTS:
-            logger.info(
-                "pull_skipping_unsupported_type "
-                "item_id=%s type=%s display_name=%s reason="
-                "no_definition_endpoint_in_v3",
-                item.id,
-                item.type,
-                item.display_name,
-            )
-            continue
-        url_segment, query_format = _DEFINITION_ENDPOINTS[item.type]
-        target_folder = _resolve_folder_path_from_id(snapshot, item.folder_id)
-        source_dir = _local_source_dir(into_path, target_folder, item)
-        planned.append((item, url_segment, query_format, source_dir))
+    # Every in-scope item's directory and sync.yml entry is worked out (and
+    # refused, if sync.yml cannot hold it or two items would share a
+    # directory) before the first definition is fetched, so a refusal leaves
+    # nothing behind for any item. The manifest is built here too, so no
+    # sync.yml rule is first applied after files are written.
+    planned = _plan_items(snapshot, into=into_path, type_scope=frozenset(type_scope))
+    manifest = _build_emitted_manifest(snapshot=snapshot, planned=planned)
 
-    items_in_scope: list[Item] = []
-    for item, url_segment, query_format, source_dir in planned:
+    for plan in planned:
         body = _fetch_item_definition(
             client,
             workspace_id=workspace_id,
-            item=item,
-            url_segment=url_segment,
-            query_format=query_format,
+            item=plan.item,
+            url_segment=plan.url_segment,
+            query_format=plan.query_format,
         )
-        _write_definition_parts(body, source_dir=source_dir, item=item)
-        items_in_scope.append(item)
+        _write_definition_parts(body, source_dir=plan.source_dir, item=plan.item)
 
-    manifest = _build_emitted_manifest(
-        snapshot=snapshot,
-        items_in_scope=items_in_scope,
-        into=into_path,
-    )
     sync_yml_path = into_path / "sync.yml"
     sync_yml_path.write_text(_serialise_manifest(manifest), encoding="utf-8")
 
     return SyncPullReport(
         workspace_id=workspace_id,
         into=into_path,
-        items_pulled=len(items_in_scope),
+        items_pulled=len(planned),
         sync_yml_path=sync_yml_path,
         snapshot=snapshot,
     )

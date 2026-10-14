@@ -247,6 +247,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   CLI print site hands Rich data as markup now covers every module that
   imports Rich, whole, and fails when a module that imports Rich is left out
   of it. (#80)
+- **`sync pull` gives same-name items a directory each, and refuses names
+  `sync.yml` refuses before it fetches anything.** A Report and a
+  SemanticModel both named `Sales` in one folder were written to one
+  directory, the second item's `.platform` and parts overwriting the
+  first's, and both `sync.yml` entries pointed at it; the pull reported
+  success. An item keeps `<folder-path>/<display_name>/` when no other item
+  in its folder has the same display name; when two or more do, each of
+  them goes to `<folder-path>/<display_name>.<Type>/` (`Sales.Report/`,
+  `Sales.SemanticModel/`), the Fabric Git integration's naming, and its
+  `sync.yml` `local_path` records that directory. Names are compared
+  ignoring case, as Windows and macOS file systems compare them, so `Sales`
+  and `sales` count as the same name. A name such as `Sales.v2` or `Q1:
+  Sales`, or `..` under a folder, used to be written under `--into` and
+  only then fail with a raw pydantic error and no `sync.yml`. Every item is
+  now checked against the `SyncItem` rules before the first definition is
+  fetched; an item those rules refuse, or two items still left with one
+  directory (two reports `Sales` and `sales` in one folder, or folders
+  `Gold` and `gold`), refuse the pull with `PullItemNameRefusedError` and
+  nothing is fetched or written. The error names every refused item:
+  `refused` lists them as `sigantry_core.sync.errors.RefusedPullItem`
+  records, and `item_id` / `display_name` name the first. (#67)
 - **Ledger location: respect `[release] audit_dir` and route `@destructive_op`.**
   The audit directory for release ledgers (`deploys.jsonl`, `approvals.jsonl`,
   `secret_changes.jsonl`, `destructive_ops.jsonl`, `bootstraps.jsonl`) now

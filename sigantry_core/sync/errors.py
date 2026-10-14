@@ -19,6 +19,9 @@ sinks) emit actionable messages without re-parsing pydantic
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from dataclasses import dataclass
+
 
 class SyncEngineError(RuntimeError):
     """Base class for every ``sigantry_core.sync`` exception (D-32)."""
@@ -102,23 +105,54 @@ class PullTargetNotEmptyError(SyncEngineError):
         self.target = target
 
 
+@dataclass(frozen=True, slots=True)
+class RefusedPullItem:
+    """One workspace item ``sync pull`` refused, and why."""
+
+    item_id: str
+    display_name: str
+    target_folder: str
+    reason: str
+
+
 class PullItemNameRefusedError(SyncEngineError):
-    """``sync pull`` refused a workspace item whose name cannot name its directory.
+    """``sync pull`` refused workspace items whose names cannot name their directories.
 
     Raised by :func:`sigantry_core.sync.pull.pull_workspace` when an item's
-    display name contains ``/`` or ``\\`` (a display name is one name, the
-    rule a ``sync.yml`` is held to), or when ``<into>/<folder path>/<display
-    name>`` does not resolve to a directory strictly inside ``--into``. Every
-    item is checked before the first definition is fetched, so when this is
-    raised no item definition has been fetched or written. Carries
-    ``item_id`` and ``display_name``; rename the item in the workspace (or
-    the folder it sits in) and pull again.
+    display name or folder path breaks a rule ``sync.yml`` holds an item to
+    (the :class:`~sigantry_core.sync.manifest.SyncItem` validators: one name,
+    no ``/`` or ``\\``, none of the banned characters such as ``.`` or
+    ``:``, folder depth and segment rules), when ``<into>/<folder
+    path>/<directory>`` does not resolve strictly inside ``--into``, or when
+    two items would be written to the same directory (compared ignoring
+    case). Every item is checked before the first definition is fetched, so
+    when this is raised no item definition has been fetched or written and
+    no ``sync.yml`` exists.
+
+    ``refused`` lists every refused item. ``item_id`` and ``display_name``
+    name the first of them. Rename the items in the workspace (or the folders
+    they sit in) and pull again.
     """
 
-    def __init__(self, message: str, *, item_id: str, display_name: str) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        item_id: str | None = None,
+        display_name: str | None = None,
+        refused: Sequence[RefusedPullItem] = (),
+    ) -> None:
         super().__init__(message)
-        self.item_id = item_id
-        self.display_name = display_name
+        self.refused: tuple[RefusedPullItem, ...] = tuple(refused)
+        if item_id is None or display_name is None:
+            if not self.refused:
+                raise TypeError(
+                    "PullItemNameRefusedError needs item_id and display_name, or refused"
+                )
+            item_id = self.refused[0].item_id if item_id is None else item_id
+            display_name = self.refused[0].display_name if display_name is None else display_name
+        self.item_id: str = item_id
+        self.display_name: str = display_name
 
 
 class PullDefinitionFetchError(SyncEngineError):
@@ -174,6 +208,7 @@ __all__ = (
     "PullItemNameRefusedError",
     "PullTargetNotEmptyError",
     "ReconcilerWrapError",
+    "RefusedPullItem",
     "SyncEngineError",
     "SyncPublishError",
     "WorkspacePendingGitUpdateError",

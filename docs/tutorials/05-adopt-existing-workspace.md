@@ -62,7 +62,11 @@ head -25 ./adopted/sync.yml
 ls ./adopted/
 # expect: sync.yml plus one directory per top-level workspace folder; item
 #   sources live at <folder-path>/<display_name>/ (there is no separate
-#   sources/ directory -- the tree mirrors the workspace folder layout)
+#   sources/ directory -- the tree mirrors the workspace folder layout).
+#   Items that share a display name in one folder (compared ignoring case),
+#   such as a report and its semantic model both named Sales, each get
+#   <folder-path>/<display_name>.<Type>/ instead: Sales.Report/ and
+#   Sales.SemanticModel/
 ```
 
 Inspect critically before committing:
@@ -148,7 +152,7 @@ workspace is the truth, re-pull and commit.
 | Symptom | Cause | Fix |
 |---|---|---|
 | `PullTargetNotEmptyError` | `--into` dir has files | use an empty dir, or `--force` deliberately |
-| `PullItemNameRefusedError` | an item being pulled has a display name that contains `/` or `\`, or a directory (its folder path plus its name) that does not resolve strictly inside `--into`, such as an item named `..` at the workspace root; nothing is fetched or written | rename the item or folder in the workspace, then pull again |
+| `PullItemNameRefusedError` | an item being pulled has a name or folder path `sync.yml` refuses (a `/` or `\`, a banned character such as `.` or `:`, as in `Sales.v2` or `Q1: Sales`), a directory that does not resolve strictly inside `--into`, or the same directory as another item when names are compared ignoring case (two reports `Sales` and `sales` in one folder, or folders `Gold` and `gold`); the message names every such item, and nothing is fetched or written | rename the items or folders in the workspace, then pull again |
 | pulled count < portal count | unsupported item types skipped | check `--type` coverage; unsupported types stay portal-managed |
 | round-trip apply shows moves | workspace changed mid-tutorial, or manifest edited | re-pull into a fresh dir; diff the two manifests |
 | `403` on pull | Viewer role | pull fetches item definitions; you need Contributor+ |

@@ -21,7 +21,7 @@ from typer.testing import CliRunner
 from sigantry_core.sync import cli as sync_cli_mod
 from sigantry_core.sync.cli import sync_app
 from sigantry_core.sync.errors import PullTargetNotEmptyError
-from sigantry_core.sync.pull import SyncPullReport, _local_source_dir
+from sigantry_core.sync.pull import SyncPullReport, _plan_items
 from sigantry_core.sync.snapshot import WorkspaceSnapshot
 from sigantry_core.workspace.items import Item
 
@@ -66,8 +66,18 @@ def _item(display_name: str) -> Item:
 def test_pull_refusal_of_an_item_name_printed_as_written(
     monkeypatch: pytest.MonkeyPatch, display_name: str
 ) -> None:
+    item = _item(display_name)
+    snapshot = WorkspaceSnapshot(
+        schema_version="1.0.0",
+        workspace_id="ws-test",
+        folder_path_index={},
+        item_to_folder={},
+        folders_by_id={},
+        items_by_id={item.id: item},
+    )
+
     def _refuse(*, into: str, **_: object) -> None:
-        _local_source_dir(Path(into), "/", _item(display_name))
+        _plan_items(snapshot, into=Path(into), type_scope=frozenset({"Notebook"}))
 
     monkeypatch.setattr(sync_cli_mod, "pull_workspace", _refuse)
     result = runner.invoke(sync_app, _pull())

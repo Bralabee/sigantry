@@ -570,10 +570,17 @@ def pull_cmd(
     workspace's ``logical_id`` per item so a subsequent
     ``sigantry sync apply`` is a no-op round-trip (D-22).
 
+    Each item's sources go to ``<folder-path>/<display_name>/``, or to
+    ``<folder-path>/<display_name>.<Type>/`` when another item in the same
+    folder has the same display name (compared ignoring case).
+
     Failure modes:
 
     * :class:`PullTargetNotEmptyError` -> exit 1 with a clear message
       that ``--force`` is required to clobber.
+    * :class:`PullItemNameRefusedError` -> exit 1 naming every item whose
+      name or folder ``sync.yml`` refuses, or that would share a
+      directory with another item; nothing is fetched or written.
     * Other :class:`SyncEngineError` subclasses (e.g.
       :class:`PullDefinitionFetchError`) -> exit 1.
 
