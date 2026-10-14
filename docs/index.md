@@ -50,6 +50,16 @@ sibling plugin packages that ship alongside the base.
 
 ## Current release
 
+v1.1.0 (2026-10-15). Pins the Entra tenant: `--tenant-id`, now on every
+command that reaches Fabric (`diff` and `sync` included), and `core.tenant_id`
+as its default, request every token from that tenant and refuse one from any
+other. It also accepts raw GUIDs in a fabric-cicd parameters file on request
+and validates it per environment, gives same-name items their own directory
+in `sync pull`, makes `preflight` report only what it checked, has the CD and
+drift templates sign in through OIDC and the CD templates wait for
+approval before publishing, and carries bug fixes. `CHANGELOG.md` lists
+the changes; read its "Upgrading from 1.0.1" section before upgrading.
+
 v1.0.1 (2026-10-06). Reads the `.sigantry.toml` config file and the
 `SIGANTRY_<SECTION>__<KEY>` settings overrides that these docs use, and still
 reads the old names, `.fabric-dataops.toml` and `FDT_<SECTION>__<KEY>` (see the

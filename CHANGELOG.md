@@ -9,6 +9,148 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-15
+
+### Upgrading from 1.0.1
+- **The bullets below describe ways this release differs from 1.0.1**, one
+  subject each: Tenant pin; Tenant ID format; Token from another tenant;
+  Settings that cannot be loaded; `--tenant-id` on `diff` and `sync`;
+  Library credentials; `fdt_settings_toml`; `diagnose-auth`; Preflight;
+  Parameters files; `sync pull` layout; `sync pull` refusals; Workspace
+  bootstrap; Audit directory; Rollback; Printed text; PR review bot;
+  Pre-commit mypy hook; Copied templates; Classifier. No module-level
+  export, CLI subapp or flag of 1.0.1 was removed or renamed, and the
+  telemetry schema is unchanged.
+- **Tenant pin.** `core.tenant_id` (`[core] tenant_id` in `.sigantry.toml`,
+  `SIGANTRY_CORE__TENANT_ID`, or the legacy file and `FDT_` names) is now
+  the default of every `--tenant-id`: the 35 `sigantry` commands that take
+  one and `diagnose-auth` pin it when run without the flag. 1.0.1 loaded
+  the key and no command read it, so a value that was wrong, or meant for
+  another tenant, had no effect and now stops the run. `--tenant-id` itself
+  now pins: every token, fabric-cicd's included (`deploy run`,
+  `sync apply --with-publish`), is requested from that tenant, where 1.0.1
+  only allowed the tenant and took the token from the credential's default
+  (see Added and Fixed).
+- **Tenant ID format.** `--tenant-id`, `core.tenant_id`,
+  `release record --ado-tenant-id`, `TokenProvider(tenant_id=...)` and
+  `get_token_provider(...)` refuse a value that is not a tenant ID GUID
+  (`InvalidTenantIdError`, a `ValueError`) before any token is requested.
+  A domain name such as `contoso.onmicrosoft.com`, accepted by 1.0.1, is
+  refused: replace it with the tenant's GUID (see Changed).
+- **Token from another tenant.** A pinned command handed a token whose `tid`
+  names another tenant, or that carries none, ends with one stderr line
+  naming both tenants and its auth-failure exit code (1; 2 for `diff`; 3 for
+  `diagnose-auth`), where 1.0.1 sent requests with that token or, in
+  `diagnose-auth`, printed a WARNING. `env sync-all` stops at the first
+  refused token whatever `--fail-fast` says. In the library the pinned
+  credential raises `TenantMismatchError`, a `TokenAcquisitionError`
+  (see Changed).
+- **Settings that cannot be loaded.** Without `--tenant-id`, a command that
+  pins now stops with one line naming each failing setting (never its
+  value) when the settings cannot be loaded, because they may hold the
+  tenant. `sync apply` and `sync pull` logged that failure and carried on;
+  `diagnose-auth --scope fabric` exits 3 where it reported a group-check
+  error with exit 2 (see Changed).
+- **`--tenant-id` on `diff` and `sync`.** `diff`, `sync apply`, `sync pull`
+  and `sync snapshot` gain `--tenant-id`. `snapshot_workspace`,
+  `pull_workspace`, `diff_workspace_against_manifest` and `apply_sync` take
+  a keyword-only `tenant_id` (see Added).
+- **Library credentials.** `governance.rbac.audit()` without `graph_client`
+  reads Microsoft Graph with the Fabric client's token provider, not the
+  process default chain; `apply_sync(..., with_publish=True)` with neither
+  `token_provider` nor `tenant_id` publishes with the client's provider;
+  the Power BI retry of `delete_workspace(..., pbi_fallback=True)` runs on
+  the `token_provider` argument or the client's provider, and a `tenant_id`
+  that disagrees with that provider's pin raises `TenantMismatchError`
+  before the retry is sent (see Fixed).
+- **`fdt_settings_toml`.** The pytest fixture still writes
+  `core.tenant_id = "test-tenant"` by default, so a test that runs a
+  pinning command where that file is read now gets the GUID refusal; pass
+  a `core` section with a GUID, or none (see Changed).
+- **`diagnose-auth`.** A probe that gets no response (connection refused,
+  timeout) is reported as `error` and the command exits 2 with its normal
+  report, where 1.0.1 exited 1 with a traceback; `check_tenant_toggles` and
+  `check_entra_group` return an `error` result instead of raising
+  `httpx.HTTPError`, and `check_tenant_toggles` can now return
+  `status="error"`. A group check that would end `missing` sends a second
+  Microsoft Graph request (`transitiveMemberOf`); a membership found only
+  there stays `missing` (exit 2) with the new classification `nested_only`
+  (see Changed and Fixed).
+- **Preflight.** `sigantry preflight` runs three probes: `DependencyGraphProbe`
+  is no longer a default (it stays importable). `BaseProbe.run` passes
+  `token_provider`, `workspace_id` and `tenant_id` keyword arguments, which a
+  custom probe must accept. The schema probe now loads the manifest itself,
+  requires each sync item's `local_path` and reads `--params`, and the Entra
+  probe acquires a token, so a run that passed on 1.0.1 may now FAIL;
+  `--strict` exits 1 when any probe is skipped. The new `--workspace-id`
+  enables the capacity probe (see Changed).
+- **Parameters files.** Either spelling, `parameters.yml` or `parameter.yml`,
+  is read when the one named is absent. `deploy run --environment`, and the
+  new `-e` on `config validate` and `deploy validate`, check only that
+  environment's `$ENV:` slots plus `_ALL_`, refuse an environment the file
+  does not declare (`UnknownEnvironmentError`), and the substituted copy
+  handed to fabric-cicd keeps only those slots. Raw GUIDs are still refused
+  unless `--allow-raw-guids` or `[deploy] allow_raw_guids` opts in
+  (see Added).
+- **`sync pull` layout.** Items that share a display name in one folder, or
+  share a name with a folder the pull creates beside them (names compared
+  ignoring case), are written to `<folder-path>/<display_name>.<Type>/`
+  instead of one shared directory, and `sync.yml` records that path. Other
+  items keep `<folder-path>/<display_name>/`. A tree pulled with 1.0.1 may
+  move on the next pull (see Changed).
+- **`sync pull` refusals.** Every item and every workspace folder is checked
+  against the `sync.yml` rules before anything is fetched; a refused name,
+  or two items still left with one directory, stops the pull with
+  `PullItemNameRefusedError` (exit 1) and nothing is written. Its `refused`
+  attribute lists `RefusedPullItem` records (see Changed).
+- **Workspace bootstrap.** Only a top-level folder satisfies a desired
+  folder name, so a re-run may create top-level folders that 1.0.1 skipped
+  because a nested folder had the same name; the dry run lists them in
+  `folders_created` first (see Fixed).
+- **Audit directory.** `[release] audit_dir` (`SIGANTRY_RELEASE__AUDIT_DIR`)
+  is now honoured by `release verify`, `list`, `show`, `diff`, `record`,
+  `deploy run`, `sync apply` and `workspace bootstrap`, and
+  `@destructive_op` writes to the wrapped function's `audit_dir`. Where it
+  is set, records go there instead of `~/.sigantry/audit/`; an explicit
+  `--audit-dir` still wins (see Changed).
+- **Rollback.** A release with no recorded items, or none of the
+  `--item-types` in scope, is refused with exit 1 where 1.0.1 exited 0 with
+  `itemsPublished: 0`; any runtime error prints `rollback failed: <message>`
+  and exits 1 without a traceback; `--tenant-id` is forwarded (see
+  Changed).
+- **Printed text.** `sync`, `workspace`, `capacity`, `dq`, `doctor`,
+  `preflight`, `rbac-audit`, `tenant-settings` and `diagnose-auth` print
+  data as text: a word in square brackets is no longer dropped, and a value
+  holding a closing tag such as `[/x]` no longer raises `MarkupError`, so
+  `dq gate` and `workspace bootstrap` given such a value exit 2, their
+  configuration-error code, where 1.0.1 exited 1 (see Changed).
+- **PR review bot.** Tab-indented TMDL, GUID-shaped names and flush-left
+  expression fences are parsed, so a Power BI Desktop or Fabric export that
+  1.0.1 diffed as "no changes" now shows its changes, and an unclosed
+  fence is an error (see Changed).
+- **Pre-commit mypy hook.** The hook is now `language: system` and runs CI's
+  `mypy sigantry_core/ scripts/`, so it needs the project environment
+  active (see Changed).
+- **Copied templates.** Upgrading the package does not change workflow or
+  pipeline files copied from 1.0.1; copy them again to pick up these
+  changes. The GitHub reusable workflows `sigantry-cd.yml` and
+  `drift-check.yml` require `azureClientId` and `azureTenantId`, sign in
+  through OIDC, and need the caller to grant `id-token: write` (and
+  `actions: read` for CD); the CD deploy, integration and promote jobs use
+  `environment: <environment>`, so the federated credential's subject is
+  `repo:<org>/<repo>:environment:<environment>`. On both platforms the
+  approval stage now runs before deploy, `sigantryVersion` pins the install
+  in every job and stage (ADO stages install through
+  `templates/steps/sigantry-install.yml`), the CD templates pass
+  `--fabric-items` and `--audit-dir`, run `release verify` and upload the
+  ledger as `sigantry-audit-ledger`, and the GitHub promote job takes the
+  approver from the run's approval record before the `approver` input and
+  the actor. The starter and demo PR-bot workflows drop `cache: 'pip'`
+  (see Changed and Fixed).
+- **Classifier.** The package declares `Development Status :: 4 - Beta`
+  instead of `5 - Production/Stable`; the code is unchanged by this
+  (see Changed).
+
 ### Added
 - **`--tenant-id` on `diff`, `sync apply`, `sync pull` and `sync snapshot`,
   and `core.tenant_id` as the default of every `--tenant-id`.** These four
