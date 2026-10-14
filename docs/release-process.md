@@ -78,7 +78,12 @@ Run before opening the release PR:
    directory that holds anything but one wheel and one sdist: a `dist/`
    that still holds an earlier version's files fails the scan with exit 2
    before it reads anything.
-5. `pwsh -c "Invoke-Pester -Configuration ./tests/Pester.config.ps1"`.
+5. Pester, only once the repository ships a `*.Tests.ps1` file (it ships
+   none today, and CI does not run Pester):
+   `pwsh -c '$c = & ./tests/Pester.config.ps1; Invoke-Pester -Configuration $c'`.
+   `tests/Pester.config.ps1` returns the configuration object, so it is run
+   first; passing its path to `-Configuration` fails before any test runs.
+   With no test file present Pester stops with "No test files were found".
 6. Update `CHANGELOG.md`: add the dated heading `## [X.Y.Z] - YYYY-MM-DD`
    directly below `## [Unreleased]`, so the unreleased entries become that
    release's and `## [Unreleased]` stays on top (the alignment test
