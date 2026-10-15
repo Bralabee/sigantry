@@ -1124,7 +1124,7 @@ _RECORD_SHA256 = (
 _EXPECTED_BUILD_JOB = {
     "name": "Build & Verify Artifacts",
     "runs-on": "ubuntu-latest",
-    "needs": ["lint", "test", "types"],
+    "needs": ["lint", "test", "types", "seeded"],
     "outputs": {"dist-sha256": "${{ steps.record.outputs.sha256 }}"},
     "steps": [
         {"uses": "actions/checkout", "with": {"persist-credentials": False}},

@@ -87,6 +87,31 @@ jobs:
       - name: Run pytest
         run: python -m pytest tests/ -m "not integration and not smoke"
 
+  # The jobs above check the commands; this checks what the commands read.
+  # A config line (a mypy override with ignore_errors, a ruff per-file
+  # ignore of ALL, a format exclude, a pytest --deselect) switches a gate off
+  # while its command stays the same (#47). The script copies the tree,
+  # plants one defect in every root each gate covers, runs each gate's
+  # command exactly as the steps above spell it, and passes only if every
+  # gate fails and names its defects.
+  seeded:
+    name: Seeded defects
+    runs-on: ubuntu-latest
+    env:
+      NO_COLOR: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install dependencies
+        run: pip install -e '.[dev,test]'
+      - name: Every quality gate fails on a planted defect
+        run: python scripts/ci/check-seeded-defects.py --root .
+
   build:
     name: Build & Verify Artifacts
     runs-on: ubuntu-latest
@@ -97,8 +122,9 @@ jobs:
     # `build` and hand branch protection a green "Build & Verify Artifacts"
     # on a broken tree. `Type Check (mypy)` became a required context on
     # `main` on 2026-09-21, so that laundering route is closed and `types`
-    # belongs here. Anything added to this list must be required too.
-    needs: [lint, test, types]
+    # belongs here. Anything added to this list must be required too, and
+    # `Seeded defects` is.
+    needs: [lint, test, types, seeded]
     # In a release run (publish-pypi.yml) this is the build that ships: the
     # publish job uploads this job's `dist` artifact to PyPI and builds
     # nothing itself, so what is checked here is what is published.

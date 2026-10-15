@@ -9,14 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- A `Seeded defects` CI job (#47), a required check that gates the artifact
+  build. `scripts/ci/check-seeded-defects.py` copies the tracked tree, plants
+  one defect in every root each quality gate covers (an unused import, a
+  misformatted line, a return-type error, a failing test), and runs the
+  `ruff check`, `ruff format --check`, `mypy` and `pytest` steps exactly as
+  `ci.yml` spells them, against the copy's own configuration. It passes
+  only if every gate exits non-zero and names every defect planted for it.
+  A configuration line that switches a gate off while its command stays
+  the same now fails CI: a mypy override with `ignore_errors`, a ruff
+  per-file ignore of `ALL`, a format `exclude`, or a `--deselect` in pytest's
+  `addopts`.
+
 ### Changed
 - The release gate finds publishing jobs by the credential they hold, not by
   how their upload command is spelled (#33). A job that can request an OIDC
   token, other than the pinned `azure/login` jobs, is a publishing job and
   must depend on an enforcing `ci.yml` job, whatever it runs. Workflows may
   reference only the secrets `NAME_GATE_TOKENS`, `SIGANTRY_TEAMS_WEBHOOK` and
-  `GITHUB_TOKEN`; `secrets: inherit` and any other way of reading the
-  secrets context fail the suite. The command-spelling detector, its
+  `GITHUB_TOKEN`, and no repository variable; `secrets: inherit` and any
+  other way of reading either context fail the suite. The command-spelling detector, its
   `_PUBLISH_GATE_EXEMPT` carve-out map and the eight strict xfails that
   pinned its known misses are removed. `docs/release-process.md` gains a
   "What can publish" section.
