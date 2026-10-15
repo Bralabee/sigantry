@@ -108,6 +108,12 @@ _AZURE_LOGIN_HOLDERS = frozenset(
 # in a reviewed change, with what it is for.
 _ALLOWED_SECRETS = frozenset({"NAME_GATE_TOKENS", "SIGANTRY_TEAMS_WEBHOOK", "GITHUB_TOKEN"})
 
+# The repository variables a workflow may read: none. A variable is shown in
+# logs and to anyone with read access, so it must never hold a credential, but
+# nothing in GitHub stops one from doing so. Pinned empty for the same reason
+# as the secrets above.
+_ALLOWED_VARS: frozenset[str] = frozenset()
+
 # Any shell operator: an invocation sharing its line with one is not, on its
 # own, what decides the step's exit status. A bare `&` is in the list because
 # `mypy ... &` backgrounds it and the step exits on the shell, not the tool.
@@ -802,8 +808,14 @@ def test_expiry_follows_the_commit_not_the_clock(tmp_path: pathlib.Path) -> None
     def commit_at(when: str) -> pathlib.Path:
         repo = tmp_path / when[:10]
         repo.mkdir()
+        # Nothing from the caller's git: a GIT_DIR or GIT_INDEX_FILE inherited
+        # from a hook would point these commands at the real repository, and
+        # a global config can add hooks or signing that --no-verify does not
+        # turn off.
         env = {
-            **os.environ,
+            **{k: v for k, v in os.environ.items() if not k.startswith("GIT_")},
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_NOSYSTEM": "1",
             "GIT_AUTHOR_DATE": when,
             "GIT_COMMITTER_DATE": when,
             "GIT_AUTHOR_NAME": "t",
@@ -1301,7 +1313,7 @@ def test_the_release_workflow_runs_only_on_a_published_release(
 
 
 def test_only_the_publish_job_holds_the_oidc_token_or_the_token_list(
-    all_workflows: dict[str, dict], workflow_dir: pathlib.Path
+    all_workflows: dict[str, dict],
 ) -> None:
     """The publishing credential and the token list each reach only their pinned jobs.
 
@@ -1348,89 +1360,122 @@ def test_only_the_publish_job_holds_the_oidc_token_or_the_token_list(
         )
     quality = all_workflows["publish-pypi.yml"]["jobs"]["quality"]
     assert "secrets" not in quality, "the build half must not be handed secrets"
-    assert "secrets." not in (workflow_dir / "ci.yml").read_text(encoding="utf-8"), (
+    assert _context_uses(all_workflows["ci.yml"], "secrets") == (set(), []), (
         "ci.yml is the build half of a release and must reference no secret"
     )
-    readers = {
-        path.name: path.read_text(encoding="utf-8").count("secrets.NAME_GATE_TOKENS")
-        for path in sorted(workflow_dir.glob("*.y*ml"))
-    }
-    assert {name: n for name, n in readers.items() if n} == {
-        "name-gate.yml": 1,
-        "publish-pypi.yml": 1,
-    }, f"the token list reaches a job that is not pinned: {readers}"
+    # Per job, through the same case-insensitive scan as the allow-list: a
+    # text count of `secrets.NAME_GATE_TOKENS` missed `Secrets.name_gate_tokens`.
+    readers = []
+    for filename, workflow in all_workflows.items():
+        top = {k: v for k, v in workflow.items() if k != "jobs"}
+        if "NAME_GATE_TOKENS" in _context_uses(top, "secrets")[0]:
+            readers.append(f"{filename}::<workflow>")
+        for job_id, job in (workflow.get("jobs") or {}).items():
+            if "NAME_GATE_TOKENS" in _context_uses(job, "secrets")[0]:
+                readers.append(f"{filename}::{job_id}")
+    assert sorted(readers) == ["name-gate.yml::name-gate", "publish-pypi.yml::publish"], (
+        f"the token list reaches a job that is not pinned: {readers}"
+    )
 
 
-# Every `${{ ... }}` in a string. The secrets context is reachable only inside
-# one, or in an `if:` condition, which is an expression without the braces.
-_EXPRESSION_TEXT_RE = re.compile(r"\$\{\{(.*?)\}\}", re.S)
-_SECRETS_WORD_RE = re.compile(r"\bsecrets\b", re.I)
-_SECRET_REF_RE = re.compile(r"secrets\.([A-Za-z_][A-Za-z0-9_]*)", re.I)
+def _expressions(text: str) -> list[str]:
+    """Every ``${{ ... }}`` in ``text``, ending at the first ``}}`` outside a string.
+
+    A regex that stops at the first ``}}`` ends early on ``format('{0}}}', ...)``
+    and never sees what follows. Expression strings are single-quoted, with
+    ``''`` for a quote. An expression left open runs to the end of the text, so
+    nothing after an unbalanced quote goes unread.
+    """
+    out = []
+    start = text.find("${{")
+    while start != -1:
+        i = start + 3
+        quoted = False
+        while i < len(text):
+            if text[i] == "'":
+                if quoted and text[i + 1 : i + 2] == "'":
+                    i += 2
+                    continue
+                quoted = not quoted
+            elif not quoted and text.startswith("}}", i):
+                break
+            i += 1
+        out.append(text[start + 3 : i])
+        start = text.find("${{", i + 2)
+    return out
 
 
-def _secret_uses(workflow: object) -> tuple[set[str], list[str]]:
-    """The secret names a workflow references, and every use that names none.
+def _context_uses(node: object, context: str) -> tuple[set[str], list[str]]:
+    """The names read from ``context`` (``secrets`` or ``vars``), and every use naming none.
 
     GitHub expressions are case-insensitive, so names are compared upper-cased.
-    Any reference other than ``secrets.<NAME>`` -- ``secrets['X']``,
-    ``toJSON(secrets)``, a computed index -- is reported as a problem rather
-    than parsed, as is ``secrets: inherit``, which hands a called workflow
-    every secret the caller can read.
+    Any reference other than ``<context>.<NAME>`` -- an index such as
+    ``secrets['X']``, ``toJSON(secrets)``, a computed index -- is reported as a
+    problem rather than parsed, as is ``secrets: inherit``, which hands a
+    called workflow every secret the caller can read. A property of another
+    context that happens to be called the same (``needs.secrets.result``) is
+    not the context.
     """
+    word = re.compile(rf"(?<![\w.]){context}\b", re.I)
+    ref = re.compile(rf"{context}\.([A-Za-z_][A-Za-z0-9_]*)", re.I)
     names: set[str] = set()
     problems: list[str] = []
 
     def scan(text: str, where: str) -> None:
-        for match in _SECRETS_WORD_RE.finditer(text):
-            ref = _SECRET_REF_RE.match(text, match.start())
-            if ref:
-                names.add(ref.group(1).upper())
+        for match in word.finditer(text):
+            found = ref.match(text, match.start())
+            if found:
+                names.add(found.group(1).upper())
             else:
                 problems.append(f"{where}: {text.strip()!r}")
 
     def walk(node: object, where: str, key: str = "") -> None:
         if isinstance(node, dict):
             for k, v in node.items():
-                if str(k).lower() == "secrets" and not isinstance(v, dict):
+                if context == "secrets" and str(k).lower() == "secrets" and not isinstance(v, dict):
                     problems.append(f"{where}.secrets: {v!r}")
                 walk(v, f"{where}.{k}", str(k))
         elif isinstance(node, list):
             for i, item in enumerate(node):
                 walk(item, f"{where}[{i}]", key)
         elif isinstance(node, str):
-            for expression in _EXPRESSION_TEXT_RE.findall(node):
+            for expression in _expressions(node):
                 scan(expression, where)
             if key == "if" and "${{" not in node:
                 scan(node, where)
 
-    walk(workflow, "")
+    walk(node, "")
     return names, problems
 
 
 def test_workflows_reference_only_allowed_secrets(all_workflows: dict[str, dict]) -> None:
-    """No workflow can reach a secret outside ``_ALLOWED_SECRETS``.
+    """No workflow can reach a secret outside ``_ALLOWED_SECRETS``, or any variable.
 
     With the OIDC holders pinned above, a secret is the only other way a job
     gets a credential an index accepts, so this is what keeps the publishing
-    jobs the ones ``_publishing_jobs`` finds (issue #33). PyPI accepts this
-    project only through trusted publishing from publish-pypi.yml's ``pypi``
-    environment, whose reviewer approves each upload; no API token exists.
+    jobs the ones ``_publishing_jobs`` finds (issue #33). A repository
+    variable is not meant to hold a credential, but nothing stops one from
+    holding it, so variables are held to an allow-list too, and it is empty.
+    PyPI accepts this project only through trusted publishing from
+    publish-pypi.yml's ``pypi`` environment, whose reviewer approves each
+    upload; no API token exists.
     """
     seen: set[str] = set()
     for filename, workflow in all_workflows.items():
-        names, problems = _secret_uses(workflow)
-        assert not problems, (
-            f"{filename} reads secrets in a form this check cannot enumerate: {problems}. "
-            "Reference each one as `secrets.<NAME>`."
-        )
-        extra = sorted(names - _ALLOWED_SECRETS)
-        assert not extra, (
-            f"{filename} references secret(s) {extra} outside the allow-list "
-            f"{sorted(_ALLOWED_SECRETS)}. A secret is a publishing credential until "
-            "shown otherwise: add it to _ALLOWED_SECRETS with what it is for, in a "
-            "reviewed change."
-        )
-        seen |= names
+        for context, allowed in (("secrets", _ALLOWED_SECRETS), ("vars", _ALLOWED_VARS)):
+            names, problems = _context_uses(workflow, context)
+            assert not problems, (
+                f"{filename} reads {context} in a form this check cannot enumerate: "
+                f"{problems}. Reference each one as `{context}.<NAME>`."
+            )
+            extra = sorted(names - allowed)
+            assert not extra, (
+                f"{filename} references {context} {extra} outside the allow-list "
+                f"{sorted(allowed)}. Either can carry a publishing credential: add it "
+                "to the allow-list with what it is for, in a reviewed change."
+            )
+            if context == "secrets":
+                seen |= names
     # The scan must see the references that are known to be there.
     assert {"NAME_GATE_TOKENS", "GITHUB_TOKEN"} <= seen, (
         f"the secret scan found {sorted(seen)}; it is not reading the workflows"
@@ -1465,15 +1510,46 @@ def test_workflows_reference_only_allowed_secrets(all_workflows: dict[str, dict]
         pytest.param(
             {"jobs": {"j": {"steps": [{"run": "echo no secrets here"}]}}}, set(), False, id="prose"
         ),
+        pytest.param(
+            {"env": {"A": "${{ format('{0}}}', secrets.PYPI_TOKEN) }}"}},
+            {"PYPI_TOKEN"},
+            False,
+            id="braces-in-a-string",
+        ),
+        pytest.param(
+            {"env": {"A": "${{ format('it''s }}', secrets.PYPI_TOKEN) }}"}},
+            {"PYPI_TOKEN"},
+            False,
+            id="escaped-quote",
+        ),
+        pytest.param(
+            {"env": {"A": "${{ format('{0}', 'x) }} ${{ secrets.PYPI_TOKEN }}"}},
+            {"PYPI_TOKEN"},
+            False,
+            id="unbalanced-quote",
+        ),
+        pytest.param(
+            {"jobs": {"j": {"if": "needs.secrets.result == 'success'"}}},
+            set(),
+            False,
+            id="property-named-secrets",
+        ),
     ],
 )
 def test_secret_scan_sees_every_reference_form(
     workflow: dict, names: set[str], problem: bool
 ) -> None:
     """Each way to read the secrets context is either named or refused."""
-    found, problems = _secret_uses(workflow)
+    found, problems = _context_uses(workflow, "secrets")
     assert found == names
     assert bool(problems) is problem, problems
+
+
+def test_variable_scan_sees_a_variable() -> None:
+    """``vars`` gets the same scan: a token in a variable is seen and named."""
+    workflow = {"jobs": {"j": {"steps": [{"run": "twine upload -p ${{ VARS.pypi_token }}"}]}}}
+    assert _context_uses(workflow, "vars") == ({"PYPI_TOKEN"}, [])
+    assert _context_uses({"env": {"A": "${{ toJSON(vars) }}"}}, "vars")[1]
 
 
 def test_ci_concurrency_group_does_not_cancel_the_release_gate(ci_workflow: dict) -> None:
