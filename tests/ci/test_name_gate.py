@@ -27,7 +27,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from .test_quality_gates_run import _publish_jobs
+from .test_quality_gates_run import _publishing_jobs
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GATE = REPO_ROOT / "scripts" / "ci" / "check-name-gate.py"
@@ -1874,15 +1874,16 @@ def test_the_release_path_runs_the_gate() -> None:
     step before that upload. The job is compared whole, for the reasons
     ``test_the_gate_job_is_pinned_whole`` gives: a step that changed the
     files after the scan, or one that skipped or neutered it, would otherwise
-    pass. Every publish job the quality-gate tests detect (``_publish_jobs``,
-    with its pinned gaps) must be this one, so a second upload job cannot go
-    round the scan, and the workflow holds no job besides it and its gate.
+    pass. Every job that holds a publishing credential (``_publishing_jobs``,
+    which finds them by credential rather than by command) must be this one,
+    so a second upload job cannot go round the scan, and the workflow holds
+    no job besides it and its gate.
     """
-    publish_jobs = sorted(
-        f"{path.name}::{job_id}"
+    workflows = {
+        path.name: yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         for path in sorted((REPO_ROOT / ".github" / "workflows").glob("*.y*ml"))
-        for job_id in _publish_jobs(yaml.safe_load(path.read_text(encoding="utf-8")) or {})
-    )
+    }
+    publish_jobs = [f"{name}::{job_id}" for name, job_id in _publishing_jobs(workflows)]
     assert publish_jobs == ["publish-pypi.yml::publish"], (
         "every job that publishes must run the name gate first; give a new "
         f"publish job the scan and pin it here: {publish_jobs}"

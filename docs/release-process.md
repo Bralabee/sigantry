@@ -162,6 +162,29 @@ with the SHA-256 the `build` job printed (a file a re-run skipped keeps
 the digest of the attempt that uploaded it), and that
 `pip install sigantry==X.Y.Z` resolves in a clean environment.
 
+## What can publish
+
+PyPI accepts an upload of `sigantry` only through trusted publishing: a
+token minted for `publish-pypi.yml` running in the `pypi` environment, whose
+reviewer approves each run. There is no PyPI API token, and the repository
+holds no secret that could stand in for one. That is the authority; the
+tests make it hard to widen by accident:
+
+- `tests/ci/test_quality_gates_run.py` pins the jobs that may request an
+  OIDC token (`id-token: write`): the publish job, and the `azure/login`
+  jobs of the two consumer workflows, which no PyPI publisher trusts.
+- The same file allows workflows to reference only `NAME_GATE_TOKENS`,
+  `SIGANTRY_TEAMS_WEBHOOK` and `GITHUB_TOKEN`, none of which can upload to an
+  index, and refuses `secrets: inherit` and any other way of reading the
+  secrets context. A new secret means a reviewed change to that list.
+- Every job that holds a publishing credential must depend on an enforcing
+  `ci.yml` job. Jobs are found by the credential they hold, not by how the
+  upload command is spelled.
+
+A token placed in a repository variable (`vars.`) is outside these checks:
+variables are for values that are not secret, and one must never hold a
+credential.
+
 ## Known gaps in the published record
 
 - **1.0.0 was not published by the Release trigger.** Of the three 1.0.0
