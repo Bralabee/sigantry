@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- The release gate finds publishing jobs by the credential they hold, not by
+  how their upload command is spelled (#33). A job that can request an OIDC
+  token, other than the pinned `azure/login` jobs, is a publishing job and
+  must depend on an enforcing `ci.yml` job, whatever it runs. Workflows may
+  reference only the secrets `NAME_GATE_TOKENS`, `SIGANTRY_TEAMS_WEBHOOK` and
+  `GITHUB_TOKEN`; `secrets: inherit` and any other way of reading the
+  secrets context fail the suite. The command-spelling detector, its
+  `_PUBLISH_GATE_EXEMPT` carve-out map and the eight strict xfails that
+  pinned its known misses are removed. `docs/release-process.md` gains a
+  "What can publish" section.
+- A carve-out's review-by date is compared with the date of the commit under
+  test, not with today (#23). A commit that passed keeps passing on re-runs
+  and releases; an entry whose date has passed fails on the first commit
+  made after it.
+
 ## [1.1.0] - 2026-10-15
 
 ### Upgrading from 1.0.1

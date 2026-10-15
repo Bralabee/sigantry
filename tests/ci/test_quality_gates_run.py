@@ -84,11 +84,35 @@ _LINT_JOB_NAME = "Lint & Formatting"
 # that runs nothing.
 _CI_WORKFLOW_USES = "./.github/workflows/ci.yml"
 
-# A publish that goes through a repo script is still a publish. This matches
-# the script's PATH on a run line -- any `scripts/**` `.sh`/`.py` whose path
-# says publish or release -- not what the script runs, so it is a guess by name
-# in both directions: see `_publish_jobs` for what that misses and misreads.
-_PUBLISH_SCRIPT_RE = re.compile(r"scripts/[\w/.-]*(?:publish|release)[\w/.-]*\.(?:sh|py)")
+# A job publishes only if it can obtain a publishing credential, and there are
+# two routes to one: an OIDC token (`id-token: write`), which is what PyPI
+# trusted publishing accepts, or a secret. Both are small, enumerable surfaces,
+# where the commands that upload are not (issue #33: a detector that read
+# those spellings missed some and misread others, arm after arm). So the gate is on
+# the credential. The jobs below hold an OIDC token for `azure/login` and
+# cannot publish (PyPI's trusted publisher is bound to publish-pypi.yml and
+# its `pypi` environment); every other holder is a publishing job.
+_AZURE_LOGIN_HOLDERS = frozenset(
+    {
+        "sigantry-cd.yml::deploy",
+        "sigantry-cd.yml::integration",
+        "sigantry-cd.yml::promote",
+        "drift-check.yml::drift_check",
+    }
+)
+
+# The only secrets a workflow may reference. None of them can publish to an
+# index: the token list feeds the name gate, the webhook posts to Teams, and
+# GITHUB_TOKEN is scoped to this repository. A new secret fails
+# `test_workflows_reference_only_allowed_secrets` and has to be added here,
+# in a reviewed change, with what it is for.
+_ALLOWED_SECRETS = frozenset({"NAME_GATE_TOKENS", "SIGANTRY_TEAMS_WEBHOOK", "GITHUB_TOKEN"})
+
+# The repository variables a workflow may read: none. A variable is shown in
+# logs and to anyone with read access, so it must never hold a credential, but
+# nothing in GitHub stops one from doing so. Pinned empty for the same reason
+# as the secrets above.
+_ALLOWED_VARS: frozenset[str] = frozenset()
 
 # Any shell operator: an invocation sharing its line with one is not, on its
 # own, what decides the step's exit status. A bare `&` is in the list because
@@ -437,12 +461,20 @@ def _excluded_roots(argv: tuple[str, ...]) -> set[str]:
 # expiring carve-outs
 # ---------------------------------------------------------------------------
 #
-# Both maps below are job/file -> (reason, review-by date). A carve-out with no
+# The map below is job -> (reason, review-by date). A carve-out with no
 # expiry outlives its reason in silence: `types` stayed exempt from `build`'s
 # `needs` after `Type Check (mypy)` became required, because nothing was
 # watching. `_assert_not_expired` is unit-tested directly rather than only
-# through these maps, so the check is proven able to fail even while a map is
+# through the map, so the check is proven able to fail even while it is
 # empty.
+#
+# The date is compared with the COMMIT under test, not with today (issue
+# #23). This test runs in the `test` job, which gates `build`, which is what
+# a release publishes; against the wall clock, a lapsed date would red every
+# merge and block every release on a calendar day with no code change. Against
+# the commit date, a commit that passed once passes on every re-run and every
+# release, and a lapsed entry fails on the first commit made after its date,
+# in the pull request that carries it.
 
 
 def _assert_not_expired(key: str, entry: object, today: dt.date, where: str) -> None:
@@ -466,10 +498,27 @@ def _assert_not_expired(key: str, entry: object, today: dt.date, where: str) -> 
     )
 
 
-def _today() -> dt.date:
-    # UTC, not local: a local-time deadline flips a day earlier or later
-    # depending on which runner picks the job up.
-    return dt.datetime.now(dt.UTC).date()
+def _commit_date(root: pathlib.Path) -> dt.date:
+    """The UTC date of the commit checked out at ``root``.
+
+    The committer date, so a rebase or a merge commit counts as new. UTC, not
+    local: a local-time date flips a day earlier or later depending on which
+    runner picks the job up. No git, or no commit, fails: skipping would turn
+    the expiry check off without a word.
+    """
+    git = shutil.which("git")
+    assert git, "git is not on PATH; the carve-out expiry check reads the commit date"
+    done = subprocess.run(
+        [git, "-C", str(root), "log", "-1", "--format=%ct", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert done.returncode == 0 and done.stdout.strip().isdigit(), (
+        f"could not read the commit date at {root} (rc {done.returncode}): "
+        f"{done.stderr.strip() or done.stdout.strip()!r}"
+    )
+    return dt.datetime.fromtimestamp(int(done.stdout.strip()), dt.UTC).date()
 
 
 # Quality jobs deliberately NOT gating the artifact build.
@@ -486,19 +535,6 @@ def _today() -> dt.date:
 # What must never live here is an excuse whose reason has lapsed, which is
 # what `types` became once `Type Check (mypy)` was required.
 _BUILD_DEPS_EXEMPT: dict[str, tuple[str, str]] = {}
-
-# Publish paths not yet gated by a quality job.
-#
-# NOTE: `test_carve_outs_have_not_expired` reads the wall clock inside the
-# `test` job, which gates `build` and is what `publish-pypi.yml` runs as its
-# quality gate. So a lapsed date in EITHER map reds every merge to main and
-# blocks every release on a calendar date, with no code change. That is not
-# intended; it is issue #23, and it is why no dated entry remains. Whoever adds
-# the next one should move the expiry check off those paths first.
-# Keyed "<workflow>::<job>", not by filename: a filename key would go on
-# excusing any publish job added to that file later, including a production
-# one, on a reason recorded about a different job.
-_PUBLISH_GATE_EXEMPT: dict[str, tuple[str, str]] = {}
 
 
 def test_mypy_is_configured(repo_root: pathlib.Path) -> None:
@@ -752,95 +788,211 @@ def test_expiry_check_rejects_a_lapsed_carve_out() -> None:
         _assert_not_expired("typo", ("real reason", "31-12-2026"), today, "_TEST")
 
 
-def test_carve_outs_have_not_expired() -> None:
-    """Every live carve-out is still within its review-by date."""
-    today = _today()
+def test_carve_outs_have_not_expired(repo_root: pathlib.Path) -> None:
+    """Every live carve-out was within its review-by date when this commit was made."""
+    committed = _commit_date(repo_root)
     for key, entry in _BUILD_DEPS_EXEMPT.items():
-        _assert_not_expired(key, entry, today, "_BUILD_DEPS_EXEMPT")
-    for key, entry in _PUBLISH_GATE_EXEMPT.items():
-        _assert_not_expired(key, entry, today, "_PUBLISH_GATE_EXEMPT")
+        _assert_not_expired(key, entry, committed, "_BUILD_DEPS_EXEMPT")
 
 
-def _publish_jobs(workflow: dict) -> list[str]:
-    """Jobs that push a distribution to an index, by the mechanisms below only.
+def test_expiry_follows_the_commit_not_the_clock(tmp_path: pathlib.Path) -> None:
+    """Issue #23: the same entry passes on an old commit and fails on a new one.
 
-    Seen: ``twine upload`` run as ``twine``, ``python -m twine`` or ``python3
-    -m twine`` with ``upload`` as its first argument; the action
-    ``pypa/gh-action-pypi-publish`` spelled in lower case; and a run line that
-    names a ``scripts/**`` ``.sh``/``.py`` path containing ``publish`` or
-    ``release``. That last rule reads a name, not what the script runs, so it
-    also flags a script that publishes nothing. ``test_publish_job_detection``
-    pins the known misses and misreadings as strict xfails; the list is the
-    known ones, not all of them. Closing them one spelling at a time does not
-    converge, so they wait on a detection that does not depend on how a command
-    is spelled (issue #33).
-
-    Uses ``_invocations`` rather than a second hand-rolled tokeniser: the
-    duplicate copy had already drifted once (it compared raw tokens to
-    ``["twine", "upload"]`` and so missed ``python -m twine upload``), and
-    every future tokeniser fix would have had to be made twice.
+    Both commits are judged on the same day (today), so the difference is the
+    commit date alone: the wall clock does not decide.
     """
-    uploads = {
-        call.job
-        for call in _invocations(workflow, "twine")
-        if len(call.argv) > 1 and call.argv[1] == "upload"
-    }
-    out: list[str] = []
-    for name, job in (workflow.get("jobs") or {}).items():
-        if name in uploads:
-            out.append(name)
-            continue
-        steps = job.get("steps") or []
-        if any("pypa/gh-action-pypi-publish" in str(s.get("uses", "")) for s in steps):
-            out.append(name)
-            continue
-        # A publish routed through a repo script is still a publish: moving a
-        # job's inline upload into `bash scripts/release/<name>.sh` must not
-        # make it vanish from the scan -- the one direction this file must
-        # never fail in.
-        if any(
-            _PUBLISH_SCRIPT_RE.search(line)
-            for s in steps
-            if isinstance(s.get("run"), str)
-            for line in _command_lines(s["run"])
+    git = shutil.which("git")
+    assert git, "git is not on PATH"
+    entry = ("not required yet", "2030-06-30")
+
+    def commit_at(when: str) -> pathlib.Path:
+        repo = tmp_path / when[:10]
+        repo.mkdir()
+        # Nothing from the caller's git: a GIT_DIR or GIT_INDEX_FILE inherited
+        # from a hook would point these commands at the real repository, and
+        # a global config can add hooks or signing that --no-verify does not
+        # turn off.
+        env = {
+            **{k: v for k, v in os.environ.items() if not k.startswith("GIT_")},
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_AUTHOR_DATE": when,
+            "GIT_COMMITTER_DATE": when,
+            "GIT_AUTHOR_NAME": "t",
+            "GIT_AUTHOR_EMAIL": "t@example.invalid",
+            "GIT_COMMITTER_NAME": "t",
+            "GIT_COMMITTER_EMAIL": "t@example.invalid",
+        }
+        for argv in (
+            ["init", "-q"],
+            [
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "--no-verify",
+                "-m",
+                "c",
+            ],
         ):
-            out.append(name)
+            subprocess.run([git, "-C", str(repo), *argv], env=env, check=True)
+        return repo
+
+    before = _commit_date(commit_at("2030-06-30T23:30:00+00:00"))
+    assert before == dt.date(2030, 6, 30)
+    _assert_not_expired("job", entry, before, "_TEST")
+    after = _commit_date(commit_at("2030-07-01T00:30:00+00:00"))
+    with pytest.raises(AssertionError, match="due for review"):
+        _assert_not_expired("job", entry, after, "_TEST")
+    with pytest.raises(AssertionError, match="could not read the commit date"):
+        _commit_date(tmp_path / "no-repo-here")
+
+
+def _grants_id_token(permissions: object) -> bool:
+    if permissions == "write-all":
+        return True
+    return isinstance(permissions, dict) and str(permissions.get("id-token")) == "write"
+
+
+def _id_token_holders(workflows: dict[str, dict]) -> set[str]:
+    """``<workflow>::<job>`` for every job that can request an OIDC token.
+
+    A workflow-level grant reaches every job that does not set its own
+    ``permissions``, so it is reported as ``<workflow>::<workflow>`` and also
+    expanded to those jobs: the pin below must see the marker, and the
+    publishing-job scan must see the jobs.
+    """
+    holders: set[str] = set()
+    for filename, workflow in workflows.items():
+        jobs = workflow.get("jobs") or {}
+        workflow_grant = _grants_id_token(workflow.get("permissions"))
+        if workflow_grant:
+            holders.add(f"{filename}::<workflow>")
+        for job_id, job in jobs.items():
+            own = job.get("permissions")
+            if _grants_id_token(own) or (workflow_grant and own is None):
+                holders.add(f"{filename}::{job_id}")
+    return holders
+
+
+def _publishing_jobs(workflows: dict[str, dict]) -> list[tuple[str, str]]:
+    """``(workflow, job)`` for every job that holds a credential PyPI accepts.
+
+    Secrets are not a route (``test_workflows_reference_only_allowed_secrets``
+    allows none that can publish), so this is the OIDC holders other than the
+    pinned ``azure/login`` jobs. It is decided by the credential, not by how
+    the upload command is spelled (issue #33).
+    """
+    out = []
+    for holder in sorted(_id_token_holders(workflows) - _AZURE_LOGIN_HOLDERS):
+        filename, _, job_id = holder.partition("::")
+        if job_id != "<workflow>":
+            out.append((filename, job_id))
     return out
 
 
-def _assert_publish_jobs_gated(
-    exempt: dict[str, tuple[str, str]], workflows: dict[str, dict]
-) -> bool:
-    """Every publish job depends on an enforcing ci.yml job unless ``exempt`` names it.
+def test_publishing_jobs_are_found_by_credential() -> None:
+    """The scan follows the credential, whatever the upload is spelled as.
 
-    Only the exact key ``<workflow>::<job-id>`` excuses a job. Returns whether
-    any publish job was seen, so the caller can refuse a vacuous scan. The map
-    is a parameter so the lookup stays under test while the live map is empty.
+    Each spelling below once passed an ungated job through the command
+    scan this replaced (issue #33); here none of them matters. A job with the
+    token publishes; the same steps without it do not.
+    """
+    spellings = [
+        [{"run": "twine upload dist/*"}],
+        [{"run": "uv publish"}],
+        [{"run": "sudo -E python3.12 -m twine upload dist/*"}],
+        [{"run": "bash -c 'twine upload dist/*'"}],
+        [{"uses": "PyPA/gh-action-pypi-publish@v1"}],
+        [{"run": "./release.sh"}],
+        [{"run": "make publish"}],
+    ]
+    token = {"id-token": "write", "contents": "read"}
+    for steps in spellings:
+        held = {"pub.yml": {"jobs": {"up": {"permissions": token, "steps": steps}}}}
+        assert _publishing_jobs(held) == [("pub.yml", "up")], steps
+        assert _publishing_jobs({"pub.yml": {"jobs": {"up": {"steps": steps}}}}) == [], steps
+    # A workflow-wide grant reaches the jobs that do not narrow it.
+    wide = {
+        "pub.yml": {
+            "permissions": "write-all",
+            "jobs": {"up": {"steps": []}, "lint": {"permissions": {}, "steps": []}},
+        }
+    }
+    assert _publishing_jobs(wide) == [("pub.yml", "up")]
+    # A check named like a release holds no token and is not a publish.
+    named = {
+        "ci.yml": {
+            "jobs": {"lint": {"steps": [{"run": "python scripts/ci/check-release-notes.py"}]}}
+        }
+    }
+    assert _publishing_jobs(named) == []
+    # The azure/login holders are not publishing jobs, by name only.
+    azure = {"drift-check.yml": {"jobs": {"drift_check": {"permissions": token, "steps": []}}}}
+    assert _publishing_jobs(azure) == []
+
+
+def _assert_publishing_jobs_gated(workflows: dict[str, dict]) -> bool:
+    """Every publishing job depends on an enforcing ci.yml job.
+
+    Returns whether any publishing job was seen, so the caller can refuse a
+    vacuous scan.
     """
     found_any = False
-    for filename, workflow in workflows.items():
-        jobs = workflow.get("jobs") or {}
-        for job_id in _publish_jobs(workflow):
-            found_any = True
-            if f"{filename}::{job_id}" in exempt:
-                continue
-            # `needs:` alone is not a gate. `if: always()` on the publish job
-            # keeps the dependency and publishes anyway once the gate fails.
+    for filename, job_id in _publishing_jobs(workflows):
+        found_any = True
+        jobs = workflows[filename].get("jobs") or {}
+        # `needs:` alone is not a gate. `if: always()` on the publish job
+        # keeps the dependency and publishes anyway once the gate fails.
+        _assert_job_enforcing(
+            jobs, job_id, f"{filename}:{job_id} could publish after its gate failed"
+        )
+        needs = set(_as_list(jobs[job_id].get("needs")))
+        gates = [n for n in needs if str(jobs.get(n, {}).get("uses", "")) == _CI_WORKFLOW_USES]
+        assert gates, (
+            f"{filename}: publish job {job_id!r} does not depend on a job "
+            f"that runs ci.yml; its needs are {sorted(needs)}. The "
+            "distribution would ship without lint, type or test having run."
+        )
+        for gate in gates:
             _assert_job_enforcing(
-                jobs, job_id, f"{filename}:{job_id} could publish after its gate failed"
+                jobs, gate, f"{filename}:{job_id} would publish an ungated distribution"
             )
-            needs = set(_as_list(jobs[job_id].get("needs")))
-            gates = [n for n in needs if str(jobs.get(n, {}).get("uses", "")) == _CI_WORKFLOW_USES]
-            assert gates, (
-                f"{filename}: publish job {job_id!r} does not depend on a job "
-                f"that runs ci.yml; its needs are {sorted(needs)}. The "
-                "distribution would ship without lint, type or test having run."
-            )
-            for gate in gates:
-                _assert_job_enforcing(
-                    jobs, gate, f"{filename}:{job_id} would publish an ungated distribution"
-                )
     return found_any
+
+
+_UNGATED = "does not depend on a job that runs ci.yml"
+
+
+def test_an_ungated_publishing_job_fails_the_gate() -> None:
+    """The gate check can fail, and passes only on a real ci.yml dependency."""
+    token = {"id-token": "write"}
+    ungated = {"pub.yml": {"jobs": {"up": {"permissions": token, "steps": []}}}}
+    with pytest.raises(AssertionError, match=_UNGATED):
+        _assert_publishing_jobs_gated(ungated)
+    near = {
+        "pub.yml": {
+            "jobs": {
+                "gate": {"uses": "./.github/workflows/noop-ci.yml"},
+                "up": {"needs": ["gate"], "permissions": token, "steps": []},
+            }
+        }
+    }
+    with pytest.raises(AssertionError, match=_UNGATED):
+        _assert_publishing_jobs_gated(near)
+    gated = {
+        "pub.yml": {
+            "jobs": {
+                "gate": {"uses": _CI_WORKFLOW_USES},
+                "up": {"needs": "gate", "permissions": token, "steps": []},
+            }
+        }
+    }
+    assert _assert_publishing_jobs_gated(gated)
+    gated["pub.yml"]["jobs"]["up"]["if"] = "always()"
+    with pytest.raises(AssertionError, match="could publish after its gate failed"):
+        _assert_publishing_jobs_gated(gated)
 
 
 def test_every_publish_path_is_gated_by_the_quality_jobs(
@@ -853,14 +1005,13 @@ def test_every_publish_path_is_gated_by_the_quality_jobs(
     publishes the ``dist`` artifact ci.yml's ``build`` job made (see
     ``test_the_release_builds_nothing``).
 
-    Every workflow is scanned, not just ``publish-pypi.yml``: a removed alpha
-    workflow once published via ``twine upload`` in an ungated job, and a
-    check that looked only at one filename and one action could not see it.
+    Every workflow is scanned, not just ``publish-pypi.yml``, and a job is
+    found by the credential it holds, not by its commands (issue #33).
     """
-    found_any = _assert_publish_jobs_gated(_PUBLISH_GATE_EXEMPT, all_workflows)
+    found_any = _assert_publishing_jobs_gated(all_workflows)
     assert found_any, (
-        "no publish path found in any workflow; this scan would be vacuous. "
-        "Either the detection is broken or publishing moved somewhere unseen."
+        "no job in any workflow holds a publishing credential; this scan would "
+        "be vacuous. Either the detection is broken or publishing moved somewhere unseen."
     )
 
     # And the gate must be callable, or the `uses:` reference is broken.
@@ -889,11 +1040,10 @@ def test_the_release_builds_nothing(all_workflows: dict[str, dict]) -> None:
     job, run as the workflow's quality gate; the publish job only takes its
     artifact (``test_the_release_publishes_the_artifact_ci_built``).
     """
-    found_any = False
-    for filename, workflow in all_workflows.items():
-        if not _publish_jobs(workflow):
-            continue
-        found_any = True
+    publishing = sorted({filename for filename, _ in _publishing_jobs(all_workflows)})
+    assert publishing, "no publishing workflow found; this check would be vacuous"
+    for filename in publishing:
+        workflow = all_workflows[filename]
         for tool in _BUILD_OR_INSTALL:
             calls = _invocations(workflow, tool)
             assert not calls, (
@@ -901,7 +1051,6 @@ def test_the_release_builds_nothing(all_workflows: dict[str, dict]) -> None:
                 "workflow that publishes. Publish the `dist` artifact ci.yml's `build` job "
                 "built and checked, instead of building again after the gate."
             )
-    assert found_any, "no publishing workflow found; this check would be vacuous"
 
 
 def test_the_release_publishes_the_artifact_ci_built(
@@ -924,41 +1073,39 @@ def test_the_release_publishes_the_artifact_ci_built(
     assert (outputs.get("dist-sha256") or {}).get("value") == (
         "${{ jobs.build.outputs.dist-sha256 }}"
     ), "ci.yml must expose the build job's SHA-256 record to the workflow that calls it"
-    found_any = False
-    for filename, workflow in all_workflows.items():
-        jobs = workflow.get("jobs") or {}
-        for job_id in _publish_jobs(workflow):
-            found_any = True
-            job = jobs[job_id]
-            steps = job.get("steps") or []
-            downloads = [
-                s.get("with") or {} for s in steps if _action(s) == "actions/download-artifact"
-            ]
-            assert downloads == [{"name": "dist", "path": "dist/"}], (
-                f"{filename}:{job_id} must download the `dist` artifact into dist/: {downloads}"
-            )
-            gates = [
-                n
-                for n in _as_list(job.get("needs"))
-                if str(jobs.get(n, {}).get("uses", "")) == _CI_WORKFLOW_USES
-            ]
-            records = {f"${{{{ needs.{gate}.outputs.dist-sha256 }}}}" for gate in gates}
-            verified = [
-                s
-                for s in steps
-                if set((s.get("env") or {}).values()) & records
-                and "sha256sum --check --strict" in str(s.get("run", ""))
-            ]
-            assert verified, (
-                f"{filename}:{job_id} does not check the downloaded files against the "
-                "SHA-256 its ci.yml gate recorded"
-            )
-            for step in steps:
-                if _action(step) == "pypa/gh-action-pypi-publish":
-                    assert "packages-dir" not in (step.get("with") or {}), (
-                        f"{filename}:{job_id} uploads another directory than the verified dist/"
-                    )
-    assert found_any, "no publish job found; this check would be vacuous"
+    publishing = _publishing_jobs(all_workflows)
+    assert publishing, "no publish job found; this check would be vacuous"
+    for filename, job_id in publishing:
+        jobs = all_workflows[filename].get("jobs") or {}
+        job = jobs[job_id]
+        steps = job.get("steps") or []
+        downloads = [
+            s.get("with") or {} for s in steps if _action(s) == "actions/download-artifact"
+        ]
+        assert downloads == [{"name": "dist", "path": "dist/"}], (
+            f"{filename}:{job_id} must download the `dist` artifact into dist/: {downloads}"
+        )
+        gates = [
+            n
+            for n in _as_list(job.get("needs"))
+            if str(jobs.get(n, {}).get("uses", "")) == _CI_WORKFLOW_USES
+        ]
+        records = {f"${{{{ needs.{gate}.outputs.dist-sha256 }}}}" for gate in gates}
+        verified = [
+            s
+            for s in steps
+            if set((s.get("env") or {}).values()) & records
+            and "sha256sum --check --strict" in str(s.get("run", ""))
+        ]
+        assert verified, (
+            f"{filename}:{job_id} does not check the downloaded files against the "
+            "SHA-256 its ci.yml gate recorded"
+        )
+        for step in steps:
+            if _action(step) == "pypa/gh-action-pypi-publish":
+                assert "packages-dir" not in (step.get("with") or {}), (
+                    f"{filename}:{job_id} uploads another directory than the verified dist/"
+                )
 
 
 # ci.yml's `build` job, each action's `@<ref>` dropped
@@ -1165,14 +1312,8 @@ def test_the_release_workflow_runs_only_on_a_published_release(
     assert _triggers(all_workflows["publish-pypi.yml"]) == {"release": {"types": ["published"]}}
 
 
-def _grants_id_token(permissions: object) -> bool:
-    if permissions == "write-all":
-        return True
-    return isinstance(permissions, dict) and str(permissions.get("id-token")) == "write"
-
-
 def test_only_the_publish_job_holds_the_oidc_token_or_the_token_list(
-    all_workflows: dict[str, dict], workflow_dir: pathlib.Path
+    all_workflows: dict[str, dict],
 ) -> None:
     """The publishing credential and the token list each reach only their pinned jobs.
 
@@ -1192,23 +1333,12 @@ def test_only_the_publish_job_holds_the_oidc_token_or_the_token_list(
     ``publish-pypi.yml`` and its ``pypi`` environment, so a token minted in
     those jobs cannot publish; the set stays explicit all the same.
     """
-    azure_login_holders = {
-        "sigantry-cd.yml::deploy",
-        "sigantry-cd.yml::integration",
-        "sigantry-cd.yml::promote",
-        "drift-check.yml::drift_check",
-    }
-    holders = []
-    for filename, workflow in all_workflows.items():
-        if _grants_id_token(workflow.get("permissions")):
-            holders.append(f"{filename}::<workflow>")
-        for job_id, job in (workflow.get("jobs") or {}).items():
-            if _grants_id_token(job.get("permissions")):
-                holders.append(f"{filename}::{job_id}")
-    assert set(holders) == {"publish-pypi.yml::publish", *azure_login_holders}, (
-        f"only the publish job and the azure/login jobs may request an OIDC token: {holders}"
+    holders = _id_token_holders(all_workflows)
+    assert holders == {"publish-pypi.yml::publish", *_AZURE_LOGIN_HOLDERS}, (
+        f"only the publish job and the azure/login jobs may request an OIDC token: "
+        f"{sorted(holders)}"
     )
-    for holder in azure_login_holders:
+    for holder in sorted(_AZURE_LOGIN_HOLDERS):
         filename, job_id = holder.split("::")
         workflow = all_workflows[filename]
         assert "release" not in _triggers(workflow), f"{filename} must not run on a release"
@@ -1230,177 +1360,196 @@ def test_only_the_publish_job_holds_the_oidc_token_or_the_token_list(
         )
     quality = all_workflows["publish-pypi.yml"]["jobs"]["quality"]
     assert "secrets" not in quality, "the build half must not be handed secrets"
-    assert "secrets." not in (workflow_dir / "ci.yml").read_text(encoding="utf-8"), (
+    assert _context_uses(all_workflows["ci.yml"], "secrets") == (set(), []), (
         "ci.yml is the build half of a release and must reference no secret"
     )
-    readers = {
-        path.name: path.read_text(encoding="utf-8").count("secrets.NAME_GATE_TOKENS")
-        for path in sorted(workflow_dir.glob("*.y*ml"))
-    }
-    assert {name: n for name, n in readers.items() if n} == {
-        "name-gate.yml": 1,
-        "publish-pypi.yml": 1,
-    }, f"the token list reaches a job that is not pinned: {readers}"
-
-
-# GitHub's rule for a job id: a letter or `_`, then letters, digits, `-` or `_`.
-_PUBLISH_GATE_KEY_RE = re.compile(r"[^:/]+\.ya?ml::[A-Za-z_][A-Za-z0-9_-]*")
-
-
-def _assert_exemptions_name_real_publish_jobs(
-    exempt: dict[str, tuple[str, str]], workflows: dict[str, dict], where: str
-) -> None:
-    for key in exempt:
-        assert _PUBLISH_GATE_KEY_RE.fullmatch(key), (
-            f"{where} key {key!r} must be '<workflow>.yml::<job-id>'. A filename "
-            "alone excuses every publish job in that file, now and later, and "
-            "any other shape matches no job at all."
-        )
-        filename, _, job_id = key.partition("::")
-        assert filename in workflows, f"{where} names a workflow that does not exist: {filename}"
-        assert job_id in _publish_jobs(workflows[filename]), (
-            f"{where} excuses {key!r}, which no longer publishes "
-            "anything -- the carve-out is dead weight."
-        )
-
-
-def test_publish_gate_exemptions_name_real_publish_jobs(
-    all_workflows: dict[str, dict],
-) -> None:
-    """A carve-out must still name a job that really publishes."""
-    _assert_exemptions_name_real_publish_jobs(
-        _PUBLISH_GATE_EXEMPT, all_workflows, "_PUBLISH_GATE_EXEMPT"
+    # Per job, through the same case-insensitive scan as the allow-list: a
+    # text count of `secrets.NAME_GATE_TOKENS` missed `Secrets.name_gate_tokens`.
+    readers = []
+    for filename, workflow in all_workflows.items():
+        top = {k: v for k, v in workflow.items() if k != "jobs"}
+        if "NAME_GATE_TOKENS" in _context_uses(top, "secrets")[0]:
+            readers.append(f"{filename}::<workflow>")
+        for job_id, job in (workflow.get("jobs") or {}).items():
+            if "NAME_GATE_TOKENS" in _context_uses(job, "secrets")[0]:
+                readers.append(f"{filename}::{job_id}")
+    assert sorted(readers) == ["name-gate.yml::name-gate", "publish-pypi.yml::publish"], (
+        f"the token list reaches a job that is not pinned: {readers}"
     )
 
 
-def test_exemption_check_rejects_a_stale_carve_out() -> None:
-    """The check above loops over a map that is empty today; exercise it directly."""
-    workflows = {
-        "pub.yml": {"jobs": {"up": {"steps": [{"run": "python -m twine upload dist/*"}]}}},
-        "quiet.yml": {"jobs": {"lint": {"steps": [{"run": "ruff check ."}]}}},
-    }
+def _expressions(text: str) -> list[str]:
+    """Every ``${{ ... }}`` in ``text``, ending at the first ``}}`` outside a string.
 
-    def check(key: str) -> None:
-        _assert_exemptions_name_real_publish_jobs({key: ("r", "2099-01-01")}, workflows, "_TEST")
-
-    check("pub.yml::up")
-    # Each malformed shape fails on its format, not on a later check that
-    # happens to reject it with a message about something else.
-    for key in ("pub.yml", "pub.yml::", "pub.yml::up::extra", "pub.yml:::up", "::up"):
-        with pytest.raises(AssertionError, match=r"^_TEST key .* must be"):
-            check(key)
-    with pytest.raises(AssertionError, match=r"^_TEST names a workflow that does not exist"):
-        check("gone.yml::up")
-    with pytest.raises(AssertionError, match=r"^_TEST excuses .* no longer publishes"):
-        check("quiet.yml::lint")
-
-
-# One publish job that no ci.yml job gates: the carve-out alone decides its fate.
-_UNGATED_PUBLISH = {"pub.yml": {"jobs": {"up": {"steps": [{"run": "twine upload dist/*"}]}}}}
-_UNGATED = "does not depend on a job that runs ci.yml"
-
-
-def test_publish_gate_carve_out_excuses_the_exact_job() -> None:
-    """The gate's carve-out lookup runs although the live map is empty.
-
-    Without the key the scan fails, so the pass with it is the key's doing.
+    A regex that stops at the first ``}}`` ends early on ``format('{0}}}', ...)``
+    and never sees what follows. Expression strings are single-quoted, with
+    ``''`` for a quote. An expression left open runs to the end of the text, so
+    nothing after an unbalanced quote goes unread.
     """
-    with pytest.raises(AssertionError, match=_UNGATED):
-        _assert_publish_jobs_gated({}, _UNGATED_PUBLISH)
-    assert _assert_publish_jobs_gated({"pub.yml::up": ("r", "2099-01-01")}, _UNGATED_PUBLISH)
+    out = []
+    start = text.find("${{")
+    while start != -1:
+        i = start + 3
+        quoted = False
+        while i < len(text):
+            if text[i] == "'":
+                if quoted and text[i + 1 : i + 2] == "'":
+                    i += 2
+                    continue
+                quoted = not quoted
+            elif not quoted and text.startswith("}}", i):
+                break
+            i += 1
+        out.append(text[start + 3 : i])
+        start = text.find("${{", i + 2)
+    return out
+
+
+def _context_uses(node: object, context: str) -> tuple[set[str], list[str]]:
+    """The names read from ``context`` (``secrets`` or ``vars``), and every use naming none.
+
+    GitHub expressions are case-insensitive, so names are compared upper-cased.
+    Any reference other than ``<context>.<NAME>`` -- an index such as
+    ``secrets['X']``, ``toJSON(secrets)``, a computed index -- is reported as a
+    problem rather than parsed, as is ``secrets: inherit``, which hands a
+    called workflow every secret the caller can read. A property of another
+    context that happens to be called the same (``needs.secrets.result``) is
+    not the context.
+    """
+    word = re.compile(rf"(?<![\w.]){context}\b", re.I)
+    ref = re.compile(rf"{context}\.([A-Za-z_][A-Za-z0-9_]*)", re.I)
+    names: set[str] = set()
+    problems: list[str] = []
+
+    def scan(text: str, where: str) -> None:
+        for match in word.finditer(text):
+            found = ref.match(text, match.start())
+            if found:
+                names.add(found.group(1).upper())
+            else:
+                problems.append(f"{where}: {text.strip()!r}")
+
+    def walk(node: object, where: str, key: str = "") -> None:
+        if isinstance(node, dict):
+            for k, v in node.items():
+                if context == "secrets" and str(k).lower() == "secrets" and not isinstance(v, dict):
+                    problems.append(f"{where}.secrets: {v!r}")
+                walk(v, f"{where}.{k}", str(k))
+        elif isinstance(node, list):
+            for i, item in enumerate(node):
+                walk(item, f"{where}[{i}]", key)
+        elif isinstance(node, str):
+            for expression in _expressions(node):
+                scan(expression, where)
+            if key == "if" and "${{" not in node:
+                scan(node, where)
+
+    walk(node, "")
+    return names, problems
+
+
+def test_workflows_reference_only_allowed_secrets(all_workflows: dict[str, dict]) -> None:
+    """No workflow can reach a secret outside ``_ALLOWED_SECRETS``, or any variable.
+
+    With the OIDC holders pinned above, a secret is the only other way a job
+    gets a credential an index accepts, so this is what keeps the publishing
+    jobs the ones ``_publishing_jobs`` finds (issue #33). A repository
+    variable is not meant to hold a credential, but nothing stops one from
+    holding it, so variables are held to an allow-list too, and it is empty.
+    PyPI accepts this project only through trusted publishing from
+    publish-pypi.yml's ``pypi`` environment, whose reviewer approves each
+    upload; no API token exists.
+    """
+    seen: set[str] = set()
+    for filename, workflow in all_workflows.items():
+        for context, allowed in (("secrets", _ALLOWED_SECRETS), ("vars", _ALLOWED_VARS)):
+            names, problems = _context_uses(workflow, context)
+            assert not problems, (
+                f"{filename} reads {context} in a form this check cannot enumerate: "
+                f"{problems}. Reference each one as `{context}.<NAME>`."
+            )
+            extra = sorted(names - allowed)
+            assert not extra, (
+                f"{filename} references {context} {extra} outside the allow-list "
+                f"{sorted(allowed)}. Either can carry a publishing credential: add it "
+                "to the allow-list with what it is for, in a reviewed change."
+            )
+            if context == "secrets":
+                seen |= names
+    # The scan must see the references that are known to be there.
+    assert {"NAME_GATE_TOKENS", "GITHUB_TOKEN"} <= seen, (
+        f"the secret scan found {sorted(seen)}; it is not reading the workflows"
+    )
 
 
 @pytest.mark.parametrize(
-    "key",
-    ["pub.yml:up", "pub.yml::other", "pub.yml", "other.yml::up", "pub.yml::up::extra"],
-    ids=["single-colon", "other-job", "filename-only", "other-workflow", "extra-suffix"],
-)
-def test_publish_gate_carve_out_near_miss_excuses_nothing(key: str) -> None:
-    """A key that is not exactly ``<workflow>::<job-id>`` leaves the job gated."""
-    with pytest.raises(AssertionError, match=_UNGATED):
-        _assert_publish_jobs_gated({key: ("r", "2099-01-01")}, _UNGATED_PUBLISH)
-
-
-def _known_gap(reason: str) -> pytest.MarkDecorator:
-    # `raises=AssertionError`: a crash in the detector must not pass for the
-    # gap it is pinned as.
-    return pytest.mark.xfail(strict=True, raises=AssertionError, reason=reason)
-
-
-def _run(line: str) -> list[dict]:
-    return [{"run": line}]
-
-
-@pytest.mark.parametrize(
-    ("steps", "publishes"),
+    ("workflow", "names", "problem"),
     [
-        pytest.param(_run("twine upload dist/*"), True, id="twine"),
-        pytest.param(_run("python -m twine upload dist/*"), True, id="python-m-twine"),
-        pytest.param([{"uses": "pypa/gh-action-pypi-publish@v1"}], True, id="pypa-action"),
-        pytest.param(_run("bash scripts/release/publish-thing.sh"), True, id="repo-script"),
-        pytest.param(_run("twine check dist/*"), False, id="twine-check"),
-        pytest.param(_run("python -m build"), False, id="build"),
-        # Known gaps (issue #33). An ungated job spelled like this passes
-        # the gate; each would need its own arm, and arms do not converge.
+        pytest.param({"env": {"T": "${{ secrets.PYPI_TOKEN }}"}}, {"PYPI_TOKEN"}, False, id="env"),
         pytest.param(
-            _run("uv publish"),
-            True,
-            id="gap-uv-publish",
-            marks=_known_gap("uv is not a tool the scan knows"),
-        ),
-        pytest.param(
-            _run("python3.12 -m twine upload dist/*"),
-            True,
-            id="gap-versioned-python",
-            marks=_known_gap("only python and python3 are launchers"),
-        ),
-        pytest.param(
-            _run("sudo -E twine upload dist/*"),
-            True,
-            id="gap-wrapper",
-            marks=_known_gap("twine must be the first word"),
-        ),
-        pytest.param(
-            _run("bash -c 'twine upload dist/*'"),
-            True,
-            id="gap-inline-program",
-            marks=_known_gap("a -c program is one quoted word"),
-        ),
-        pytest.param(
-            [{"uses": "PyPA/gh-action-pypi-publish@v1"}],
-            True,
-            id="gap-action-case",
-            marks=_known_gap("the action match is case-sensitive"),
-        ),
-        pytest.param(
-            _run("./release.sh"),
-            True,
-            id="gap-script-outside-scripts",
-            marks=_known_gap("the script rule needs a scripts/ path"),
-        ),
-        pytest.param(
-            _run("make publish"),
-            True,
-            id="gap-make-target",
-            marks=_known_gap("a make target is not read"),
-        ),
-        pytest.param(
-            _run("python scripts/ci/check-release-notes.py"),
+            {"jobs": {"j": {"steps": [{"run": "x ${{ Secrets.pypi_token }} y"}]}}},
+            {"PYPI_TOKEN"},
             False,
-            id="gap-release-named-check",
-            marks=_known_gap("the script rule reads a name, not what the script runs"),
+            id="case",
+        ),
+        pytest.param({"jobs": {"j": {"secrets": "inherit"}}}, set(), True, id="inherit"),
+        pytest.param({"env": {"A": "${{ toJSON(secrets) }}"}}, set(), True, id="tojson"),
+        pytest.param({"env": {"A": "${{ secrets['PYPI_TOKEN'] }}"}}, set(), True, id="index"),
+        pytest.param(
+            {"jobs": {"j": {"steps": [{"if": "secrets.X != ''", "run": "true"}]}}},
+            {"X"},
+            False,
+            id="bare-if",
+        ),
+        pytest.param(
+            {"jobs": {"j": {"secrets": {"T": "${{ secrets.GITHUB_TOKEN }}"}}}},
+            {"GITHUB_TOKEN"},
+            False,
+            id="passed-explicitly",
+        ),
+        pytest.param(
+            {"jobs": {"j": {"steps": [{"run": "echo no secrets here"}]}}}, set(), False, id="prose"
+        ),
+        pytest.param(
+            {"env": {"A": "${{ format('{0}}}', secrets.PYPI_TOKEN) }}"}},
+            {"PYPI_TOKEN"},
+            False,
+            id="braces-in-a-string",
+        ),
+        pytest.param(
+            {"env": {"A": "${{ format('it''s }}', secrets.PYPI_TOKEN) }}"}},
+            {"PYPI_TOKEN"},
+            False,
+            id="escaped-quote",
+        ),
+        pytest.param(
+            {"env": {"A": "${{ format('{0}', 'x) }} ${{ secrets.PYPI_TOKEN }}"}},
+            {"PYPI_TOKEN"},
+            False,
+            id="unbalanced-quote",
+        ),
+        pytest.param(
+            {"jobs": {"j": {"if": "needs.secrets.result == 'success'"}}},
+            set(),
+            False,
+            id="property-named-secrets",
         ),
     ],
 )
-def test_publish_job_detection(steps: list[dict], publishes: bool) -> None:
-    """The mechanisms ``_publish_jobs`` sees, seen; its known gaps, pinned.
+def test_secret_scan_sees_every_reference_form(
+    workflow: dict, names: set[str], problem: bool
+) -> None:
+    """Each way to read the secrets context is either named or refused."""
+    found, problems = _context_uses(workflow, "secrets")
+    assert found == names
+    assert bool(problems) is problem, problems
 
-    No workflow in the repo publishes through a script any more, so without
-    the ``repo-script`` case the script branch would go untested. The gaps are
-    strict xfails, so closing one fails here until its docstring is updated.
-    """
-    workflow = {"jobs": {"j": {"steps": steps}}}
-    assert (_publish_jobs(workflow) == ["j"]) is publishes
+
+def test_variable_scan_sees_a_variable() -> None:
+    """``vars`` gets the same scan: a token in a variable is seen and named."""
+    workflow = {"jobs": {"j": {"steps": [{"run": "twine upload -p ${{ VARS.pypi_token }}"}]}}}
+    assert _context_uses(workflow, "vars") == ({"PYPI_TOKEN"}, [])
+    assert _context_uses({"env": {"A": "${{ toJSON(vars) }}"}}, "vars")[1]
 
 
 def test_ci_concurrency_group_does_not_cancel_the_release_gate(ci_workflow: dict) -> None:
