@@ -48,7 +48,11 @@ python -m pytest      # expect a non-zero test count, not just exit 0
 ```
 
 These are the same four commands CI runs; `scripts/` and `mypy` are not
-optional extras, they are required status checks on `main`.
+optional extras, they are required status checks on `main`. CI also runs
+`python scripts/ci/check-seeded-defects.py`, which plants a defect for each
+of the four and fails unless every one of them fails on it. If a change to
+`pyproject.toml` turns that check red, the change has switched a gate off.
+It takes a few minutes, as it runs the whole suite once more.
 
 To run the checks at commit time, `pre-commit install` once per clone. The
 mypy hook runs `mypy sigantry_core/ scripts/` with the `mypy` of the active

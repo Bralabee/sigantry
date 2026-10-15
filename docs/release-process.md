@@ -107,8 +107,8 @@ Run before opening the release PR:
 
 - Title: `Release vX.Y.Z`.
 - Body: CHANGELOG excerpt + migration notes for breaking changes.
-- Merge once every required check is green: CI, the `Name gate` and the
-  `review-record` status. Branch protection does not require an approving
+- Merge once every required check is green: CI (its `Seeded defects` job
+  included), the `Name gate` and the `review-record` status. Branch protection does not require an approving
   review count; the review record is the review gate.
 
 ## Tag + publish
