@@ -87,8 +87,14 @@ def test_sys_path_append_in_ipynb_exits_one(tmp_path: Path) -> None:
 
 
 def test_excluded_dirs_skipped(tmp_path: Path) -> None:
-    """A sys.path.append under .venv/ does NOT fail the scan."""
+    """A sys.path.append under .venv/ does NOT fail the scan.
+
+    A real file sits beside it: a tree whose only file is under .venv/ is a
+    scan that read nothing, and is refused
+    (``test_a_walk_that_finds_only_excluded_files_is_refused``).
+    """
     chk = _load_checker()
+    (tmp_path / "ok.py").write_text("x = 1\n", encoding="utf-8")
     venv_dir = tmp_path / ".venv"
     venv_dir.mkdir()
     (venv_dir / "bad.py").write_text("import sys\nsys.path.append('x')\n", encoding="utf-8")
@@ -264,7 +270,7 @@ def test_git_mode_is_actually_used_in_a_work_tree(tmp_path: Path) -> None:
     (tmp_path / "a.py").write_text("print('ok')\n", encoding="utf-8")
     tracked = chk._git_tracked_paths(tmp_path)
     assert tracked is not None
-    assert any(p.name == "a.py" for p, _walked in tracked)
+    assert any(p.name == "a.py" for p in tracked)
 
 
 def test_empty_git_inventory_refuses_to_report_clean(tmp_path: Path) -> None:
@@ -463,7 +469,9 @@ def test_a_file_that_cannot_be_read_is_refused(
 ) -> None:
     """An unreadable file was scored clean; it is now "could not evaluate"."""
     chk = _load_checker()
-    target = tmp_path / "locked.py"
+    # Resolved, as main() resolves its root: on a symlinked temp directory
+    # the unresolved path would never equal the one the guard reads.
+    target = (tmp_path / "locked.py").resolve()
     target.write_text(_BAD, encoding="utf-8")
     real = Path.read_text
 
@@ -473,7 +481,7 @@ def test_a_file_that_cannot_be_read_is_refused(
         return real(self, *args, **kwargs)  # type: ignore[arg-type]
 
     monkeypatch.setattr(Path, "read_text", read_text)
-    assert chk.main(str(tmp_path)) == 2
+    assert chk.main(str(tmp_path.resolve())) == 2
 
 
 def test_a_missing_git_is_reported_not_silent(
@@ -497,3 +505,78 @@ def test_a_filesystem_walk_reports_hits_in_a_stable_order(
     assert chk.main(str(tmp_path)) == 1
     names = [line.split(":", 1)[0] for line in capsys.readouterr().out.splitlines()[:3]]
     assert names == ["a.py", "b.py", "c.py"]
+
+
+def _submodule(outer: Path, rel: str) -> Path:
+    """A committed repository at ``outer/rel``, added to ``outer`` as a gitlink."""
+    sub = outer / rel
+    sub.mkdir(parents=True)
+    _git_init(sub)
+    (sub / "bad.py").write_text(_BAD, encoding="utf-8")
+    _git(sub, "add", "bad.py")
+    _git(sub, "-c", "commit.gpgsign=false", "commit", "-q", "--no-verify", "-m", "c")
+    _git(outer, "add", rel)
+    return sub
+
+
+def test_a_submodule_under_an_excluded_name_is_still_read(tmp_path: Path) -> None:
+    """``vendor/dist`` is where the submodule lives, not build output inside it."""
+    chk = _load_checker()
+    _git_init(tmp_path)
+    (tmp_path / "ok.py").write_text("x = 1\n", encoding="utf-8")
+    _submodule(tmp_path, "vendor/dist")
+    assert chk.main(str(tmp_path)) == 1
+
+
+def test_a_nested_repository_keeps_its_own_gitignore(tmp_path: Path) -> None:
+    """What the nested repository ignores is not its content, so it cannot fail the scan."""
+    chk = _load_checker()
+    _git_init(tmp_path)
+    (tmp_path / "ok.py").write_text("x = 1\n", encoding="utf-8")
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    _git_init(nested)
+    (nested / ".gitignore").write_text("scratch/\n", encoding="utf-8")
+    (nested / "fine.py").write_text("x = 1\n", encoding="utf-8")
+    (nested / "scratch").mkdir()
+    (nested / "scratch" / "probe.py").write_text(_BAD, encoding="utf-8")
+    assert chk.main(str(tmp_path)) == 0
+    (nested / "real.py").write_text(_BAD, encoding="utf-8")
+    assert chk.main(str(tmp_path)) == 1
+
+
+def test_a_symlink_to_a_directory_is_not_followed(tmp_path: Path) -> None:
+    """A link git lists to a directory outside the tree is not this repository's content."""
+    chk = _load_checker()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "bad.py").write_text(_BAD, encoding="utf-8")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git_init(repo)
+    (repo / "ok.py").write_text("x = 1\n", encoding="utf-8")
+    os.symlink(outside, repo / "link", target_is_directory=True)
+    assert chk.main(str(repo)) == 0
+    # Control: the same file inside the tree is caught.
+    (repo / "bad.py").write_text(_BAD, encoding="utf-8")
+    assert chk.main(str(repo)) == 1
+
+
+def test_a_walk_that_finds_only_excluded_files_is_refused(tmp_path: Path) -> None:
+    """The refusal counts what survives the excluded names, not what is on disk."""
+    chk = _load_checker()
+    (tmp_path / ".venv").mkdir()
+    (tmp_path / ".venv" / "x.py").write_text(_BAD, encoding="utf-8")
+    assert chk.main(str(tmp_path)) == 2
+
+
+def test_a_hit_in_a_file_whose_name_is_not_utf8_is_printed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The name's bytes are printed escaped; a strict stdout cannot encode a surrogate."""
+    chk = _load_checker()
+    odd = tmp_path / b"bad\xff.py".decode("utf-8", "surrogateescape")
+    monkeypatch.setattr(chk, "_iter_candidate_files", lambda root: iter([odd]))
+    monkeypatch.setattr(chk, "_check_py", lambda path: [(2, "sys.path.append('x')")])
+    assert chk.main(str(tmp_path)) == 1
+    assert "bad\\xff.py:2: sys.path.append('x')" in capsys.readouterr().out

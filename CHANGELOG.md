@@ -43,13 +43,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/ci/check-no-sys-path.py` no longer passes having read nothing, or
   having skipped what git lists (#14). A root that does not exist, a
   directory with no files outside git, and a file it cannot read now exit 2
-  ("could not evaluate"); a root that is one `.py` or `.ipynb` file scans
+  ("could not evaluate"), as does a walk that finds files only under the
+  excluded directories; a root that is one `.py` or `.ipynb` file scans
   that file. In a git work tree, a file git lists under `build/`, `dist/` or
   another excluded name is scanned (`.gitignore` has already removed build
-  output), and a submodule or nested repository is walked. A filename that
-  is not valid UTF-8 no longer crashes the scan, a fallback from git to a
-  filesystem walk prints why on stderr, and a walk reports hits in a stable
-  order. Only the guard's own "could not evaluate" error exits 2; any other
+  output), and a submodule or nested repository is read through its own git
+  inventory, so its own `.gitignore` holds. A symbolic link to a directory
+  is not followed. A filename that is not valid UTF-8 no longer crashes the
+  scan or the report, a fallback from git to a filesystem walk prints why on
+  stderr, and a walk reports hits in a stable order. Only the guard's own "could not evaluate" error exits 2; any other
   error keeps its traceback.
 
 ## [1.1.0] - 2026-10-15
