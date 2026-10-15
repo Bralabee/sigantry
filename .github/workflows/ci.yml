@@ -91,9 +91,9 @@ jobs:
   # A config line (a mypy override with ignore_errors, a ruff per-file
   # ignore of ALL, a format exclude, a pytest --deselect) switches a gate off
   # while its command stays the same (#47). The script copies the tree,
-  # plants one defect in every root each gate covers, runs each gate's
+  # plants one defect in every directory each gate covers, runs each gate's
   # command exactly as the steps above spell it, and passes only if every
-  # gate fails and names its defects.
+  # gate fails and reports each defect as a failure.
   seeded:
     name: Seeded defects
     runs-on: ubuntu-latest

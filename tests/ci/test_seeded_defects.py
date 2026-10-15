@@ -4,9 +4,9 @@ The script's end-to-end proof is its own CI job, which runs the real gates on
 a seeded copy of the tree, and the break arms recorded on the pull request
 that added it. These tests pin what that job cannot see about itself: that
 it runs on every pull request as a gate of the artifact build, that it reads
-the same steps the quality jobs run, that its seeds cover every root those
-jobs cover, and that its verdict fails a gate that passes or fails without
-naming its seed.
+the same steps the quality jobs run, that its seeds cover every directory
+those jobs cover, and that its verdict fails a gate that passes, or that fails
+without reporting each seed as a failure.
 """
 
 from __future__ import annotations

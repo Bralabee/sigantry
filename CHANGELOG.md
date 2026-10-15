@@ -12,15 +12,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - A `Seeded defects` CI job (#47), a required check that gates the artifact
   build. `scripts/ci/check-seeded-defects.py` copies the tracked tree, plants
-  one defect in every root each quality gate covers (an unused import, a
-  misformatted line, a return-type error, a failing test), and runs the
+  one defect in every directory each quality gate covers (an unused import,
+  a misformatted line, a return-type error, a failing test), and runs the
   `ruff check`, `ruff format --check`, `mypy` and `pytest` steps exactly as
   `ci.yml` spells them, against the copy's own configuration. It passes
-  only if every gate exits non-zero and names every defect planted for it.
-  A configuration line that switches a gate off while its command stays
-  the same now fails CI: a mypy override with `ignore_errors`, a ruff
-  per-file ignore of `ALL`, a format `exclude`, or a `--deselect` in pytest's
-  `addopts`.
+  only if every gate exits non-zero and reports every defect planted for it
+  as a failure. A configuration line that switches a gate off while its
+  command stays the same now fails CI, whether it covers a whole root or one
+  sub-package: a mypy override with `ignore_errors`, a ruff per-file ignore
+  of `ALL`, a format `exclude`, or a `--deselect` or `--ignore` in pytest's
+  `addopts`. Configuration that excludes a single existing file is not seen.
 
 ### Changed
 - The release gate finds publishing jobs by the credential they hold, not by
