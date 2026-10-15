@@ -12,10 +12,8 @@ naming its seed.
 from __future__ import annotations
 
 import importlib.util
-import os
 import pathlib
 import shutil
-import subprocess
 import sys
 from types import ModuleType
 
@@ -78,39 +76,106 @@ def test_each_gate_reads_a_step_the_quality_jobs_run(ci_workflow: dict, gate: ob
     assert cwd == "."
 
 
-def test_the_seeds_cover_every_root_the_gates_cover() -> None:
-    """A root a gate covers but the seeds miss could be switched off unseen."""
+def test_the_seeds_cover_every_directory_the_gates_cover() -> None:
+    """Every directory a gate covers gets a seed, so a sub-package switched off is seen.
+
+    The roots must match the ones the quality-gate tests pin, and on the real
+    tree every tracked source directory under them (every test directory, for
+    pytest) holds a seed.
+    """
     by_label = {g.label: g for g in seeded.GATES}
     assert set(by_label) == {"ruff check", "ruff format", "mypy", "pytest"}
-
-    def roots(label: str) -> set[str]:
-        return {name.split("/", 1)[0] for name in by_label[label].seeds}
-
     linted = {_norm_root(r) for r in _LINTED_ROOTS}
-    assert roots("ruff check") == linted
-    assert roots("ruff format") == linted
-    assert roots("mypy") == {_norm_root(r) for r in _TYPED_ROOTS}
+    assert set(by_label["ruff check"].roots) == linted
+    assert set(by_label["ruff format"].roots) == linted
+    assert set(by_label["mypy"].roots) == {_norm_root(r) for r in _TYPED_ROOTS}
+    tracked = seeded.tracked_files(REPO_ROOT)
+    for gate in seeded.GATES:
+        seeds = seeded.seeds_for(gate, tracked)
+        seeded_dirs = {str(pathlib.PurePosixPath(n).parent) for n in seeds}
+        covered = {
+            str(pathlib.PurePosixPath(n).parent)
+            for n in tracked
+            if n.split("/", 1)[0] in gate.roots and gate.covers(n)
+        }
+        assert covered, f"{gate.label}: no covered directory found; the scan is vacuous"
+        assert covered <= seeded_dirs, f"{gate.label}: unseeded {sorted(covered - seeded_dirs)}"
+        assert len({pathlib.PurePosixPath(n).name for n in seeds}) == len(seeds), (
+            f"{gate.label}: two seeds share a basename"
+        )
     # A seed that collides with a real file is refused by `plant` (exit 2), not
     # checked here: inside the seeded copy the seed exists by design.
+
+
+def test_seeds_for_names_each_seed_by_its_directory() -> None:
+    gate = next(g for g in seeded.GATES if g.label == "mypy")
+    seeds = seeded.seeds_for(
+        gate,
+        ["sigantry_core/a.py", "sigantry_core/sub-dir/b.py", "scripts/c.txt", "tests/test_x.py"],
+    )
+    assert sorted(seeds) == [
+        "scripts/_seeded_defect_types_scripts.py",
+        "sigantry_core/_seeded_defect_types_sigantry_core.py",
+        "sigantry_core/sub-dir/_seeded_defect_types_sigantry_core_sub_dir.py",
+    ]
+
+
+_A = "a/_seeded_defect_types_a.py"
+_B = "b/_seeded_defect_types_b.py"
+_MYPY_BOTH = (
+    f'{_A}:2: error: Incompatible return value type (got "str", expected "int")\n'
+    f'{_B}:2: error: Incompatible return value type (got "str", expected "int")\n'
+)
 
 
 @pytest.mark.parametrize(
     ("returncode", "output", "ok"),
     [
-        (1, "a/x.py:1 error\nb/x.py:2 error", True),
-        (0, "a/x.py:1 error\nb/x.py:2 error", False),
-        (1, "a/x.py:1 error", False),
+        (1, _MYPY_BOTH, True),
+        (0, _MYPY_BOTH, False),
+        (1, _MYPY_BOTH.splitlines()[0], False),
+        (2, f"{_A}: error: Duplicate module named\n{_B}: error: Duplicate module named", False),
         (2, "Traceback: the tool crashed", False),
     ],
-    ids=["failed-on-both", "exited-0", "one-seed-unreported", "crashed"],
+    ids=["failed-on-both", "exited-0", "one-seed-unreported", "named-but-not-reported", "crashed"],
 )
 def test_judge(returncode: int, output: str, ok: bool) -> None:
-    gate = seeded.Gate("t", "j", "s", {}, ("a/x.py", "b/x.py"))
-    assert (seeded.judge(gate, returncode, output) == []) is ok
+    gate = next(g for g in seeded.GATES if g.label == "mypy")
+    seeds = {_A: "", _B: ""}
+    assert (seeded.judge(gate, seeds, returncode, output) == []) is ok
+
+
+@pytest.mark.parametrize(
+    ("label", "line", "ok"),
+    [
+        (
+            "pytest",
+            "FAILED tests/x/test_seeded_defect_tests_x.py::test_seeded_defect - assert",
+            True,
+        ),
+        ("pytest", "SKIPPED tests/x/test_seeded_defect_tests_x.py::test_seeded_defect", False),
+        ("pytest", "XFAIL tests/x/test_seeded_defect_tests_x.py::test_seeded_defect", False),
+        ("ruff format", "Would reformat: tests/x/_seeded_defect_format_tests_x.py", True),
+        ("ruff format", "error: Failed to parse tests/x/_seeded_defect_format_tests_x.py", False),
+        (
+            "ruff check",
+            "F401 [*] `os` imported but unused\n --> tests/x/_seeded_defect_lint_tests_x.py:1:8",
+            True,
+        ),
+        ("ruff check", "tests/x/_seeded_defect_lint_tests_x.py:1:8: F401 [*] `os` imported", True),
+        ("ruff check", "E902 No such file\n --> tests/x/_seeded_defect_lint_tests_x.py:1:1", False),
+    ],
+)
+def test_each_gate_accepts_only_its_own_failure_report(label: str, line: str, ok: bool) -> None:
+    """The seed's path in the output is not enough; the tool must report it as a failure."""
+    gate = next(g for g in seeded.GATES if g.label == label)
+    seeds = seeded.seeds_for(gate, ["tests/x/test_a.py"])
+    seed = next(n for n in seeds if n.startswith("tests/x/"))
+    assert (seeded.judge(gate, {seed: ""}, 1, line) == []) is ok
 
 
 def test_command_for_refuses_what_it_cannot_run() -> None:
-    gate = seeded.Gate("mypy", "types", "Mypy", {}, ())
+    gate = next(g for g in seeded.GATES if g.label == "mypy")
 
     def workflow(**step: object) -> dict:
         return {"jobs": {"types": {"steps": [{"name": "Mypy", **step}]}}}
@@ -126,6 +191,16 @@ def test_command_for_refuses_what_it_cannot_run() -> None:
         workflow(),
         workflow(run="mypy ${{ inputs.roots }}"),
         workflow(run="mypy x/", env={"A": "${{ secrets.X }}"}),
+        workflow(run="mypy x/", shell="bash"),
+        {"defaults": {"run": {"working-directory": "x"}}, **workflow(run="mypy x/")},
+        {
+            "jobs": {
+                "types": {
+                    "defaults": {"run": {"shell": "sh"}},
+                    "steps": [{"name": "Mypy", "run": "m"}],
+                }
+            }
+        },
     ):
         with pytest.raises(seeded.SetupError):
             seeded.command_for(bad, gate)
@@ -151,18 +226,13 @@ def test_the_copy_holds_the_tracked_files_and_refuses_to_overwrite(tmp_path: pat
     src = tmp_path / "src"
     (src / "pkg").mkdir(parents=True)
     (src / "pkg" / "tracked.py").write_text("x = 1\n", encoding="utf-8")
-    env = {
-        **{k: v for k, v in os.environ.items() if not k.startswith("GIT_")},
-        "GIT_CONFIG_GLOBAL": os.devnull,
-        "GIT_CONFIG_NOSYSTEM": "1",
-    }
     for argv in (["init", "-q"], ["add", "pkg/tracked.py"]):
-        subprocess.run([git, *argv], cwd=src, env=env, check=True)
+        seeded._git(argv, src)
     (src / "pkg" / "tracked.py").write_text("x = 2\n", encoding="utf-8")
     (src / "pkg" / "untracked.py").write_text("y = 1\n", encoding="utf-8")
     dest = tmp_path / "dest"
     dest.mkdir()
-    seeded.copy_tree(src, dest)
+    seeded.copy_tree(src, dest, seeded.tracked_files(src))
     assert (dest / "pkg" / "tracked.py").read_text(encoding="utf-8") == "x = 2\n"
     assert not (dest / "pkg" / "untracked.py").exists()
     with pytest.raises(seeded.SetupError, match="already exists"):
