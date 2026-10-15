@@ -59,7 +59,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `templates/README.md`, the demo tree's own README and QUICKSTART, the two
   demo CI headers and `scripts/export-demo.py` no longer tell readers to
   clone, or an operator to create, a separate demo repository; the runbook's
-  secret-rotation commands take the repository you run the demo CI in.
+  secret-rotation and copy commands read the target repository and directory
+  from variables, and refuse to run while one they need is unset.
 - Links from the starter and demo scaffolds to this repository's ADRs and
   PR-bot runbook use GitHub URLs (#17). The relative links pointed outside the
   scaffold, so they broke in every copy. A test now refuses a relative link
@@ -74,9 +75,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reads `pyproject.toml`, `environment.yml`, `README.md` and
   `CONTRIBUTING.md`, and its docstring describes the inventory it reads (#17).
   A new test checks every `pip install` of sigantry and every versioned
-  sigantry requirement in `docs/`, `README.md` and `CONTRIBUTING.md`: the
-  name must be `sigantry`, unpinned or pinned `>=1.N,<2` (the four ADRs that
-  quote the old instructions as history are exempt).
+  sigantry requirement in the Markdown under `docs/` and `templates/`, and in
+  `README.md` and `CONTRIBUTING.md` (a backslash-continued command is read
+  as one line): the name must be `sigantry`, unpinned or pinned
+  `>=1.N,<2` (the four ADRs that quote the old instructions as history are
+  exempt).
 
 ## [1.1.0] - 2026-10-15
 

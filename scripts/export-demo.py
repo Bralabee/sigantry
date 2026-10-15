@@ -362,27 +362,26 @@ def export_dry_run(repo_root: Path) -> int:
 
 
 def export_live_to_github(demo_dir: Path, target: str) -> None:
-    """Live mirror to a sibling GitHub repo (operator-only).
+    """Live copy to a GitHub repo (operator-only).
 
-    Per CONTEXT.md D-01 the live mirror is forbidden inside CI -- the
-    operator runs the mirror procedure documented in
-    ``.planning/phases/15-public-demo-environment/15-HUMAN-UAT.md``
-    Test 1.
+    Per CONTEXT.md D-01 sigantry CI never creates or pushes a repository.
+    The demo is not provisioned as its own repository; an operator copies
+    the tree by hand, per section 4 of docs/runbooks/demo-tenant-operator.md.
     """
     raise NotImplementedError(
-        "Live mirror is operator-only per CONTEXT D-01. "
-        "See .planning/phases/15-public-demo-environment/15-HUMAN-UAT.md "
-        f"Test 1 for the documented procedure (target was {target!r}). "
+        "Copying the demo to a repository is operator-only per CONTEXT D-01. "
+        "See section 4 of docs/runbooks/demo-tenant-operator.md "
+        f"(target was {target!r}). "
         f"demo_dir={demo_dir}"
     )
 
 
 def export_live_to_ado(demo_dir: Path, target_org: str, target_project: str | None) -> None:
-    """Live mirror to an ADO project (operator-only)."""
+    """Live copy to an ADO project (operator-only)."""
     raise NotImplementedError(
-        "Live mirror is operator-only per CONTEXT D-01. "
-        "See .planning/phases/15-public-demo-environment/15-HUMAN-UAT.md "
-        f"Test 1 for the documented procedure (target_org={target_org!r}, "
+        "Copying the demo to a repository is operator-only per CONTEXT D-01. "
+        "See section 4 of docs/runbooks/demo-tenant-operator.md "
+        f"(target_org={target_org!r}, "
         f"target_project={target_project!r}). demo_dir={demo_dir}"
     )
 
@@ -416,8 +415,8 @@ def main(argv: list[str] | None = None) -> int:
         type=str,
         default=None,
         help=(
-            "Target GitHub repo (e.g. 'my-org/my-demo') for a live "
-            "mirror. OPERATOR-ONLY -- raises NotImplementedError inside CI."
+            "Target GitHub repo (e.g. 'my-org/my-demo') for a live copy. "
+            "OPERATOR-ONLY -- raises NotImplementedError inside CI."
         ),
     )
     parser.add_argument(
@@ -425,8 +424,7 @@ def main(argv: list[str] | None = None) -> int:
         type=str,
         default=None,
         help=(
-            "Target ADO org for the live mirror. OPERATOR-ONLY -- raises "
-            "NotImplementedError inside CI."
+            "Target ADO org for a live copy. OPERATOR-ONLY -- raises NotImplementedError inside CI."
         ),
     )
     parser.add_argument(
@@ -442,7 +440,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Live-mode flags trip NotImplementedError BEFORE the dry-run path so
     # an operator who mistakenly leaves --target-github set in CI gets a
-    # non-zero exit + a clear pointer to 15-HUMAN-UAT.md.
+    # non-zero exit + a pointer to the operator runbook.
     if args.target_github is not None:
         try:
             export_live_to_github(demo, args.target_github)

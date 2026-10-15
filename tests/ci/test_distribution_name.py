@@ -33,6 +33,8 @@ import pathlib
 import re
 import tomllib
 
+from .test_docs_install_lines import _logical_lines
+
 # The distribution name that does not exist on PyPI, in the spellings that
 # are never the import name: any case, ``-`` or ``.`` as separator.
 _DEAD_DIST = re.compile(r"sigantry[-.]core", re.IGNORECASE)
@@ -72,6 +74,7 @@ _SHIPPED_FILES: frozenset[str] = frozenset(
 # is a breaking change for any consumer pipeline that downloads the artifact
 # by name, so it needs a deprecation window rather than a find-and-replace.
 _ALLOWED_TOKENS: tuple[str, ...] = ("sigantry-core-wheel",)
+_ALLOWED_RE = re.compile("|".join(map(re.escape, _ALLOWED_TOKENS)), re.IGNORECASE)
 
 
 def _is_shipped(rel: str) -> bool:
@@ -79,9 +82,7 @@ def _is_shipped(rel: str) -> bool:
 
 
 def _strip_allowed(text: str) -> str:
-    for token in _ALLOWED_TOKENS:
-        text = text.replace(token, "")
-    return text
+    return _ALLOWED_RE.sub("", text)
 
 
 def _names_dead_dist(line: str) -> bool:
@@ -116,7 +117,7 @@ def test_shipped_surface_does_not_reference_the_dead_distribution(
         except (OSError, UnicodeDecodeError):
             continue
         scanned.add(rel)
-        for lineno, line in enumerate(text.splitlines(), 1):
+        for lineno, line in _logical_lines(text):
             if _names_dead_dist(line):
                 offenders.append(f"{rel}:{lineno}: {line.strip()}")
 
@@ -145,6 +146,7 @@ def test_the_dead_distribution_patterns_fire_and_spare_the_import_name() -> None
         '  "sigantry_core>=1.0,<2",',
         "sigantry_core==1.1.0",
         "sigantry_core[test] ~= 1.1",
+        " ".join(line for _, line in _logical_lines("pip install \\\n  sigantry_core\n")),
     ]
     spared = [
         "import sigantry_core",
@@ -155,6 +157,7 @@ def test_the_dead_distribution_patterns_fire_and_spare_the_import_name() -> None
         "pip install -e . && python -c 'import sigantry_core'",
         "pip install sigantry",
         "artifact: 'sigantry-core-wheel'",
+        "artifact: 'SIGANTRY-CORE-WHEEL'",
         "cp -r src/sigantry_core==old .",
     ]
     assert [line for line in caught if not _names_dead_dist(line)] == []

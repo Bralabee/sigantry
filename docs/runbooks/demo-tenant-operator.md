@@ -63,16 +63,19 @@ suspicion of leakage. Procedure:
 
 1. Generate a new SPN client secret in Entra ID.
 2. Update the GitHub Actions secret on the repo that runs the demo
-   CI (`$DEMO_REPO`, as `owner/name`):
+   CI. Set `DEMO_REPO` to it, as `owner/name`; the command refuses to
+   run while it is unset:
    ```bash
    gh secret set SIGANTRY_DEMO_FABRIC_TOKEN \
-     --repo "$DEMO_REPO" \
+     --repo "${DEMO_REPO:?set DEMO_REPO to owner/name}" \
      --body "<new-secret>"
    ```
-3. Update the `sigantry-demo-secrets` ADO variable group:
+3. Update the `sigantry-demo-secrets` ADO variable group (set
+   `ADO_ORG` and `DEMO_ADO_PROJECT` first):
    ```bash
    az pipelines variable-group variable update \
-     --org "$ADO_ORG" --project "$DEMO_ADO_PROJECT" \
+     --org "${ADO_ORG:?set ADO_ORG}" \
+     --project "${DEMO_ADO_PROJECT:?set DEMO_ADO_PROJECT}" \
      --group-id <id> --name SIGANTRY_DEMO_FABRIC_TOKEN \
      --value "<new-secret>" --secret true
    ```
@@ -109,15 +112,20 @@ Reference: [Microsoft Learn -- Lakehouse Git deployment limitations](https://lea
 The demo is `templates/demo/` in this repository. It is not
 provisioned as its own repository, and sigantry CI never creates one.
 To run the demo CI, copy the tree into a GitHub repo or ADO project you
-administer:
+administer. Run this from the root of the sigantry checkout, with
+`DEMO_DIR` set to a directory that does not exist yet (outside the
+checkout) and `DEMO_REMOTE_URL` to the empty repository you created.
+It is one chain, so it stops at the first step that fails, including
+an unset variable or an existing `DEMO_DIR`:
 
 ```bash
-python scripts/export-demo.py --dry-run                     # parity gate
-mkdir -p "$DEMO_DIR" && cp -r templates/demo/. "$DEMO_DIR"/
-cd "$DEMO_DIR" && git init -b main && git add . \
-  && git commit -m "Initial demo content"
-git remote add origin "$DEMO_REMOTE_URL"
-git push -u origin main
+python scripts/export-demo.py --dry-run \
+  && mkdir "${DEMO_DIR:?set DEMO_DIR to a new directory}" \
+  && cp -r templates/demo/. "$DEMO_DIR"/ \
+  && cd "$DEMO_DIR" && git init -b main && git add . \
+  && git commit -m "Initial demo content" \
+  && git remote add origin "${DEMO_REMOTE_URL:?set DEMO_REMOTE_URL}" \
+  && git push -u origin main
 ```
 
 Wire the four `SIGANTRY_DEMO_*` GitHub Actions secrets and the

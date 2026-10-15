@@ -2,7 +2,7 @@
 
 Two distinct audiences live under this directory. **Don't confuse them.**
 
-The dual-CI parity gate (`scripts/ci/check-dual-ci-parity.py` plus the per-phase `tests/ci/test_*_dual_ci.py` suites) and the export-mirror parity scripts (`scripts/export-{starter,demo}.py`) treat these two audiences differently. Anyone editing `templates/` should know which half they're in before they touch a file.
+The dual-CI parity gate (`scripts/ci/check-dual-ci-parity.py` plus the per-phase `tests/ci/test_*_dual_ci.py` suites) and the export parity scripts (`scripts/export-{starter,demo}.py`) treat these two audiences differently. Anyone editing `templates/` should know which half they're in before they touch a file.
 
 ## A. Consumer-deployable templates (operators fork these)
 
@@ -35,7 +35,7 @@ The dual-CI parity test gate (`tests/ci/test_starter_dual_ci.py`, `tests/ci/test
 
 ## Editing rules
 
-- **Edits inside `starter/` or `demo/` MUST keep `scripts/export-{starter,demo}.py --dry-run` green.** The script's parity invariants (PR-checklist fenced block byte-equality, paths-filter parity, sample-item parity) are the contract with the public mirror operator.
+- **Edits inside `starter/` or `demo/` MUST keep `scripts/export-{starter,demo}.py --dry-run` green.** The script's parity invariants (PR-checklist fenced block byte-equality, paths-filter parity, sample-item parity) are what keeps a copy of the scaffold working.
 - **Edits inside `stages/`, `schedules/` or `pr-review/` MUST keep `python scripts/ci/check-dual-ci-parity.py` green.** The lint pairs each ADO template in those three directories with the GitHub Actions workflow of the same basename under `.github/workflows/` and compares their stage graphs and parameter names and types; step bodies may differ. It does not read `jobs/`, `steps/`, `extends/` or `environments/`, so it says nothing about edits there. A parameter present on one side only needs a `sigantry-dual-ci-ignore:` reason in both files, and one such reason waives the extra-parameter check for the whole pair.
 - **Adding a new pair needs no registry edit:** the lint discovers pairs by basename, so give the ADO template (under `stages/`, `schedules/` or `pr-review/`) and the GitHub Actions workflow the same file name. Run `python scripts/ci/check-dual-ci-parity.py` for the current state.
 
@@ -44,6 +44,6 @@ The dual-CI parity test gate (`tests/ci/test_starter_dual_ci.py`, `tests/ci/test
 - [`../CONSUMING.md`](../docs/CONSUMING.md) -- operator entry point for the Python distribution + scaffolding
 - [`../docs/PRODUCT-BRIEF.md`](../docs/PRODUCT-BRIEF.md) -- product positioning, ICP
 - [`../docs/demo/QUICKSTART.md`](../docs/demo/QUICKSTART.md) -- demo walkthrough (the demo does not run end to end on the shipped demo tree yet)
-- [`../scripts/export-starter.py`](../scripts/export-starter.py) -- starter mirror parity gate (CI-side closure of STARTER-01)
-- [`../scripts/export-demo.py`](../scripts/export-demo.py) -- demo mirror parity gate (CI-side closure of DEMO-01)
+- [`../scripts/export-starter.py`](../scripts/export-starter.py) -- starter parity gate (CI-side closure of STARTER-01)
+- [`../scripts/export-demo.py`](../scripts/export-demo.py) -- demo parity gate (CI-side closure of DEMO-01)
 - [`../scripts/ci/check-dual-ci-parity.py`](../scripts/ci/check-dual-ci-parity.py) -- internal CI building-block parity registry (Plan 10-06)
