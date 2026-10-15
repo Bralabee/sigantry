@@ -5,7 +5,8 @@
 > Phase 15 / DEMO-02 closure (DEMO-03, the walkthrough video build, is
 > retired). This runbook is for the
 > operator who provisions the demo Fabric tenant, rotates demo
-> secrets, and maintains the public `demo-sigantry` repo. Outside reviewers do
+> secrets, and wires those secrets into the repository that runs the demo
+> CI (a copy of `templates/demo/`). Outside reviewers do
 > NOT need this runbook -- send them to
 > [docs/demo/QUICKSTART.md](../demo/QUICKSTART.md).
 
@@ -13,8 +14,8 @@
 
 - Sigantry maintainer with admin rights on the dedicated demo Fabric
   tenant
-- Sigantry maintainer with GitHub org admin + ADO Server admin on the
-  `sigantry` org
+- Admin on the GitHub repo or ADO project that holds the copy of
+  `templates/demo/` running the demo CI
 
 ## 1. Tenant provisioning (one-time)
 
@@ -61,17 +62,20 @@ Rotate `SIGANTRY_DEMO_FABRIC_TOKEN` every 90 days, or immediately on
 suspicion of leakage. Procedure:
 
 1. Generate a new SPN client secret in Entra ID.
-2. Update the GitHub Actions secret on the public `demo-sigantry`
-   repo:
+2. Update the GitHub Actions secret on the repo that runs the demo
+   CI. Set `DEMO_REPO` to it, as `owner/name`; the command refuses to
+   run while it is unset:
    ```bash
    gh secret set SIGANTRY_DEMO_FABRIC_TOKEN \
-     --repo sigantry/demo-sigantry \
+     --repo "${DEMO_REPO:?set DEMO_REPO to owner/name}" \
      --body "<new-secret>"
    ```
-3. Update the `sigantry-demo-secrets` ADO variable group:
+3. Update the `sigantry-demo-secrets` ADO variable group (set
+   `ADO_ORG` and `DEMO_ADO_PROJECT` first):
    ```bash
    az pipelines variable-group variable update \
-     --org "$ADO_ORG" --project demo-sigantry \
+     --org "${ADO_ORG:?set ADO_ORG}" \
+     --project "${DEMO_ADO_PROJECT:?set DEMO_ADO_PROJECT}" \
      --group-id <id> --name SIGANTRY_DEMO_FABRIC_TOKEN \
      --value "<new-secret>" --secret true
    ```
@@ -103,22 +107,25 @@ Implications for the demo:
 
 Reference: [Microsoft Learn -- Lakehouse Git deployment limitations](https://learn.microsoft.com/en-us/fabric/data-engineering/lakehouse-git-deployment-pipelines).
 
-## 4. Public-repo mirror procedure (Test 1)
+## 4. Where the demo lives
 
-The public mirror is planned but not provisioned yet. The full
-procedure lives in the maintainer's phase-15 operator checklist
-(Test 1), which is not part of the open-source tree. Summary:
+The demo is `templates/demo/` in this repository. It is not
+provisioned as its own repository, and sigantry CI never creates one.
+To run the demo CI, copy the tree into a GitHub repo or ADO project you
+administer. Run this from the root of the sigantry checkout, with
+`DEMO_DIR` set to a directory that does not exist yet (outside the
+checkout) and `DEMO_REMOTE_URL` to the empty repository you created.
+It is one chain, so it stops at the first step that fails, including
+an unset variable or an existing `DEMO_DIR`:
 
 ```bash
-python scripts/export-demo.py --dry-run                     # parity gate
-gh repo create sigantry/demo-sigantry --public \
-  --description "Sigantry demo (Phase 15 / DEMO-01)"
-mkdir -p /tmp/demo-sigantry && cp -r templates/demo/. /tmp/demo-sigantry/
-cd /tmp/demo-sigantry && git init -b main && git add . \
-  && git commit -m "Initial demo content (Phase 15 / DEMO-01)"
-git remote add origin git@github.com:sigantry/demo-sigantry.git
-git push -u origin main
-az devops project create --name demo-sigantry --org "$ADO_ORG" --visibility public
+python scripts/export-demo.py --dry-run \
+  && mkdir "${DEMO_DIR:?set DEMO_DIR to a new directory}" \
+  && cp -r templates/demo/. "$DEMO_DIR"/ \
+  && cd "$DEMO_DIR" && git init -b main && git add . \
+  && git commit -m "Initial demo content" \
+  && git remote add origin "${DEMO_REMOTE_URL:?set DEMO_REMOTE_URL}" \
+  && git push -u origin main
 ```
 
 Wire the four `SIGANTRY_DEMO_*` GitHub Actions secrets and the
@@ -168,19 +175,14 @@ and quarterly.
 ## 7. Trademark / clearance -- V3-RISK-1
 
 Per the phase-15 reviewed-todos record (maintainer-side, not in the
-open-source tree): trademark + domain + PyPI clearance for `Sigantry` / `demo-sigantry`
-was DEFERRED in v3.0. Operator runs the clearance check at Test 0 of that same checklist;
-if conflicts surface, defer Test 1 mirror until a v3.1 rename
-completes.
-
-The PRODUCT-BRIEF `## Demo` section's `<DEMO-URL>` placeholder
-remains until clearance closes AND Test 1 closure publishes the real
-URL. Treat the placeholder as a feature, not a bug, until then.
+open-source tree): trademark + domain clearance for `Sigantry` was
+DEFERRED in v3.0. Operator runs the clearance check at Test 0 of that
+same checklist.
 
 ## See also
 
 - [docs/demo/QUICKSTART.md](../demo/QUICKSTART.md) -- adopter-facing
   walkthrough.
 - The maintainer's phase-15 operator checklist -- its operator gates
-  (trademark, mirror, tenant and fresh-laptop reviewer). Held
+  (trademark, tenant and fresh-laptop reviewer). Held
   outside this repository; ask the maintainer.

@@ -321,7 +321,7 @@ pip install sigantry
 > pre-v1.0 plan reserved the bare name, and the open-source release
 > took it instead. On PyPI, `sigantry-core` holds only a yanked
 > placeholder release (0.0.1) that contains no code and keeps the name
-> reserved; `pip install sigantry-core` without a version skips yanked
+> reserved; asking pip for `sigantry-core` without a version skips yanked
 > releases and installs nothing. See
 > [ADR-0017](decisions/ADR-0017-distribution-name-sigantry.md).
 

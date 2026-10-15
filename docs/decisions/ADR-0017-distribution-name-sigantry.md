@@ -23,6 +23,13 @@ public:
 | PyPI simple index, `sigantry` | **200** — version 1.0.0, wheel + sdist, Apache-2.0 |
 | PyPI simple index, `sigantry-core` | **404** — no such distribution |
 
+> **Update, 2026-10-15.** The table records the state when this ADR was written. Since
+> 2026-10-04 the PyPI simple index returns **200** for `sigantry-core`: it holds one
+> release, 0.0.1, a placeholder with no code (its wheel carries only metadata), yanked
+> with the reason "Reserved name; install sigantry". This is the empty, yanked
+> reservation the Consequences section recommends. An unpinned `pip install
+> sigantry-core` skips yanked releases and installs nothing.
+
 No ADR recorded the change. The consequence was mechanical: documentation, templates and
 two of the project's own workflows kept telling readers to
 `pip install sigantry-core`, an instruction that has never worked against public PyPI,

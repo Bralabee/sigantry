@@ -98,7 +98,7 @@ Fabric, so dummy values work for the first pass.
    (DEV/PREPROD/PROD env mapping, promotion gates, hot-fix path).
 
 10. **Read the runbook**
-    [docs/runbooks/pr-bot-operator.md](../../docs/runbooks/pr-bot-operator.md)
+    [docs/runbooks/pr-bot-operator.md](https://github.com/Bralabee/sigantry/blob/main/docs/runbooks/pr-bot-operator.md)
     for the PR-bot lifecycle (auth, what triggers a comment, how to
     interpret a TMDL or Lakehouse-metadata diff).
 

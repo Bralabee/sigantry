@@ -6,8 +6,9 @@
 #
 # The demo does not run end to end on the shipped demo tree yet.
 #
-# Demo CI ADO half (Phase 15 / DEMO-02). Lands in the public demo-sigantry
-# ADO project via 15-HUMAN-UAT Test 1. Its steps are sigantry deploy run,
+# Demo CI ADO half (Phase 15 / DEMO-02). Runs in an ADO project you create
+# from a copy of templates/demo/; the demo is not provisioned as its own
+# repository. Its steps are sigantry deploy run,
 # sigantry release record and sigantry diff --fail-on-drift against the
 # demo tenant, with the SIGANTRY_DEMO_* secrets from the operator-managed
 # `sigantry-demo-secrets` variable group.

@@ -2,10 +2,9 @@
 
 > The demo does not run end to end on the shipped demo tree yet.
 >
-> This tree is the in-tree source-of-truth for the public
-> **demo-sigantry** repository (to be mirrored to GitHub + ADO by an
-> operator per `docs/runbooks/demo-tenant-operator.md` in the sigantry
-> repository; the mirror is planned but not provisioned).
+> This tree is the demo. It lives in the sigantry repository as
+> `templates/demo/` and is not provisioned as its own repository; to
+> run its CI, copy it into a GitHub repo or ADO project of your own.
 
 ## What this is
 
