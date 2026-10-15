@@ -12,12 +12,12 @@ operator.
 
 See also:
 
-- [`docs/decisions/ADR-0010-commercial-model.md`](../../docs/decisions/ADR-0010-commercial-model.md)
+- [ADR-0010](https://github.com/Bralabee/sigantry/blob/main/docs/decisions/ADR-0010-commercial-model.md)
   -- the Apache-2.0 + pure-OSS stance the deploy strategy assumes.
-- [`docs/decisions/ADR-0011-rename-to-sigantry.md`](../../docs/decisions/ADR-0011-rename-to-sigantry.md)
-  -- the rename to Sigantry.
-- ADR-0017 (`docs/decisions/ADR-0017-distribution-name-sigantry.md` in
-  the Sigantry repository) -- the PyPI distribution is `sigantry`, so pin
+- [ADR-0011](https://github.com/Bralabee/sigantry/blob/main/docs/decisions/ADR-0011-rename-to-sigantry.md)
+  -- the project rename to Sigantry; its distribution name is superseded
+  by ADR-0017.
+- [ADR-0017](https://github.com/Bralabee/sigantry/blob/main/docs/decisions/ADR-0017-distribution-name-sigantry.md) -- the PyPI distribution is `sigantry`, so pin
   `sigantry` in your `pyproject.toml`.
 
 ## Trunk-based development

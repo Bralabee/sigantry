@@ -5,9 +5,8 @@
 > The canonical quickstart for trying Sigantry against the
 > demo lives at `docs/demo/QUICKSTART.md` in the sigantry
 > monorepo (Plan 15-04 / DEMO-04). This file is the in-template
-> stub -- when an operator mirrors `templates/demo/` into the
-> public `demo-sigantry` repo, this file becomes the QUICKSTART
-> new visitors land on.
+> stub; it travels with any copy of `templates/demo/`. The demo is
+> not provisioned as its own repository.
 
 ## Try it
 
@@ -22,9 +21,8 @@ See the canonical version: <DOCS-URL-DEMO-QUICKSTART>
 
 ## Steps
 
-1. Clone this repo (`gh repo clone sigantry/demo-sigantry`) and `cd`
-   into it. The public mirror is planned but not provisioned yet; until
-   it is, work in a copy of `templates/demo/` from the sigantry monorepo.
+1. Copy `templates/demo/` out of the sigantry monorepo into a working
+   directory of your own and `cd` into it.
 2. Set environment variables:
    - `SIGANTRY_DEMO_TENANT_ID`
    - `SIGANTRY_DEMO_WORKSPACE_ID`

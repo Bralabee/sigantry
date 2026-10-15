@@ -53,6 +53,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scan or the report, a fallback from git to a filesystem walk prints why on
   stderr, and a walk reports hits in a stable order. Only the guard's own "could not evaluate" error exits 2; any other
   error keeps its traceback.
+- The demo documentation now says where the demo lives (#17): it is
+  `templates/demo/` in this repository, and it is not provisioned as its own
+  repository. The demo walkthrough, the operator runbook, the product brief,
+  `templates/README.md`, the demo tree's own README and QUICKSTART, the two
+  demo CI headers and `scripts/export-demo.py` no longer tell readers to
+  clone, or an operator to create, a separate demo repository; the runbook's
+  secret-rotation commands take the repository you run the demo CI in.
+- Links from the starter and demo scaffolds to this repository's ADRs and
+  PR-bot runbook use GitHub URLs (#17). The relative links pointed outside the
+  scaffold, so they broke in every copy. A test now refuses a relative link
+  in either scaffold that leaves it or points at nothing.
+- The ADO CI stage's publish job is labelled with the feed it uploads to,
+  `artifactsFeed`, instead of a fixed feed name (#17).
+- ADR-0017 carries a dated note that `sigantry-core` on PyPI now holds a
+  yanked, code-free 0.0.1 placeholder, where its table records a 404 (#17).
+- The distribution-name test catches `sigantry-core` in any case and with a
+  `.` separator, and `sigantry_core` where it is used as a distribution (a
+  `pip install` argument, or followed by a version specifier); it now also
+  reads `pyproject.toml`, `environment.yml`, `README.md` and
+  `CONTRIBUTING.md`, and its docstring describes the inventory it reads (#17).
+  A new test checks every `pip install` of sigantry and every versioned
+  sigantry requirement in `docs/`, `README.md` and `CONTRIBUTING.md`: the
+  name must be `sigantry`, unpinned or pinned `>=1.N,<2` (the four ADRs that
+  quote the old instructions as history are exempt).
 
 ## [1.1.0] - 2026-10-15
 

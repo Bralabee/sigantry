@@ -6,14 +6,14 @@ The dual-CI parity gate (`scripts/ci/check-dual-ci-parity.py` plus the per-phase
 
 ## A. Consumer-deployable templates (operators fork these)
 
-These are the source-of-truth for the public scaffolding repos. Operators **never instantiate them from this monorepo** -- they clone the public mirror.
+These are the starter and demo scaffolds. Neither is provisioned as its own repository: operators copy the subdirectory out of this repository (see [`../docs/CONSUMING.md`](../docs/CONSUMING.md)).
 
-| Subdir | Public mirror (planned) | Mirror parity tool |
+| Subdir | Own repository | Parity tool |
 |---|---|---|
-| `starter/` | `sigantry/sigantry-starter` (Phase 14 Test 1, operator-bound) | `python scripts/export-starter.py --dry-run` |
-| `demo/` | `sigantry/demo-sigantry` (Phase 15 Test 1, operator-bound) | `python scripts/export-demo.py --dry-run` |
+| `starter/` | not provisioned; copy `templates/starter/` | `python scripts/export-starter.py --dry-run` |
+| `demo/` | not provisioned; copy `templates/demo/` | `python scripts/export-demo.py --dry-run` |
 
-The export scripts are **parity gates**, not propagation tools. Live `--target-github` / `--target-ado-org` flags raise `NotImplementedError` deliberately -- mirror push is operator-driven per CONTEXT D-01..D-03 (`gh repo create` + initial mirror commit by an operator with org-admin permissions). See [`../CONSUMING.md`](../docs/CONSUMING.md) for the consumer-facing summary.
+The export scripts are **parity gates**, not propagation tools. Live `--target-github` / `--target-ado-org` flags raise `NotImplementedError` deliberately: sigantry CI never creates a repository. See [`../docs/CONSUMING.md`](../docs/CONSUMING.md) for the consumer-facing summary.
 
 ## B. Internal CI building blocks (NOT operator-deployable)
 

@@ -8,17 +8,16 @@ surface ships in two halves:
    captures every adopter-consumed file (parameters.yml, sync.yml,
    fabric_items/, README, docs, PR templates, workflow YAMLs).
    This is what CI ratifies.
-2. The **public** ``demo-sigantry`` GitHub repo + ADO project -- the
-   artefacts adopters actually click. Per CONTEXT.md D-01 these are
-   mirrored OUT-OF-BAND by an operator with the right org admin
-   permissions; sigantry CI never creates a sibling repo.
+2. A copy of that tree in a GitHub repo or ADO project, made
+   OUT-OF-BAND by whoever runs the demo. The demo is not provisioned
+   as its own repository; sigantry CI never creates a sibling repo.
 
 This script's CI-side guarantee is therefore PARITY, not propagation:
 
     python scripts/export-demo.py --dry-run
 
 walks ``templates/demo/`` and asserts the four parity invariants
-that make the operator's mirror step deterministic:
+that make a copy of the tree deterministic:
 
   Invariant 1 (inherited from starter):
     PR-checklist fenced block byte-identical across the 3 fence
@@ -417,7 +416,7 @@ def main(argv: list[str] | None = None) -> int:
         type=str,
         default=None,
         help=(
-            "Target GitHub repo (e.g. 'sigantry/demo-sigantry') for the live "
+            "Target GitHub repo (e.g. 'my-org/my-demo') for a live "
             "mirror. OPERATOR-ONLY -- raises NotImplementedError inside CI."
         ),
     )

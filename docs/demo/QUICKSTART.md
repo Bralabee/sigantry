@@ -7,7 +7,7 @@
 
 ## What you will do
 
-1. Get the demo repo
+1. Copy the demo tree
 2. Set 4 environment variables (the operator pre-provisions the demo tenant)
 3. Validate `parameters.yml`
 4. Run `sigantry sync apply` with the demo manifest
@@ -17,7 +17,7 @@
 ## Prerequisites
 
 - **Python 3.11 or 3.12** (`requires-python` is `>=3.11` with no upper bound; CI tests 3.11 and 3.12)
-- **gh CLI** for the clone (`gh --version`)
+- **A clone of this repository** (`Bralabee/sigantry`), for the demo tree
 - **A demo Fabric tenant** -- operator-provisioned per
   [docs/runbooks/demo-tenant-operator.md](../runbooks/demo-tenant-operator.md).
   Out-of-band setup gives you four values you will set as environment
@@ -38,20 +38,21 @@ Check the install with:
 sigantry --help
 ```
 
-## Step 1 -- Get the demo repo
+## Step 1 -- Copy the demo tree
+
+The demo is `templates/demo/` in the sigantry repository; it is not
+provisioned as its own repository. Copy it into a working directory
+of your own:
 
 ```bash
-gh repo clone sigantry/demo-sigantry
-cd demo-sigantry
+cp -r sigantry/templates/demo ./sigantry-demo
+cd sigantry-demo
 ```
 
-`templates/demo/` in the sigantry repository holds the demo repo's
-content: `parameters.yml`, `sync.yml`, `fabric_items/` (4 subdirs:
+The tree holds `parameters.yml`, `sync.yml`, `fabric_items/` (4 subdirs:
 `Sales.Lakehouse/`, `LoadOrders.Notebook/`,
 `RefreshOrdersDaily.DataPipeline/`, `OrdersAnalytics.SemanticModel/`),
 `.github/`, `.azuredevops/`, `docs/`, `_partials/` and `README.md`.
-The public mirror, `sigantry/demo-sigantry`, is planned but not
-provisioned yet; until it is, work in a copy of `templates/demo/`.
 
 ## Step 2 -- Set environment variables
 
@@ -117,8 +118,10 @@ in OneLake rather than Git, are outside it (see
 
 ## Step 6 -- Push a change for the demo CI
 
-Edit `fabric_items/LoadOrders.Notebook/notebook-content.py` (e.g.
-add a comment), then:
+Step 6 needs your copy to be a Git repository with a GitHub or ADO
+remote of your own. Edit
+`fabric_items/LoadOrders.Notebook/notebook-content.py` (e.g. add a
+comment), then:
 
 ```bash
 git checkout -b feature/demo-quickstart-touch
@@ -127,7 +130,7 @@ git commit -m "demo: add comment to LoadOrders notebook"
 git push -u origin feature/demo-quickstart-touch
 ```
 
-Open a PR against `main` on the demo-sigantry repo (GitHub or ADO) and
+Open a PR against `main` on that repository (GitHub or ADO) and
 merge it. The demo CI (`.github/workflows/sigantry-demo-ci.yml` or
 `.azuredevops/sigantry-demo-ci.yml`) has a push trigger on `main` for
 changes under `fabric_items/` or to `parameters.yml`. Its steps are for
