@@ -35,6 +35,12 @@ Files under ``templates/extends/`` are meta-templates (composition
 helpers, not user-facing features) and are skipped from pair discovery
 by design.
 
+Job and step templates (``templates/jobs/``, ``templates/steps/``) are
+outside this lint's model: their GitHub counterpart is a job inside a
+workflow, not a workflow file. That the ADO lint job's steps run, can fail
+and cover the same roots as ``.github/workflows/ci.yml``'s is checked by
+running them, in ``scripts/ci/check-seeded-defects.py`` (#22).
+
 Adding a third exception category requires an ADR per
 ``docs/reference/dual-ci-strategy.md``.
 

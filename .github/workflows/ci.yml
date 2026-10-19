@@ -93,7 +93,10 @@ jobs:
   # while its command stays the same (#47). The script copies the tree,
   # plants one defect in every directory each gate covers, runs each gate's
   # command exactly as the steps above spell it, and passes only if every
-  # gate fails and reports each defect as a failure.
+  # gate fails and reports each defect as a failure. It does the same for
+  # the ruff and mypy steps of the shipped ADO job template
+  # templates/jobs/lint-python.yml, run as Azure Pipelines runs a `script:`
+  # step (no errexit), with that template's default roots (#22).
   seeded:
     name: Seeded defects
     runs-on: ubuntu-latest
