@@ -133,17 +133,21 @@ def _build_provider(
     invalid combination of flags.
     """
     if provider_kind == "ado":
+        from sigantry_core._ado_organization import AdoOrganizationError
         from sigantry_core.workitems.ado import AdoWorkItemProvider
 
         if not ado_organization or not ado_project:
             raise typer.BadParameter(
                 "--ado-organization and --ado-project are required when --provider=ado."
             )
-        return AdoWorkItemProvider.from_defaults(
-            organization=ado_organization,
-            project=ado_project,
-            tenant_id=ado_tenant_id,
-        )
+        try:
+            return AdoWorkItemProvider.from_defaults(
+                organization=ado_organization,
+                project=ado_project,
+                tenant_id=ado_tenant_id,
+            )
+        except AdoOrganizationError as exc:
+            raise typer.BadParameter(str(exc), param_hint="--ado-organization") from exc
     if provider_kind == "github":
         from sigantry_core.workitems.github import GithubWorkItemProvider
 
@@ -203,7 +207,12 @@ def record_cmd(
         help="Override ~/.sigantry/audit/ (used in tests + CI).",
     ),
     ado_organization: str | None = typer.Option(
-        None, "--ado-organization", help="ADO organisation (required for --provider=ado)."
+        None,
+        "--ado-organization",
+        help=(
+            "ADO organisation name, or its collection URL such as "
+            "$(System.CollectionUri) (required for --provider=ado)."
+        ),
     ),
     ado_project: str | None = typer.Option(
         None, "--ado-project", help="ADO project (required for --provider=ado)."
