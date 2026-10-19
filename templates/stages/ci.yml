@@ -73,6 +73,14 @@ parameters:
   - name: itemTypes
     type: string
     default: 'Lakehouse,Environment,Notebook,DataPipeline'
+  # The pipeline artifact the build stage publishes the wheel under and the
+  # publish stage downloads; one parameter, so the two cannot disagree. The
+  # default keeps the 1.x name, which consumer pipelines may download by
+  # name; it is planned to change in 2.0. Keep it equal to the default in
+  # ../jobs/build-python.yml.
+  - name: wheelArtifactName
+    type: string
+    default: 'sigantry-core-wheel'
 
 stages:
   # --------------------------------------------------------------
@@ -162,6 +170,7 @@ stages:
       - template: ../jobs/build-python.yml
         parameters:
           pythonVersion: ${{ parameters.pythonVersion }}
+          wheelArtifactName: ${{ parameters.wheelArtifactName }}
 
   # --------------------------------------------------------------
   # Stage 4/4: publish (tag-gated).
@@ -182,7 +191,7 @@ stages:
           - task: DownloadPipelineArtifact@2
             displayName: 'Download wheel artifact'
             inputs:
-              artifact: 'sigantry-core-wheel'
+              artifact: ${{ parameters.wheelArtifactName }}
               path: 'dist'
           - task: TwineAuthenticate@1
             displayName: 'Authenticate twine to ADO Artifacts'

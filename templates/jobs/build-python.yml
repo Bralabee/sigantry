@@ -19,6 +19,9 @@ parameters:
   - name: pythonVersion
     type: string
     default: '3.11'
+  # The 1.x artifact name, kept because consumer pipelines may download it
+  # by name; planned to change in 2.0. ../stages/ci.yml declares the same
+  # default and passes it here.
   - name: wheelArtifactName
     type: string
     default: 'sigantry-core-wheel'

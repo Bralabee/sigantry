@@ -110,7 +110,7 @@ stages:
                     parametersPath: ${{ parameters.parametersPath }}
                     environment: ${{ parameters.environment }}
                     itemTypes: ${{ parameters.itemTypes }}
-                    fabricDataopsVersion: ${{ parameters.sigantryVersion }}
+                    sigantryVersion: ${{ parameters.sigantryVersion }}
 
   - stage: smoke
     displayName: 'Smoke'

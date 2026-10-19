@@ -28,6 +28,12 @@ parameters:
   - name: pythonVersion
     type: string
     default: '3.11'
+  # The sigantry version to install; empty installs the latest.
+  - name: sigantryVersion
+    type: string
+    default: ''
+  # Deprecated alias of sigantryVersion, read only when sigantryVersion is
+  # empty. Setting it logs a pipeline warning; planned for removal in 2.0.
   - name: fabricDataopsVersion
     type: string
     default: ''
@@ -44,15 +50,18 @@ steps:
       artifactFeeds: ${{ parameters.artifactsFeed }}
       onlyAddExtraIndex: true
 
+  - ${{ if ne(parameters.fabricDataopsVersion, '') }}:
+      - bash: echo "##vso[task.logissue type=warning]fabricDataopsVersion is deprecated and planned for removal in sigantry 2.0; set sigantryVersion instead. When both are set, sigantryVersion is used."
+        displayName: 'Warn: fabricDataopsVersion is deprecated'
+
   - script: |
       set -e
       python -m pip install --upgrade pip
-      if [ -n '${{ parameters.fabricDataopsVersion }}' ]; then
-        python -m pip install 'sigantry==${{ parameters.fabricDataopsVersion }}'
-      else
-        python -m pip install sigantry
-      fi
+      python -m pip install "sigantry${SIGANTRY_VERSION:+==$SIGANTRY_VERSION}"
     displayName: 'pip install sigantry'
+    # The version reaches bash through env (WR-05), never interpolated.
+    env:
+      SIGANTRY_VERSION: ${{ coalesce(parameters.sigantryVersion, parameters.fabricDataopsVersion) }}
 
   - task: AzureCLI@2
     displayName: 'sigantry variable-library update'

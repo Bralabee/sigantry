@@ -172,7 +172,8 @@ def test_ado_deploy_stage_forwards_the_pin_to_the_deploy_step_template() -> None
     doc = _load(ADO_CD)
     step = _ado_job_steps(_ado_stage(doc, "deploy"))[0]
     assert step["template"].endswith("steps/fabric-deploy.yml")
-    assert step["parameters"]["fabricDataopsVersion"] == "${{ parameters.sigantryVersion }}"
+    assert step["parameters"]["sigantryVersion"] == "${{ parameters.sigantryVersion }}"
+    assert "fabricDataopsVersion" not in step["parameters"], "pass the new name, not the alias"
 
 
 # ---------------------------------------------------------------------------
@@ -254,5 +255,51 @@ def test_ado_deploy_step_template_pins_through_env() -> None:
     doc = _load(ADO_DEPLOY_STEP)
     script = next(s for s in doc["steps"] if "script" in s)
     assert "${{" not in script["script"], "the version must not be interpolated (WR-05)"
-    assert script["env"]["SIGANTRY_VERSION"] == "${{ parameters.fabricDataopsVersion }}"
+    assert script["env"]["SIGANTRY_VERSION"] == _VERSION_WITH_ALIAS
     assert _INSTALL in script["script"]
+
+
+# ---------------------------------------------------------------------------
+# #17: `sigantryVersion` on every step template that installs sigantry, with
+# `fabricDataopsVersion` kept as a deprecated alias that warns when it is set.
+# ---------------------------------------------------------------------------
+
+_VERSION_WITH_ALIAS = "${{ coalesce(parameters.sigantryVersion, parameters.fabricDataopsVersion) }}"
+_ALIAS_SET = "${{ if ne(parameters.fabricDataopsVersion, '') }}"
+_VERSIONED_STEP_TEMPLATES = (
+    "fabric-deploy.yml",
+    "fabric-validate.yml",
+    "fabric-vl-apply.yml",
+    "fabric-git-commit.yml",
+)
+
+
+@pytest.mark.parametrize("name", _VERSIONED_STEP_TEMPLATES)
+def test_ado_step_template_takes_sigantry_version_and_the_deprecated_alias(name: str) -> None:
+    path = ADO_INSTALL.with_name(name)
+    doc = _load(path)
+    params = {p["name"]: p for p in doc["parameters"]}
+    for param in ("sigantryVersion", "fabricDataopsVersion"):
+        assert params[param]["type"] == "string" and params[param]["default"] == "", (name, param)
+
+    installs = [s for s in doc["steps"] if "pip install" in s.get("script", "")]
+    assert len(installs) == 1, f"{name}: one install step"
+    install = installs[0]
+    assert "${{" not in install["script"], f"{name}: the version must not be interpolated (WR-05)"
+    assert _INSTALL in install["script"], name
+    assert install["env"]["SIGANTRY_VERSION"] == _VERSION_WITH_ALIAS, (
+        f"{name}: sigantryVersion first, the alias only when it is empty"
+    )
+
+    warns = [s for s in doc["steps"] if _ALIAS_SET in s]
+    assert len(warns) == 1 and len(warns[0]) == 1, f"{name}: one warning, inserted only if set"
+    (warn,) = warns[0][_ALIAS_SET]
+    assert warn["bash"].startswith('echo "##vso[task.logissue type=warning]'), name
+    assert "fabricDataopsVersion" in warn["bash"] and "sigantryVersion" in warn["bash"], name
+    assert "${{" not in warn["bash"], f"{name}: no parameter is interpolated into the warning"
+    assert doc["steps"].index(warns[0]) < doc["steps"].index(install), f"{name}: warn first"
+
+    # Nothing else reads the old name: it is the alias inside the coalesce and
+    # the condition of the warning, and nowhere else.
+    text = path.read_text("utf-8")
+    assert text.count("parameters.fabricDataopsVersion") == 2, name
