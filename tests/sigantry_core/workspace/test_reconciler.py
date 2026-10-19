@@ -12,6 +12,9 @@ from sigantry_core.client import HttpResponse
 from sigantry_core.governance.audit import DestructiveOpError
 from sigantry_core.workspace.folders import Folder
 from sigantry_core.workspace.reconciler import (
+    KEPT_PRESERVED_FOLDER,
+    KEPT_UNMANAGED_TYPE,
+    KEPT_UNRESOLVED_FOLDER,
     PlannedFolderDelete,
     PlannedItemUnpublish,
     ReconcilePlan,
@@ -332,23 +335,40 @@ def test_plan_include_orphans_lists_stale_items_and_folders(tmp_path: Path) -> N
             ]
         ),
     ]
-    plan = plan_reconcile(client, "ws1", repository_directory=tmp_path, include_orphans=True)
+    plan = plan_reconcile(
+        client,
+        "ws1",
+        repository_directory=tmp_path,
+        include_orphans=True,
+        managed_item_types={"Notebook"},
+    )
     unpub = {(p.display_name, p.item_type) for p in plan.unpublish_items}
-    assert unpub == {("stale", "Notebook"), ("archived_lh", "Lakehouse")}
+    assert unpub == {("stale", "Notebook")}
+    # The Lakehouse is not a type the tree manages: kept, with the reason.
+    assert [(k.display_name, k.reason) for k in plan.kept_items] == [
+        ("archived_lh", KEPT_UNMANAGED_TYPE)
+    ]
     # Orphan folders sorted leaf-first: "archive/old" before "archive".
     assert [p.path for p in plan.delete_folders] == [("archive", "old"), ("archive",)]
     # "bronze" is referenced by the repo → NOT an orphan.
     assert ("bronze",) not in [p.path for p in plan.delete_folders]
 
 
-def test_plan_orphan_item_in_a_preserved_folder_is_still_listed_with_its_folder(
-    tmp_path: Path,
-) -> None:
-    """``folders[]`` keeps a FOLDER; it does not protect the items inside it.
+def _item(item_id: str, name: str, item_type: str, folder_id: str | None) -> dict:
+    return {
+        "id": item_id,
+        "displayName": name,
+        "type": item_type,
+        "workspaceId": "ws1",
+        "folderId": folder_id,
+    }
 
-    The plan must say so: the orphan stays in ``unpublish_items`` and carries the
-    path of the preserved folder it sits in, so whoever reads the dry run can see
-    what a ``--force`` run takes out of a folder they declared.
+
+def test_plan_orphan_item_in_a_preserved_folder_is_kept(tmp_path: Path) -> None:
+    """Issue #101: ``folders[]`` keeps a folder together with the items in it.
+
+    Before the fix the folder survived and the orphan item inside it was in
+    ``unpublish_items``, so a forced run emptied a folder the manifest declared.
     """
     _make_platform(tmp_path / "bronze" / "keep.Notebook", "keep", "Notebook")
     client = MagicMock()
@@ -361,20 +381,8 @@ def test_plan_orphan_item_in_a_preserved_folder_is_still_listed_with_its_folder(
         ),
         iter(
             [
-                {
-                    "id": "i_keep",
-                    "displayName": "keep",
-                    "type": "Notebook",
-                    "workspaceId": "ws1",
-                    "folderId": "fb",
-                },
-                {
-                    "id": "i_adhoc",
-                    "displayName": "Adhoc",
-                    "type": "Notebook",
-                    "workspaceId": "ws1",
-                    "folderId": "fk",
-                },
+                _item("i_keep", "keep", "Notebook", "fb"),
+                _item("i_adhoc", "Adhoc", "Notebook", "fk"),
             ]
         ),
     ]
@@ -384,10 +392,179 @@ def test_plan_orphan_item_in_a_preserved_folder_is_still_listed_with_its_folder(
         repository_directory=tmp_path,
         include_orphans=True,
         preserve_paths=["/keep-me"],
+        managed_item_types={"Notebook"},
     )
-    assert [p.path for p in plan.delete_folders] == []  # the folder is kept ...
-    (orphan,) = plan.unpublish_items  # ... the item in it is not
-    assert (orphan.display_name, orphan.current_folder_path) == ("Adhoc", ("keep-me",))
+    assert plan.delete_folders == []
+    assert plan.unpublish_items == []
+    (kept,) = plan.kept_items
+    assert (kept.display_name, kept.current_folder_path, kept.reason) == (
+        "Adhoc",
+        ("keep-me",),
+        KEPT_PRESERVED_FOLDER,
+    )
+
+
+def test_plan_orphan_whose_folder_is_not_listed_is_kept_when_folders_are_preserved(
+    tmp_path: Path,
+) -> None:
+    """An item whose folder id is not in the folder listing cannot be placed.
+
+    Read as the workspace root, it was deleted even when it sat in a preserved
+    folder (a folder created between the two listings, or one the listing
+    missed). With ``preserve_paths`` set it is kept; without, location does
+    not matter and it is deleted as before.
+    """
+    _make_platform(tmp_path / "bronze" / "keep.Notebook", "keep", "Notebook")
+
+    def listings() -> list:
+        return [
+            iter([{"id": "fb", "displayName": "bronze"}]),
+            iter(
+                [
+                    _item("i_keep", "keep", "Notebook", "fb"),
+                    _item("i_ghost", "Ghost", "Notebook", "f-unlisted"),
+                ]
+            ),
+        ]
+
+    client = MagicMock()
+    client.list_paginated.side_effect = listings()
+    plan = plan_reconcile(
+        client,
+        "ws1",
+        repository_directory=tmp_path,
+        include_orphans=True,
+        preserve_paths=["/keep-me"],
+        managed_item_types={"Notebook"},
+    )
+    assert plan.unpublish_items == []
+    assert [(k.display_name, k.reason) for k in plan.kept_items] == [
+        ("Ghost", KEPT_UNRESOLVED_FOLDER)
+    ]
+
+    client.list_paginated.side_effect = listings()
+    plan = plan_reconcile(
+        client,
+        "ws1",
+        repository_directory=tmp_path,
+        include_orphans=True,
+        managed_item_types={"Notebook"},
+    )
+    assert [p.display_name for p in plan.unpublish_items] == ["Ghost"]
+    assert plan.kept_items == []
+
+
+def test_plan_preserved_folder_keeps_its_whole_subtree(tmp_path: Path) -> None:
+    """A declared folder keeps what is below it: a subfolder holding an orphan
+    item, that item, and an empty subfolder. Nothing outside it is protected."""
+    client = MagicMock()
+    client.list_paginated.side_effect = [
+        iter(
+            [
+                {"id": "fk", "displayName": "keep-me"},
+                {"id": "fs", "displayName": "sub", "parentFolderId": "fk"},
+                {"id": "fe", "displayName": "empty", "parentFolderId": "fk"},
+                {"id": "fa", "displayName": "archive"},
+            ]
+        ),
+        iter(
+            [
+                _item("i_deep", "Deep", "Notebook", "fs"),
+                _item("i_old", "Old", "Notebook", "fa"),
+            ]
+        ),
+    ]
+    plan = plan_reconcile(
+        client,
+        "ws1",
+        repository_directory=tmp_path,
+        include_orphans=True,
+        preserve_paths=["keep-me/"],
+        managed_item_types={"Notebook"},
+    )
+    assert [(k.display_name, k.reason) for k in plan.kept_items] == [
+        ("Deep", KEPT_PRESERVED_FOLDER)
+    ]
+    assert [p.display_name for p in plan.unpublish_items] == ["Old"]
+    assert [p.path for p in plan.delete_folders] == [("archive",)]
+
+
+def test_plan_ancestor_of_a_preserved_folder_does_not_keep_its_other_items(
+    tmp_path: Path,
+) -> None:
+    """Declaring ``/raw/UI-Created`` keeps ``/raw`` as a folder only: an orphan
+    item sitting directly in ``/raw`` was never declared and is still listed."""
+    client = MagicMock()
+    client.list_paginated.side_effect = [
+        iter(
+            [
+                {"id": "fr", "displayName": "raw"},
+                {"id": "fui", "displayName": "UI-Created", "parentFolderId": "fr"},
+            ]
+        ),
+        iter([_item("i_loose", "Loose", "Notebook", "fr")]),
+    ]
+    plan = plan_reconcile(
+        client,
+        "ws1",
+        repository_directory=tmp_path,
+        include_orphans=True,
+        preserve_paths=["/raw/UI-Created"],
+        managed_item_types={"Notebook"},
+    )
+    assert [p.display_name for p in plan.unpublish_items] == ["Loose"]
+    assert plan.kept_items == []
+    assert plan.delete_folders == []
+
+
+def test_plan_unmanaged_type_is_kept_and_its_folders_survive(tmp_path: Path) -> None:
+    """Issue #102: an orphan of a type the tree cannot hold is kept, and so are
+    the folder it sits in and that folder's ancestors -- Fabric refuses to
+    delete a folder that is not empty. A managed orphan beside it still goes."""
+    client = MagicMock()
+    client.list_paginated.side_effect = [
+        iter(
+            [
+                {"id": "fa", "displayName": "a"},
+                {"id": "fo", "displayName": "old", "parentFolderId": "fa"},
+                {"id": "fx", "displayName": "x", "parentFolderId": "fa"},
+            ]
+        ),
+        iter(
+            [
+                _item("i_lh", "Sales", "Lakehouse", "fo"),
+                _item("i_wh", "Dw", "Warehouse", None),
+                _item("i_nb", "Stale", "Notebook", "fx"),
+            ]
+        ),
+    ]
+    plan = plan_reconcile(
+        client,
+        "ws1",
+        repository_directory=tmp_path,
+        include_orphans=True,
+        managed_item_types={"Notebook", "Report"},
+    )
+    assert {(k.display_name, k.current_folder_path, k.reason) for k in plan.kept_items} == {
+        ("Sales", ("a", "old"), KEPT_UNMANAGED_TYPE),
+        ("Dw", (), KEPT_UNMANAGED_TYPE),
+    }
+    assert [p.display_name for p in plan.unpublish_items] == ["Stale"]
+    # a/x empties and goes; a/old holds the Lakehouse, so it and a/ stay.
+    assert [p.path for p in plan.delete_folders] == [("a", "x")]
+
+
+def test_plan_without_managed_types_deletes_no_item(tmp_path: Path) -> None:
+    """The default names no managed type, so a caller that does not say which
+    types its tree holds deletes no item at all -- the fail-safe direction."""
+    client = MagicMock()
+    client.list_paginated.side_effect = [
+        iter([]),
+        iter([_item("i_nb", "Stale", "Notebook", None)]),
+    ]
+    plan = plan_reconcile(client, "ws1", repository_directory=tmp_path, include_orphans=True)
+    assert plan.unpublish_items == []
+    assert [k.display_name for k in plan.kept_items] == ["Stale"]
 
 
 def test_apply_orphans_requires_force_when_opted_in(tmp_path: Path) -> None:
@@ -498,6 +675,7 @@ def test_reconcile_folders_from_repo_dry_run_surfaces_orphans(tmp_path: Path) ->
         repository_directory=tmp_path,
         apply=False,
         unpublish_orphans=True,
+        managed_item_types={"Notebook"},
     )
     assert [p.display_name for p in report.plan.unpublish_items] == ["stale"]
     assert [p.path for p in report.plan.delete_folders] == [("archive",)]

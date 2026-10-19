@@ -88,6 +88,9 @@ from sigantry_core.sync.manifest import SyncItem, SyncManifest, load_manifest
 from sigantry_core.sync.packagers import PACKAGER_REGISTRY
 from sigantry_core.sync.snapshot import snapshot_workspace
 from sigantry_core.workspace.reconciler import (
+    KEPT_PRESERVED_FOLDER,
+    KEPT_UNMANAGED_TYPE,
+    KEPT_UNRESOLVED_FOLDER,
     ReconcilePlan,
     ReconcileReport,
     reconcile_folders_from_repo,
@@ -131,13 +134,35 @@ class SyncApplyReport:
     # dry run this is what WOULD be deleted, after a forced apply what WAS.
     orphan_items: tuple[str, ...] = ()
     orphan_folders: tuple[str, ...] = ()
+    # Items absent from the manifest that the cleanup keeps, each with the
+    # reason: a type sync cannot create, or a folder ``folders[]`` preserves.
+    kept_orphan_items: tuple[str, ...] = ()
+
+
+def _item_label(item_type: str, display_name: str, folder_path: tuple[str, ...]) -> str:
+    where = f" (in {'/'.join(folder_path)})" if folder_path else ""
+    return f"{item_type}: {display_name}{where}"
 
 
 def _orphan_items(plan: ReconcilePlan) -> tuple[str, ...]:
     return tuple(
-        f"{i.item_type}: {i.display_name}"
-        + (f" (in {'/'.join(i.current_folder_path)})" if i.current_folder_path else "")
+        _item_label(i.item_type, i.display_name, i.current_folder_path)
         for i in plan.unpublish_items
+    )
+
+
+_KEPT_REASON_TEXT = {
+    KEPT_UNMANAGED_TYPE: "sync cannot create this type",
+    KEPT_PRESERVED_FOLDER: "in a folder that folders[] preserves",
+    KEPT_UNRESOLVED_FOLDER: "its folder is not in the folder listing, so folders[] cannot be checked",
+}
+
+
+def _kept_orphan_items(plan: ReconcilePlan) -> tuple[str, ...]:
+    return tuple(
+        f"{_item_label(k.item_type, k.display_name, k.current_folder_path)}"
+        f" -- kept: {_KEPT_REASON_TEXT.get(k.reason, k.reason)}"
+        for k in plan.kept_items
     )
 
 
@@ -276,6 +301,9 @@ def _reconcile_phase(
                 force=force,
                 token_provider=token_provider,
                 preserve_paths=manifest.folders if manifest else None,
+                # Only a type sync can package can be in the staging tree, so
+                # only such a type can be an orphan of it (issue #102).
+                managed_item_types=frozenset(PACKAGER_REGISTRY),
             ),
         )
     except Exception as exc:
@@ -386,6 +414,7 @@ def _emit_combined_publish_record_phase(
         failed_item=publish_result.failed_item,
         orphan_items=_orphan_items(report.plan),
         orphan_folders=_orphan_folders(report.plan),
+        kept_orphan_items=_kept_orphan_items(report.plan),
     )
 
 
@@ -424,6 +453,7 @@ def _emit_default_record_phase(
         staging_dir=None,
         orphan_items=_orphan_items(report.plan),
         orphan_folders=_orphan_folders(report.plan),
+        kept_orphan_items=_kept_orphan_items(report.plan),
     )
 
 
@@ -650,11 +680,11 @@ def _refuse_unforced_orphan_cleanup(unpublish_orphans: bool, force: bool, dry_ru
     """
     if unpublish_orphans and not force and not dry_run:
         raise OrphanUnpublishNotForcedError(
-            "--unpublish-orphans deletes every workspace item and folder that "
-            "is absent from the manifest, items of every type included (a "
-            "Lakehouse or Warehouse is never in a manifest). Preview it with "
-            "--dry-run --unpublish-orphans, then re-run with --force to "
-            "confirm. Nothing was changed and no audit record was written."
+            "--unpublish-orphans deletes the workspace items and folders that "
+            "are absent from the manifest (items only of a type sync can "
+            "create, and none in a folder that folders[] preserves). Preview "
+            "it with --dry-run --unpublish-orphans, then re-run with --force "
+            "to confirm. Nothing was changed and no audit record was written."
         )
 
 
@@ -750,12 +780,15 @@ def apply_sync(
         closes it on exit.
     unpublish_orphans:
         Also delete workspace items and folders absent from the manifest.
-        Items of EVERY type go, including Lakehouses and Warehouses, which
-        the packagers never stage and so never appear in a manifest. Needs
-        ``force=True`` unless ``dry_run``; without it
+        Only an item of a type in ``PACKAGER_REGISTRY`` can be deleted: a
+        Lakehouse, Warehouse or any other type sync cannot create is kept.
+        So is every item in, or below, a folder listed in the manifest's
+        ``folders[]``, and a folder holding a kept item is not deleted.
+        Needs ``force=True`` unless ``dry_run``; without it
         :class:`OrphanUnpublishNotForcedError` is raised before the first
         request. ``SyncApplyReport.orphan_items`` / ``orphan_folders`` list
-        what a dry run would delete and what a forced apply deleted.
+        what a dry run would delete and what a forced apply deleted;
+        ``kept_orphan_items`` lists what it keeps, and why.
     force:
         Confirms ``unpublish_orphans``. Alone it enables nothing.
     token_provider:
@@ -952,6 +985,7 @@ def apply_sync(
                 staging_dir=None,
                 orphan_items=_orphan_items(report.plan),
                 orphan_folders=_orphan_folders(report.plan),
+                kept_orphan_items=_kept_orphan_items(report.plan),
             )
 
         # Step 8 (W4.2 _emit_*_phase): success -- emit DeployRecord + return.

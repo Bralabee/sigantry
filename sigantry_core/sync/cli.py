@@ -231,25 +231,34 @@ _console = Console()
 
 
 def _print_orphans(report: SyncApplyReport, *, would: bool) -> None:
-    """List the orphans a dry run would delete, or a forced apply deleted.
+    """List the orphans a dry run would delete, or a forced apply deleted,
+    then the orphans the cleanup keeps and why.
 
     Each name goes out as ``Text``: a display name is data, and an item named
     ``[bold]x[/bold]`` must not be read as Rich markup (issue #80).
     """
-    if not (report.orphan_items or report.orphan_folders):
-        return
-    verb = "would unpublish" if would else "unpublished"
-    _console.print(
-        Text.assemble(
-            (verb, "yellow"),
-            f" {len(report.orphan_items)} item(s) and delete "
-            f"{len(report.orphan_folders)} folder(s) absent from the manifest:",
+    if report.orphan_items or report.orphan_folders:
+        verb = "would unpublish" if would else "unpublished"
+        _console.print(
+            Text.assemble(
+                (verb, "yellow"),
+                f" {len(report.orphan_items)} item(s) and delete "
+                f"{len(report.orphan_folders)} folder(s) absent from the manifest:",
+            )
         )
-    )
-    for label in report.orphan_items:
-        _console.print(Text(f"  - {label}"))
-    for path in report.orphan_folders:
-        _console.print(Text(f"  - folder: {path}"))
+        for label in report.orphan_items:
+            _console.print(Text(f"  - {label}"))
+        for path in report.orphan_folders:
+            _console.print(Text(f"  - folder: {path}"))
+    if report.kept_orphan_items:
+        _console.print(
+            Text.assemble(
+                ("kept", "cyan"),
+                f" {len(report.kept_orphan_items)} item(s) absent from the manifest:",
+            )
+        )
+        for label in report.kept_orphan_items:
+            _console.print(Text(f"  - {label}"))
 
 
 @sync_app.command("apply")
@@ -319,12 +328,13 @@ def apply_cmd(
         "--unpublish-orphans",
         help=(
             "Delete workspace folders + items absent from the manifest. "
-            "DESTRUCTIVE: items of every type go, Lakehouses and "
-            "Warehouses included, and it needs --force (preview with "
-            "--dry-run). Folders listed in the manifest's `folders[]` "
-            "preservation set (plus their ancestors) are excluded from "
-            "deletion. Default off preserves SemVer-safe additive "
-            "behaviour. See docs/runbooks/sync/folder-preservation.md."
+            "DESTRUCTIVE, and it needs --force (preview with --dry-run). "
+            "Only items of a type sync can create are deleted; a "
+            "Lakehouse, Warehouse or other type is kept. Folders listed "
+            "in the manifest's `folders[]` preservation set keep their "
+            "contents, and their ancestors are kept too. Default off "
+            "preserves SemVer-safe additive behaviour. See "
+            "docs/runbooks/sync/folder-preservation.md."
         ),
     ),
     force: bool = typer.Option(
