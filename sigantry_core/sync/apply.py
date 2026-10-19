@@ -134,7 +134,11 @@ class SyncApplyReport:
 
 
 def _orphan_items(plan: ReconcilePlan) -> tuple[str, ...]:
-    return tuple(f"{i.item_type}: {i.display_name}" for i in plan.unpublish_items)
+    return tuple(
+        f"{i.item_type}: {i.display_name}"
+        + (f" (in {'/'.join(i.current_folder_path)})" if i.current_folder_path else "")
+        for i in plan.unpublish_items
+    )
 
 
 def _orphan_folders(plan: ReconcilePlan) -> tuple[str, ...]:

@@ -259,7 +259,7 @@ The manifest's top-level `folders` list is a preservation set. When `--unpublish
 
 **Schema reference:** [`reference/sync-schema.md`](reference/sync-schema.md) -- top-level `items[]` + `folders[]` shape, validation rules, folder-less item types (D-07 / SYNC-06).
 
-**Item types accepted:** Whatever `fabric_cicd.constants.ItemType` enumerates -- canonical PascalCase strings such as `Notebook`, `DataPipeline`, `SemanticModel`, `Report`, `SparkJobDefinition`, `Lakehouse`, `Warehouse`, `MLModel`, `MLExperiment`, `Eventstream`, `KQLDatabase`, `KQLQueryset`, `MirroredDatabase`. See `sigantry_core/sync/manifest.py`, which also holds the single folder-less type override (`Dataflow` -> `target_folder='/'`).
+**Item types accepted:** The manifest validator accepts whatever `fabric_cicd.constants.ItemType` enumerates -- canonical PascalCase strings such as `Notebook`, `DataPipeline`, `SemanticModel`, `Report`, `SparkJobDefinition`, `Lakehouse`, `Warehouse`, `MLModel`, `MLExperiment`, `Eventstream`, `KQLDatabase`, `KQLQueryset`, `MirroredDatabase`. `sync apply` packages only `Notebook`, `DataPipeline`, `SemanticModel`, `Report` and `SparkJobDefinition`; an item of any other type stops the run at packaging (`No packager registered for type ...`), so a Lakehouse or Warehouse cannot be carried by a manifest. See `sigantry_core/sync/manifest.py`, which also holds the single folder-less type override (`Dataflow` -> `target_folder='/'`).
 
 **Worked example** -- nine notebooks under an `Orders` folder:
 

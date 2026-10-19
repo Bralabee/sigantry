@@ -214,6 +214,7 @@ class PullDefinitionDecodeError(PullDefinitionFetchError):
 
 __all__ = (
     "ManifestValidationError",
+    "OrphanUnpublishNotForcedError",
     "PullDefinitionDecodeError",
     "PullDefinitionFetchError",
     "PullDefinitionPathTraversalError",

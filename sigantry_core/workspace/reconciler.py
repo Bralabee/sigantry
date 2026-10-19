@@ -82,6 +82,10 @@ class PlannedItemUnpublish:
     display_name: str
     item_type: str
     current_folder_id: str | None
+    # Where the item sits now; empty at the workspace root. A folder kept by the
+    # manifest's ``folders[]`` does not protect the items inside it, so an
+    # operator reading the plan needs to see which folder each one is in.
+    current_folder_path: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -291,6 +295,9 @@ def plan_reconcile(
                         display_name=it.display_name,
                         item_type=it.type,
                         current_folder_id=it.folder_id,
+                        current_folder_path=path_for_id.get(it.folder_id, ())
+                        if it.folder_id
+                        else (),
                     )
                 )
         # Orphan folders: existing paths that are neither required by the repo

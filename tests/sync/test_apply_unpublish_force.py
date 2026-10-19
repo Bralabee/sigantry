@@ -22,10 +22,11 @@ from typer.testing import CliRunner
 from sigantry_core.auth import TokenProvider
 from sigantry_core.auth.audiences import FABRIC_AUDIENCE
 from sigantry_core.client import FabricRestClient
+from sigantry_core.sync import apply as apply_mod
 from sigantry_core.sync import cli as sync_cli_mod
 from sigantry_core.sync.apply import SyncApplyReport, apply_sync
 from sigantry_core.sync.cli import sync_app
-from sigantry_core.sync.errors import SyncEngineError
+from sigantry_core.sync.errors import OrphanUnpublishNotForcedError, SyncEngineError
 from sigantry_core.workspace.reconciler import (
     PlannedFolderDelete,
     PlannedItemUnpublish,
@@ -192,6 +193,62 @@ def test_dry_run_needs_no_force_and_lists_what_would_be_deleted(tmp_path: Path) 
     assert list(audit_dir.iterdir()) == []
 
 
+def test_orphan_label_names_the_folder_the_item_sits_in(tmp_path: Path) -> None:
+    plan = ReconcilePlan(
+        workspace_id=WORKSPACE_ID,
+        unpublish_items=[
+            PlannedItemUnpublish(
+                item_id="i-nb",
+                display_name="Adhoc",
+                item_type="Notebook",
+                current_folder_id="f-keep",
+                current_folder_path=("curated", "keep"),
+            ),
+            PlannedItemUnpublish(
+                item_id="i-root",
+                display_name="Sales",
+                item_type="Lakehouse",
+                current_folder_id=None,
+            ),
+        ],
+    )
+
+    with respx.mock(base_url=FABRIC_AUDIENCE) as router:
+        _mock_workspace(router)
+        with _client() as client:
+            report = apply_sync(
+                manifest_path=_manifest(tmp_path),
+                workspace_id=WORKSPACE_ID,
+                client=client,
+                audit_dir=tmp_path,
+                dry_run=True,
+                unpublish_orphans=True,
+                _reconcile_fn=_recording_reconcile([], plan),
+            )
+
+    assert report.orphan_items == ("Notebook: Adhoc (in curated/keep)", "Lakehouse: Sales")
+
+
+def test_refusal_comes_before_a_client_or_a_staging_dir_exists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The guard sits above the client and the staging tempdir: a refused call leaks neither."""
+
+    def _must_not_run(*_a: object, **_k: object) -> None:
+        raise AssertionError("ran before the --force guard")
+
+    monkeypatch.setattr(apply_mod.tempfile, "mkdtemp", _must_not_run)
+    monkeypatch.setattr(FabricRestClient, "from_defaults", classmethod(_must_not_run))
+
+    with pytest.raises(OrphanUnpublishNotForcedError):
+        apply_sync(
+            manifest_path=_manifest(tmp_path),
+            workspace_id=WORKSPACE_ID,
+            audit_dir=tmp_path,
+            unpublish_orphans=True,
+        )
+
+
 def test_forced_apply_reports_the_orphans_it_removed(tmp_path: Path) -> None:
     audit_dir = tmp_path / "audit"
     audit_dir.mkdir()
@@ -272,6 +329,39 @@ def test_cli_passes_force_through(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert result.exit_code == 0, result.output
     assert seen["unpublish_orphans"] is True
     assert seen["force"] is True
+
+
+def test_cli_applied_run_prints_the_orphans_it_deleted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _bypass_preview_warning(monkeypatch)
+
+    def fake_apply(*_a: object, **_k: object) -> SyncApplyReport:
+        return SyncApplyReport(
+            workspace_id=WORKSPACE_ID,
+            manifest_path="sync.yml",
+            items_packaged=0,
+            folders_created=0,
+            items_moved=0,
+            deploy_record_release_id="sync-x",
+            outcome="succeeded",
+            failure_reason=None,
+            staging_dir=None,
+            orphan_items=("Lakehouse: Sales",),
+            orphan_folders=("raw/old",),
+        )
+
+    monkeypatch.setattr(sync_cli_mod, "apply_sync", fake_apply)
+
+    result = runner.invoke(
+        sync_app, _apply_args(_manifest(tmp_path), "--unpublish-orphans", "--force")
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "sync apply succeeded" in result.output
+    assert "unpublished" in result.output
+    assert "Lakehouse: Sales" in result.output
+    assert "raw/old" in result.output
 
 
 def test_cli_dry_run_prints_every_orphan_it_would_delete(

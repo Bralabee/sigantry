@@ -46,7 +46,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   deleted every workspace item absent from `sync.yml`, whatever its type: a
   Lakehouse or Warehouse is never in a manifest. `--dry-run` computed that
   list and printed none of it; it now names every item and folder it would
-  delete, and the applied run names those it deleted. A real run without
+  delete (and the folder each item is in: a `folders[]` entry keeps the
+  folder, not the items inside it), and a successful applied run names those
+  it deleted. A real run without
   `--force` exits 1 before the first request and writes no audit record
   (`apply_sync` raises `OrphanUnpublishNotForcedError`). A script that passes
   only `--unpublish-orphans` must add `--force`.
