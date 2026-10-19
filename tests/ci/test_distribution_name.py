@@ -73,6 +73,8 @@ _SHIPPED_FILES: frozenset[str] = frozenset(
 # Azure DevOps pipeline-artifact identifier, not a package name. Renaming it
 # is a breaking change for any consumer pipeline that downloads the artifact
 # by name, so it needs a deprecation window rather than a find-and-replace.
+# It stays the default of ``wheelArtifactName`` in templates/jobs/build-python.yml
+# and templates/stages/ci.yml until 2.0 (#17).
 _ALLOWED_TOKENS: tuple[str, ...] = ("sigantry-core-wheel",)
 _ALLOWED_RE = re.compile("|".join(map(re.escape, _ALLOWED_TOKENS)), re.IGNORECASE)
 
