@@ -41,7 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   switched off by default now fails CI. What that run does not model is
   pinned: `templates/jobs/lint-python.yml` whole, the `lint` stage and the
   `pytest` job of `templates/stages/ci.yml`, the stage's lint defaults equal
-  to the job's, and ruff and mypy in the `dev` extra the job installs.
+  to the job's, and ruff and mypy in the `dev` extra the job installs. The
+  seeded roots must equal the roots `ci.yml`'s ruff and mypy steps name, so
+  a root added to `ci.yml` must be added to the ADO defaults too.
 
 ### Changed
 - A `Review-Record:` comment counts for the `review-record` status only when

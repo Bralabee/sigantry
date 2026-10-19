@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import importlib.util
 import pathlib
+import shlex
 import shutil
 import sys
 from types import ModuleType
@@ -257,7 +258,12 @@ def test_each_ado_gate_reads_a_step_of_the_lint_job_template(
 
 
 def test_the_ado_gates_plant_what_the_github_gates_plant() -> None:
-    """Same seeds and reports over the same roots: a narrowed ADO default root fails the check."""
+    """Each ADO gate plants, over the same roots, exactly what its GitHub twin plants.
+
+    True by construction (ADO_GATES is derived from GATES); it pins that
+    derivation. That the ADO template's defaults reach those roots is shown by
+    running it, and that the roots are ci.yml's own by the test below.
+    """
     by_label = {g.label: g for g in seeded.GATES}
     assert {g.label for g in seeded.ADO_GATES} == {"ADO ruff check", "ADO ruff format", "ADO mypy"}
     tracked = seeded.tracked_files(REPO_ROOT)
@@ -340,3 +346,29 @@ def test_each_lane_runs_a_step_with_its_own_shell_semantics(tmp_path: pathlib.Pa
     assert rc(ado, "false\ntrue\n") == 0
     assert rc(ado, "true\nfalse\n") != 0
     assert rc(github, "false\ntrue\n") != 0
+
+
+@pytest.mark.parametrize(
+    "gate",
+    [g for g in seeded.GATES if g.label in {"ruff check", "ruff format", "mypy"}],
+    ids=lambda g: g.label,
+)
+def test_the_seeded_roots_are_exactly_the_roots_ci_yml_runs(
+    ci_workflow: dict, gate: object
+) -> None:
+    """A root added to ci.yml's command must be seeded, so the ADO default must follow it (#22).
+
+    The quality-gate tests require ci.yml to cover AT LEAST the pinned roots;
+    a widened ci.yml passes them. Here the roots are compared both ways, so a
+    widened ci.yml fails until the seeds widen, and the wider seeds then fail
+    the ADO lint job until its default roots widen too.
+    """
+    run, _env, _cwd = seeded.command_for(ci_workflow, gate)
+    words = gate.label.split()  # type: ignore[attr-defined]
+    argv = shlex.split(run)
+    assert argv[: len(words)] == words, f"{gate.label}: step runs {run!r}"  # type: ignore[attr-defined]
+    operands = {_norm_root(t) for t in argv[len(words) :] if not t.startswith("-")}
+    assert operands == set(gate.roots), (  # type: ignore[attr-defined]
+        f"{gate.label}: ci.yml runs it over {sorted(operands)}, "  # type: ignore[attr-defined]
+        f"the seeds cover {sorted(gate.roots)}"  # type: ignore[attr-defined]
+    )
