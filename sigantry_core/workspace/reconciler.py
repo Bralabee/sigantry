@@ -104,6 +104,10 @@ says nothing about whether the item is wanted."""
 KEPT_PRESERVED_FOLDER = "preserved-folder"
 """Kept: the item sits in, or below, a folder named in ``preserve_paths``."""
 
+KEPT_UNRESOLVED_FOLDER = "unresolved-folder"
+"""Kept: ``preserve_paths`` is set and the item's folder is not in the folder
+listing, so whether it sits in a preserved folder cannot be told."""
+
 
 @dataclass(frozen=True, slots=True)
 class KeptOrphanItem:
@@ -113,7 +117,7 @@ class KeptOrphanItem:
     display_name: str
     item_type: str
     current_folder_path: tuple[str, ...]
-    reason: str  # KEPT_UNMANAGED_TYPE or KEPT_PRESERVED_FOLDER
+    reason: str  # KEPT_UNMANAGED_TYPE, KEPT_PRESERVED_FOLDER or KEPT_UNRESOLVED_FOLDER
 
 
 @dataclass(frozen=True, slots=True)
@@ -355,6 +359,8 @@ def plan_reconcile(
             folder_path = path_for_id.get(it.folder_id, ()) if it.folder_id else ()
             if it.type not in managed:
                 reason: str | None = KEPT_UNMANAGED_TYPE
+            elif preserve_roots and it.folder_id and it.folder_id not in path_for_id:
+                reason = KEPT_UNRESOLVED_FOLDER
             elif _is_at_or_below(folder_path, preserve_roots):
                 reason = KEPT_PRESERVED_FOLDER
             else:

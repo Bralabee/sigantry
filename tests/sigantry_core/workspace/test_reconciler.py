@@ -14,6 +14,7 @@ from sigantry_core.workspace.folders import Folder
 from sigantry_core.workspace.reconciler import (
     KEPT_PRESERVED_FOLDER,
     KEPT_UNMANAGED_TYPE,
+    KEPT_UNRESOLVED_FOLDER,
     PlannedFolderDelete,
     PlannedItemUnpublish,
     ReconcilePlan,
@@ -401,6 +402,56 @@ def test_plan_orphan_item_in_a_preserved_folder_is_kept(tmp_path: Path) -> None:
         ("keep-me",),
         KEPT_PRESERVED_FOLDER,
     )
+
+
+def test_plan_orphan_whose_folder_is_not_listed_is_kept_when_folders_are_preserved(
+    tmp_path: Path,
+) -> None:
+    """An item whose folder id is not in the folder listing cannot be placed.
+
+    Read as the workspace root, it was deleted even when it sat in a preserved
+    folder (a folder created between the two listings, or one the listing
+    missed). With ``preserve_paths`` set it is kept; without, location does
+    not matter and it is deleted as before.
+    """
+    _make_platform(tmp_path / "bronze" / "keep.Notebook", "keep", "Notebook")
+
+    def listings() -> list:
+        return [
+            iter([{"id": "fb", "displayName": "bronze"}]),
+            iter(
+                [
+                    _item("i_keep", "keep", "Notebook", "fb"),
+                    _item("i_ghost", "Ghost", "Notebook", "f-unlisted"),
+                ]
+            ),
+        ]
+
+    client = MagicMock()
+    client.list_paginated.side_effect = listings()
+    plan = plan_reconcile(
+        client,
+        "ws1",
+        repository_directory=tmp_path,
+        include_orphans=True,
+        preserve_paths=["/keep-me"],
+        managed_item_types={"Notebook"},
+    )
+    assert plan.unpublish_items == []
+    assert [(k.display_name, k.reason) for k in plan.kept_items] == [
+        ("Ghost", KEPT_UNRESOLVED_FOLDER)
+    ]
+
+    client.list_paginated.side_effect = listings()
+    plan = plan_reconcile(
+        client,
+        "ws1",
+        repository_directory=tmp_path,
+        include_orphans=True,
+        managed_item_types={"Notebook"},
+    )
+    assert [p.display_name for p in plan.unpublish_items] == ["Ghost"]
+    assert plan.kept_items == []
 
 
 def test_plan_preserved_folder_keeps_its_whole_subtree(tmp_path: Path) -> None:

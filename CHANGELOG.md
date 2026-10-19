@@ -49,9 +49,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   folder with everything below it: its subfolders, empty or not, and the
   items in them. Its ancestors are still kept as folders, but an orphan item
   sitting directly in an ancestor is not protected. A folder that still holds
-  a kept item is not deleted, nor are its ancestors. The dry run and an
-  applied run list the kept items with the reason (`-- kept: sync cannot
-  create this type` or `-- kept: in a folder that folders[] preserves`), and
+  a kept item is not deleted, nor are its ancestors. When `folders[]` is set,
+  an item whose folder is not in the folder listing is kept too, since it
+  cannot be placed. The dry run and an applied run list the kept items with
+  the reason (`-- kept: sync cannot create this type`, `-- kept: in a folder
+  that folders[] preserves`, or `-- kept: its folder is not in the folder
+  listing, so folders[] cannot be checked`), and
   `SyncApplyReport.kept_orphan_items` carries them. In the library,
   `plan_reconcile` and `reconcile_folders_from_repo` take
   `managed_item_types`; the default names no type, so a caller that passes

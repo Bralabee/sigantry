@@ -90,6 +90,7 @@ from sigantry_core.sync.snapshot import snapshot_workspace
 from sigantry_core.workspace.reconciler import (
     KEPT_PRESERVED_FOLDER,
     KEPT_UNMANAGED_TYPE,
+    KEPT_UNRESOLVED_FOLDER,
     ReconcilePlan,
     ReconcileReport,
     reconcile_folders_from_repo,
@@ -153,6 +154,7 @@ def _orphan_items(plan: ReconcilePlan) -> tuple[str, ...]:
 _KEPT_REASON_TEXT = {
     KEPT_UNMANAGED_TYPE: "sync cannot create this type",
     KEPT_PRESERVED_FOLDER: "in a folder that folders[] preserves",
+    KEPT_UNRESOLVED_FOLDER: "its folder is not in the folder listing, so folders[] cannot be checked",
 }
 
 
