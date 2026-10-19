@@ -136,7 +136,7 @@ The notification sink is selected by `SIGANTRY_NOTIFICATION_SINK` (env var read 
 
 The webhook URLs encode the secret in the URL itself (no separate `Authorization` header), which is why notification sinks carry a documented carve-out from the project's "one HTTP client" rule -- see [`../../reference/api-stability.md`](../../reference/api-stability.md) section 4.
 
-The sink stand-ins live in `sigantry_core/sync/notifications.py` and are deliberately thin -- a Phase 16 SEAM expansion replaces them with a pluggable `NotificationSink` Protocol seam shipping operator-supplied implementations via entry points.
+The sinks live in `sigantry_core/notifications/` (`teams.py`, `slack.py`, `email.py`) behind the `NotificationSink` Protocol; `sigantry_core/sync/notifications.py` is a deprecation shim for the old import path.
 
 ## 5. Cron tuning + rate-limit guidance
 
@@ -179,7 +179,8 @@ Then inspect the run via `az pipelines runs show --id <run-id>`; download the `d
 
 - Clean state: exit code `0`. The notification step is skipped (it gates on `failure()`). The `drift.json` artefact carries `{schema_version: "1.0.0", added: [], removed: [], modified: [], unchanged: [...]}`.
 - Drift detected: exit code `1`. The notification step runs and posts to the configured sink. The `drift.json` artefact carries non-empty `added` / `removed` / `modified` arrays.
-- Operational error (auth failure, workspace not found): exit code `2`. The notification step runs (it's gated on `failure()` which covers both `1` and `2`), but the message body explains the operational nature; operator should investigate the underlying error before treating it as drift.
+- Operational error (auth failure, workspace not found): exit code `2`, and `drift.json` is empty. The notification step runs (it's gated on `failure()` which covers both `1` and `2`) and posts an error-level "Sigantry drift check FAILED" message: the check produced no drift report, the workspace was not compared, and the message links the run log. The step then exits `1`. The message does not quote the error; read it in the diff step's log before treating anything as drift.
+- The drift job fails before the diff step (sign-in, install): the job's first steps create an empty `drift.json` and the upload runs on any outcome, so the notification step posts the same "drift check FAILED" message. If the notification job itself cannot install sigantry, nothing is sent; that failure shows only as a failed run.
 
 ## 7. Troubleshooting
 

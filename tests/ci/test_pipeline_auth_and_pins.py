@@ -145,6 +145,15 @@ def _ado_job_steps(stage: dict[str, Any]) -> list[dict[str, Any]]:
     return job["steps"]
 
 
+# The one step allowed before the install: a shell builtin that creates the
+# file the drift job must upload whatever fails after it (#34). It runs no
+# tool the pin governs. Matched whole, so any other script still fails here.
+_EMPTY_DRIFT_JSON_STEP = {
+    "script": ": > drift.json",
+    "displayName": "Start with an empty drift.json",
+}
+
+
 @pytest.mark.parametrize(
     ("path", "stages"),
     [(ADO_CD, ("smoke", "integration", "promote")), (ADO_DRIFT, ("drift_check", "notify"))],
@@ -163,7 +172,7 @@ def test_ado_every_stage_that_runs_sigantry_installs_it_with_the_pin(
         assert len(installs) == 1, f"{path.name}:{name} must install sigantry once"
         assert installs[0]["parameters"]["sigantryVersion"] == "${{ parameters.sigantryVersion }}"
         before = steps[: steps.index(installs[0])]
-        assert all("checkout" in s for s in before), (
+        assert all("checkout" in s or s == _EMPTY_DRIFT_JSON_STEP for s in before), (
             f"{path.name}:{name}: install before any script"
         )
 

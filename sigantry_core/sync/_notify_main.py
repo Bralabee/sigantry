@@ -9,18 +9,27 @@ SemVer-pinned JSON output.
 
 Runtime contract:
 
-1. Read ``--drift-json <path>`` (default: ``drift.json``).
-2. Read ``--workspace-id <id>`` (default: pulled from
+1. Read ``--drift-json <path>`` (default: ``drift.json``) and
+   ``--workspace-id <id>`` (default: pulled from
    ``$SIGANTRY_DRIFT_WORKSPACE_ID`` for back-compat with operators who
    set the env var on the notify job).
-3. Resolve the sink via :func:`sigantry_core.notifications.sink_from_env`
-   (reads ``$SIGANTRY_NOTIFICATION_SINK`` + the per-impl env vars).
+2. Resolve the sink via :func:`sigantry_core.notifications.sink_from_env`
+   (reads ``$SIGANTRY_NOTIFICATION_SINK`` + the per-impl env vars), BEFORE
+   reading the report, so a check that produced no report can still be
+   announced (#34).
    Plan 16-01 migrated the import path from
    ``sigantry_core.sync.notifications`` to ``sigantry_core.notifications``;
    the legacy path remains as a deprecation shim through v3.0.
-4. Reconstruct a :class:`DriftReport` from the JSON payload (the wire
-   format is a closed contract -- D-23).
-5. Project the report onto a ``NotificationEvent`` via
+3. Read the JSON payload and check it is a D-23 drift report: an object
+   carrying all five keys, a ``1.x`` ``schema_version``, and four lists of
+   objects. Anything else -- a missing, empty or unparsable file, which is
+   what ``sigantry diff`` leaves behind when it exits 2, or any other
+   object -- is NOT a drift report, and is never summarised as "no drift".
+   It is announced as one ``error``-level event saying the drift check
+   produced no report (an operational failure, not drift), pointing at the
+   CI run log, and the module exits 1. The file's content is not echoed
+   into the channel.
+4. Otherwise project the report onto a ``NotificationEvent`` via
    :func:`_drift_event_from_report` and call ``sink.send(event)``;
    return 0 on success.
 
@@ -31,7 +40,8 @@ Exit codes:
   at WARN, so a failed Teams webhook still exits 0; that is the
   documented Phase 13 contract (the CI gate is owned by ``sigantry diff
   --fail-on-drift``, not by notification success).
-* ``1`` -- drift JSON missing / malformed, env-var configuration invalid,
+* ``1`` -- env-var configuration invalid (nothing is sent); the drift
+  JSON missing / malformed (the operational-failure event is sent first);
   or the sink raised an unexpected exception (which the sink Protocol
   contract says it should not, but we catch defensively).
 
@@ -95,20 +105,89 @@ def _drift_event_from_report(report: DriftReport, *, workspace_id: str) -> Notif
     )
 
 
-def _drift_report_from_json(payload: dict) -> DriftReport:
+_REPORT_LISTS = ("added", "removed", "modified", "unchanged")
+
+
+class NoDriftReportError(Exception):
+    """The drift JSON is not a drift report; the message says why, not what it held."""
+
+
+def _drift_report_from_json(payload: object) -> DriftReport:
     """Reconstruct a :class:`DriftReport` from the JSON wire format.
 
     The keyset is the D-23 lock: ``schema_version``, ``added``,
-    ``removed``, ``modified``, ``unchanged``. Missing keys default to
-    empty lists / ``"1.0.0"`` so a partially-malformed payload still
-    surfaces a coherent (if empty) drift summary to the sink.
+    ``removed``, ``modified``, ``unchanged``. Every key must be present:
+    a payload missing one is not a report, and defaulting it to an empty
+    list would turn, say, ``{"error": "..."}`` into a "no drift" summary
+    (#34). Further top-level keys are accepted, since D-37 lets a minor
+    schema version add them.
     """
+    if not isinstance(payload, dict):
+        raise NoDriftReportError(f"the file holds a JSON {type(payload).__name__}, not an object")
+    missing = [key for key in ("schema_version", *_REPORT_LISTS) if key not in payload]
+    if missing:
+        raise NoDriftReportError(f"the object lacks the drift report keys {missing}")
+    version = payload["schema_version"]
+    if not isinstance(version, str) or not version.startswith("1."):
+        raise NoDriftReportError(f"schema_version is not a 1.x version string: {version!r}")
+    for key in _REPORT_LISTS:
+        value = payload[key]
+        if not isinstance(value, list) or not all(isinstance(e, dict) for e in value):
+            raise NoDriftReportError(f"{key!r} is not a list of objects")
     return DriftReport(
-        schema_version=payload.get("schema_version", "1.0.0"),
-        added=list(payload.get("added", [])),
-        removed=list(payload.get("removed", [])),
-        modified=list(payload.get("modified", [])),
-        unchanged=list(payload.get("unchanged", [])),
+        schema_version=version,
+        added=list(payload["added"]),
+        removed=list(payload["removed"]),
+        modified=list(payload["modified"]),
+        unchanged=list(payload["unchanged"]),
+    )
+
+
+def _read_report(path: Path) -> DriftReport:
+    if not path.is_file():
+        raise NoDriftReportError(f"{path} does not exist")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise NoDriftReportError(f"{path} could not be read ({type(exc).__name__})") from exc
+    if not text.strip():
+        raise NoDriftReportError(f"{path} is empty")
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise NoDriftReportError(f"{path} is not valid JSON ({exc.msg})") from exc
+    return _drift_report_from_json(payload)
+
+
+def _run_url() -> str:
+    """The CI run's URL from the runner's own environment, or ``""``."""
+    env = os.environ
+    if env.get("GITHUB_SERVER_URL") and env.get("GITHUB_REPOSITORY") and env.get("GITHUB_RUN_ID"):
+        return (
+            f"{env['GITHUB_SERVER_URL']}/{env['GITHUB_REPOSITORY']}"
+            f"/actions/runs/{env['GITHUB_RUN_ID']}"
+        )
+    collection = env.get("SYSTEM_COLLECTIONURI", "")
+    project = env.get("SYSTEM_TEAMPROJECT", "")
+    build = env.get("BUILD_BUILDID", "")
+    if collection and project and build:
+        return f"{collection.rstrip('/')}/{project}/_build/results?buildId={build}"
+    return ""
+
+
+def _no_report_event(reason: str, *, workspace_id: str) -> NotificationEvent:
+    """The event for a drift check that produced no report: an operational failure."""
+    url = _run_url()
+    where = f"See the run log: {url}" if url else "See the CI run's log."
+    return NotificationEvent(
+        title=f"Sigantry drift check FAILED: {workspace_id}",
+        body=(
+            f"Sigantry drift check on workspace {workspace_id} produced no drift report "
+            f"({reason}). This is an operational failure of the check, not drift: the "
+            f"workspace was not compared. {where}"
+        ),
+        level="error",
+        properties={"workspace_id": workspace_id, "outcome": "no_report", "run_url": url},
     )
 
 
@@ -146,34 +225,7 @@ def main(argv: list[str] | None = None) -> int:
     """CLI entrypoint -- returns the exit code per the module docstring."""
     args = _parse_args(argv)
     drift_path: Path = args.drift_json
-
-    if not drift_path.is_file():
-        logger.error("drift_json_not_found path=%s", drift_path)
-        print(
-            f"sigantry _notify_main: drift JSON not found at {drift_path}",
-            file=sys.stderr,
-        )
-        return 1
-
-    try:
-        payload = json.loads(drift_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        logger.error("drift_json_parse_failed path=%s err=%s", drift_path, exc)
-        print(
-            f"sigantry _notify_main: failed to parse {drift_path}: {exc}",
-            file=sys.stderr,
-        )
-        return 1
-
-    if not isinstance(payload, dict):
-        logger.error(
-            "drift_json_unexpected_shape path=%s type=%s", drift_path, type(payload).__name__
-        )
-        print(
-            f"sigantry _notify_main: {drift_path} did not parse to a JSON object",
-            file=sys.stderr,
-        )
-        return 1
+    workspace_id = args.workspace_id or "<unknown>"
 
     try:
         sink = sink_from_env()
@@ -185,8 +237,24 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    report = _drift_report_from_json(payload)
-    workspace_id = args.workspace_id or "<unknown>"
+    try:
+        report = _read_report(drift_path)
+    except NoDriftReportError as exc:
+        logger.error("drift_json_not_a_report path=%s reason=%s", drift_path, exc)
+        print(
+            f"sigantry _notify_main: no drift report ({exc}); "
+            "announcing an operational failure of the drift check",
+            file=sys.stderr,
+        )
+        try:
+            sink.send(_no_report_event(str(exc), workspace_id=workspace_id))
+        except Exception as send_exc:  # defensive -- Protocol contract says no
+            logger.error("sink_send_unexpected_failure err=%s", send_exc)
+            print(
+                f"sigantry _notify_main: unexpected sink failure: {send_exc}",
+                file=sys.stderr,
+            )
+        return 1
 
     event = _drift_event_from_report(report, workspace_id=workspace_id)
     try:
