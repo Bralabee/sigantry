@@ -91,8 +91,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `https://<org>.visualstudio.com/`). Anything else is refused, with a message
   that never quotes the value beyond a host: a URL on another host (an Azure
   DevOps Server collection, say), a URL that does not parse, and a value that
-  cannot be a name, such as `dev.azure.com/<org>` without its scheme or a name
-  holding a slash or whitespace. `release record` reports it as a usage error
+  cannot be a name, such as `dev.azure.com/<org>` or `<org>.visualstudio.com`
+  without its scheme, or a name holding a dot, a slash or whitespace. `release record` reports it as a usage error
   (exit 2) and writes no audit record, where it used to record against the
   nonsense URL and exit 0. The PR
   bot's pipeline-variable parse, which took the last path segment, read a

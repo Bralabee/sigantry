@@ -80,6 +80,8 @@ def test_the_provider_calls_one_organization_whatever_form_it_was_given(
     [
         "https://tfs.example.com/tfs/DefaultCollection/",
         "dev.azure.com/contoso",
+        "dev.azure.com",
+        "contoso.visualstudio.com",
         "https://[bad/",
         "https://user:hunter2-pat@dev.azure.com\uff0fcontoso/",
     ],

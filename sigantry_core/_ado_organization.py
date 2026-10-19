@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 
 _SERVICES_HOST = "dev.azure.com"
 _LEGACY_SUFFIX = ".visualstudio.com"
-_NOT_IN_A_NAME = "/\\?#:@"
+_NOT_IN_A_NAME = "./\\?#:@"
 
 
 class AdoOrganizationError(ValueError):
@@ -30,10 +30,11 @@ def ado_organization_name(value: str) -> str:
 
     Raises:
         AdoOrganizationError: ``value`` is empty, is not a name (it holds
-            whitespace or one of ``/ \\ ? # : @``, as in ``dev.azure.com/contoso``),
-            is not a parseable URL, or is a URL on any other host, such as an
-            Azure DevOps Server collection, which the ``dev.azure.com`` base
-            these clients use cannot reach, or it names no organization. No
+            whitespace or one of ``. / \\ ? # : @``, as in ``dev.azure.com/contoso``
+            or the bare host ``contoso.visualstudio.com``), is not a parseable
+            URL, or is a URL on any other host, such as an Azure DevOps Server
+            collection, which the ``dev.azure.com`` base these clients use
+            cannot reach, or it names no organization. No
             message carries any part of ``value`` beyond a host, and the error
             is raised outside the ``except`` so the parser's own message, which
             can quote a URL's credentials, is not kept as ``__context__``.

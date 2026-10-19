@@ -73,6 +73,8 @@ def test_a_name_with_surrounding_whitespace_is_trimmed() -> None:
     "given",
     [
         "dev.azure.com/contoso",  # a URL without its scheme
+        "dev.azure.com",  # a host without its scheme
+        "contoso.visualstudio.com",
         "contoso/",
         "/contoso",
         "con toso",
