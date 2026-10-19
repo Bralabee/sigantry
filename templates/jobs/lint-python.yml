@@ -17,6 +17,13 @@
 # command, the step's status is that command's status under any shell. Do
 # not add a second command to a step; give it a step of its own.
 #
+# This repository's `Seeded defects` CI job runs the `Ruff check`,
+# `Ruff format check` and `mypy` steps on its own tree with a planted
+# defect in every directory they cover, with the defaults below and with
+# no errexit, and fails unless each step fails and reports each defect
+# (scripts/ci/check-seeded-defects.py, #22). The rest of this file is
+# pinned whole by tests/templates/test_ado_lint_lane_pinned.py.
+#
 # Every step runs on the adopter's tree, so none may call a file only this
 # repo has. The dual-CI parity lint and the docs-freshness gate are this
 # repo's own checks: they run in its GitHub CI and are not shipped here.
@@ -26,6 +33,9 @@ parameters:
   - name: pythonVersion
     type: string
     default: '3.11'
+  # The path defaults are this repository's roots, the ones its GitHub CI
+  # lints and type-checks; the seeded-defect check holds them to those. An
+  # adopter's tree has other roots, so an adopter sets both parameters.
   - name: sourcePaths
     type: string
     default: 'sigantry_core/ tests/ scripts/'

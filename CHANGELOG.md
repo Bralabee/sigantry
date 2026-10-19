@@ -32,6 +32,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sub-package: a mypy override with `ignore_errors`, a ruff per-file ignore
   of `ALL`, a format `exclude`, or a `--deselect` or `--ignore` in pytest's
   `addopts`. Configuration that excludes a single existing file is not seen.
+- The `Seeded defects` check also runs the shipped ADO lint job (#22): the
+  `Ruff check`, `Ruff format check` and `mypy` steps of
+  `templates/jobs/lint-python.yml`, with the template's default roots, on
+  the same seeded copies, each step run as Azure Pipelines runs a `script:`
+  step on Linux (`bash --noprofile --norc`, no errexit). A second command
+  after a tool in the same step, a narrowed default root, or the mypy step
+  switched off by default now fails CI. What that run does not model is
+  pinned: `templates/jobs/lint-python.yml` whole, the `lint` stage and the
+  `pytest` job of `templates/stages/ci.yml`, the stage's lint defaults equal
+  to the job's, and ruff and mypy in the `dev` extra the job installs.
 
 ### Changed
 - A `Review-Record:` comment counts for the `review-record` status only when

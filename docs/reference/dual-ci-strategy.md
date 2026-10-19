@@ -70,6 +70,8 @@ A Python script `scripts/ci/check-dual-ci-parity.py` runs in a required CI check
 
 The lint runs in this repo's GitHub Actions CI, through `tests/ci/test_dual_ci_parity.py`. No Azure DevOps pipeline runs this repo, and the shipped ADO job templates do not run the lint: they run on an adopter's tree, which has no copy of the script.
 
+The lint compares pairs of stage templates and workflow files. It does not model job or step templates (`templates/jobs/`, `templates/steps/`), and it never reads a command or a default value. The shipped ADO lint job is held to the GitHub lane by running it instead: the required `Seeded defects` check runs the `Ruff check`, `Ruff format check` and `mypy` steps of `templates/jobs/lint-python.yml` on this repo's tree with a planted defect in every directory they cover, with the template's default roots and without errexit, as Azure Pipelines runs a `script:` step. A step that cannot fail, a narrowed default root, or a type check switched off by default fails that check.
+
 ## Exceptions
 
 The rule has **two narrow exceptions**, both explicitly annotated:

@@ -18,9 +18,9 @@ pip`` are stubbed to exit 0; the tools come from the test's own environment),
 the ADO template expander beyond the one ``${{ if }}`` insertion the template
 uses, Windows agents, and any step key other than ``script`` and
 ``displayName``. The runner refuses what it does not model rather than
-skipping it. Planting a defect in every covered root, as
-``scripts/ci/check-seeded-defects.py`` does for the GitHub lane, is a later
-change under #22.
+skipping it. ``scripts/ci/check-seeded-defects.py`` runs the lint steps on
+this repository's own tree with a defect planted in every covered directory,
+with the template's defaults (#22).
 """
 
 from __future__ import annotations

@@ -239,3 +239,104 @@ def test_the_copy_holds_the_tracked_files_and_refuses_to_overwrite(tmp_path: pat
         seeded.plant(dest, {"pkg/tracked.py": "z = 3\n"})
     seeded.plant(dest, {"pkg/new.py": "z = 3\n"})
     assert (dest / "pkg" / "new.py").read_text(encoding="utf-8") == "z = 3\n"
+
+
+@pytest.fixture(scope="module")
+def ado_template() -> dict:
+    return yaml.safe_load((REPO_ROOT / seeded.ADO_TEMPLATE).read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize("gate", seeded.ADO_GATES, ids=lambda g: g.label)
+def test_each_ado_gate_reads_a_step_of_the_lint_job_template(
+    ado_template: dict, gate: object
+) -> None:
+    run, env, cwd = seeded.ado_command_for(ado_template, gate)
+    tool = gate.label.split()[1]  # type: ignore[attr-defined]
+    assert run.split()[0] == tool, f"{gate.label}: step runs {run!r}"  # type: ignore[attr-defined]
+    assert (env, cwd) == ({}, ".")
+
+
+def test_the_ado_gates_plant_what_the_github_gates_plant() -> None:
+    """Same seeds and reports over the same roots: a narrowed ADO default root fails the check."""
+    by_label = {g.label: g for g in seeded.GATES}
+    assert {g.label for g in seeded.ADO_GATES} == {"ADO ruff check", "ADO ruff format", "ADO mypy"}
+    tracked = seeded.tracked_files(REPO_ROOT)
+    for gate in seeded.ADO_GATES:
+        twin = by_label[gate.label.removeprefix("ADO ")]
+        assert gate.lane == "ado" and twin.lane == "github"
+        assert (gate.roots, gate.report, gate.content) == (twin.roots, twin.report, twin.content)
+        assert seeded.seeds_for(gate, tracked) == seeded.seeds_for(twin, tracked)
+
+
+def _ado(steps: list, **job: object) -> dict:
+    return {
+        "parameters": [
+            {"name": "sourcePaths", "type": "string", "default": "a/ b/"},
+            {"name": "enableTypeCheck", "type": "boolean", "default": True},
+        ],
+        "jobs": [{"job": "python_lint", "steps": steps, **job}],
+    }
+
+
+def test_ado_command_for_substitutes_defaults_and_evaluates_the_type_check_insertion() -> None:
+    gate = next(g for g in seeded.ADO_GATES if g.label == "ADO mypy")
+    mypy = {"script": "mypy ${{ parameters.sourcePaths }}", "displayName": "mypy"}
+    doc = _ado([{"${{ if eq(parameters.enableTypeCheck, true) }}": [mypy]}])
+    assert seeded.ado_command_for(doc, gate)[0] == "mypy a/ b/"
+    doc["parameters"][1]["default"] = False
+    with pytest.raises(seeded.SetupError, match="0 steps named"):
+        seeded.ado_command_for(doc, gate)
+
+
+def test_ado_command_for_refuses_what_it_cannot_run() -> None:
+    gate = next(g for g in seeded.ADO_GATES if g.label == "ADO ruff check")
+
+    def step(**extra: object) -> dict:
+        return {
+            "script": "ruff check ${{ parameters.sourcePaths }}",
+            "displayName": "Ruff check",
+            **extra,
+        }
+
+    assert seeded.ado_command_for(_ado([step()]), gate)[0] == "ruff check a/ b/"
+    for bad in (
+        _ado([]),
+        _ado([step(), step()]),
+        _ado([step(condition="false")]),
+        _ado([step(continueOnError=True)]),
+        _ado([step(enabled=False)]),
+        _ado([step(env={"A": "1"})]),
+        _ado([step(workingDirectory="x")]),
+        _ado([step(script="ruff check ${{ parameters.missing }}")]),
+        _ado([step(script="ruff check $(lintRoots)")]),
+        _ado([step(script="ruff check ${{ replace(parameters.sourcePaths, 'a/', '') }}")]),
+        _ado([{"${{ if eq(parameters.other, true) }}": [step()]}]),
+        _ado([step()], condition="false"),
+        _ado([step()], continueOnError=True),
+        {**_ado([step()]), "variables": {"A": "1"}},
+        {"jobs": [{"job": "python_lint", "steps": [step()]}]},
+        {"parameters": [], "jobs": [{"job": "other", "steps": [step()]}]},
+    ):
+        with pytest.raises(seeded.SetupError):
+            seeded.ado_command_for(bad, gate)
+    flag = _ado([{"${{ if eq(parameters.enableTypeCheck, true) }}": [step()]}])
+    flag["parameters"][1]["default"] = "true"
+    with pytest.raises(seeded.SetupError, match="not a boolean"):
+        seeded.ado_command_for(flag, gate)
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="models a Linux agent's bash; Windows' bash.exe may be WSL"
+)
+def test_each_lane_runs_a_step_with_its_own_shell_semantics(tmp_path: pathlib.Path) -> None:
+    """ADO's CmdLine has no errexit, so only the last command counts; GitHub's `bash -e` stops."""
+    ado = seeded.ADO_GATES[0]
+    github = seeded.GATES[0]
+
+    def rc(gate: object, body: str) -> int:
+        done = seeded.run_command(gate, body, tmp_path, {}, tmp_path)
+        return done.returncode
+
+    assert rc(ado, "false\ntrue\n") == 0
+    assert rc(ado, "true\nfalse\n") != 0
+    assert rc(github, "false\ntrue\n") != 0

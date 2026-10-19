@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""sigantry: every quality gate in ci.yml must FAIL on a tree with a known defect (#47).
+"""sigantry: every quality gate must FAIL on a tree with a known defect (#47, #22).
 
 The tests in ``tests/ci/test_quality_gates_run.py`` read each gate's command
 and reject ``|| true``, ``continue-on-error`` and the like. They cannot see the
@@ -23,15 +23,31 @@ report of every planted defect: the rule code and location for ruff, the
 line for pytest. A gate that exits 0, crashes, or reports a seed as anything
 but a failure fails the check.
 
-Known limit: a defect is planted per directory, not per file, so
-configuration that excludes one existing file is not seen.
+The ADO lane (#22): the ``Ruff check``, ``Ruff format check`` and ``mypy``
+steps of ``templates/jobs/lint-python.yml`` get the same seeds over the same
+roots and the same verdict. Each step's ``script:`` is read by its
+``displayName``, its ``${{ parameters.X }}`` references are replaced with the
+template's own defaults, and it runs as Azure Pipelines' CmdLine task runs it
+on a Linux agent: the body written to a file and run as ``bash --noprofile
+--norc <file>``, with no errexit, so the step's status is its LAST command's.
+A second command after the tool, a narrowed default root, or the mypy step
+switched off by default therefore fails this check. The check refuses
+(exit 2) a step key, job key, template key or expression it does not model,
+rather than ignoring it.
+
+Known limits: a defect is planted per directory, not per file, so
+configuration that excludes one existing file is not seen. The ADO steps run
+with the tools of this check's own environment, not the template's
+``pip install`` step, and on bash only: what the template expander, a
+Windows agent (``cmd.exe``) or a real agent would do differently is not
+modelled.
 
 Usage:
   python scripts/ci/check-seeded-defects.py [--root .]
 
 Exit codes: 0 every gate failed on its seeds; 1 at least one gate did not;
-2 the check could not run (a gate's step is missing from ci.yml or uses
-something this check cannot reproduce, git or bash is not available, a
+2 the check could not run (a gate's step is missing from ci.yml or the ADO
+template, or uses something this check cannot reproduce, git or bash is not available, a
 seed path already exists, a file could not be read or copied).
 """
 
@@ -45,7 +61,7 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 
 import yaml
@@ -76,6 +92,9 @@ class Gate:
     # Which tracked files mark a directory as one the gate covers.
     covers: Callable[[str], bool]
     report: Callable[[str], str]
+    # "github": a step of .github/workflows/ci.yml, run under `bash -e`.
+    # "ado": a step of templates/jobs/lint-python.yml, run as CmdLine runs it.
+    lane: str = "github"
 
 
 def _is_py(name: str) -> bool:
@@ -131,6 +150,21 @@ GATES: tuple[Gate, ...] = (
         _is_test,
         lambda path: rf"^FAILED {re.escape(path)}::test_seeded_defect\b",
     ),
+)
+
+
+# The ADO lane's gates: the same tools, seeds, roots and reports as the
+# GitHub lane's, so the template's default roots are compared with ci.yml's by
+# running them. pytest is not here: its ADO step is inline in
+# templates/stages/ci.yml, which tests/templates/test_ado_lint_lane_pinned.py
+# pins whole.
+ADO_TEMPLATE = PurePosixPath("templates/jobs/lint-python.yml")
+_ADO_JOB = "python_lint"
+_ADO_STEPS = {"ruff check": "Ruff check", "ruff format": "Ruff format check", "mypy": "mypy"}
+ADO_GATES: tuple[Gate, ...] = tuple(
+    replace(g, label=f"ADO {g.label}", job=_ADO_JOB, step=_ADO_STEPS[g.label], lane="ado")
+    for g in GATES
+    if g.label in _ADO_STEPS
 )
 
 
@@ -209,6 +243,131 @@ def command_for(workflow: dict, gate: Gate) -> tuple[str, dict[str, str], str]:
     return run, env, str(step.get("working-directory") or ".")
 
 
+# What the ADO side models. Anything else on the path from the template to
+# the step is refused: `condition`, `continueOnError`, `enabled`, `env`,
+# `workingDirectory`, `target`, `failOnStderr`, a job `pool` or `variables`,
+# a template `variables` or `steps`, and every other expression.
+_ADO_TEMPLATE_KEYS = {"parameters", "jobs"}
+_ADO_JOB_KEYS = {"job", "displayName", "steps"}
+_ADO_STEP_KEYS = {"script", "displayName"}
+_ADO_TYPE_CHECK_IF = "${{ if eq(parameters.enableTypeCheck, true) }}"
+_ADO_PARAM = re.compile(r"\$\{\{\s*parameters\.([A-Za-z_]\w*)\s*\}\}")
+
+
+def _ado_defaults(template: dict) -> dict[str, object]:
+    params = template.get("parameters")
+    if not isinstance(params, list):
+        raise SetupError(f"{ADO_TEMPLATE} has no parameters list")
+    out: dict[str, object] = {}
+    for param in params:
+        if not isinstance(param, dict) or "name" not in param or "default" not in param:
+            raise SetupError(f"{ADO_TEMPLATE}: parameter {param!r} has no name and default")
+        out[str(param["name"])] = param["default"]
+    return out
+
+
+def _ado_expand(steps: object, params: dict[str, object]) -> list[dict]:
+    """The steps the template expander emits with the defaults, in order.
+
+    The one insertion the template uses, the mypy step's ``${{ if }}``, is
+    evaluated; any other expression used as a key is refused.
+    """
+    if not isinstance(steps, list):
+        raise SetupError(f"{ADO_TEMPLATE}: steps is not a list")
+    out: list[dict] = []
+    for step in steps:
+        if not isinstance(step, dict):
+            raise SetupError(f"{ADO_TEMPLATE}: step {step!r} is not a mapping")
+        if list(step) == [_ADO_TYPE_CHECK_IF]:
+            flag = params.get("enableTypeCheck")
+            if not isinstance(flag, bool):
+                raise SetupError(f"{ADO_TEMPLATE}: enableTypeCheck's default is not a boolean")
+            if flag:
+                out.extend(_ado_expand(step[_ADO_TYPE_CHECK_IF], params))
+            continue
+        if any("${{" in str(key) for key in step):
+            raise SetupError(f"{ADO_TEMPLATE}: step {step!r} uses an expression as a key")
+        out.append(step)
+    return out
+
+
+def ado_command_for(template: dict, gate: Gate) -> tuple[str, dict[str, str], str]:
+    """The gate's ``script:`` body from the ADO job template, with its defaults substituted."""
+    extra = set(template) - _ADO_TEMPLATE_KEYS
+    if extra:
+        raise SetupError(f"{ADO_TEMPLATE} sets {sorted(extra)}, which this check does not model")
+    params = _ado_defaults(template)
+    jobs = [
+        j for j in template.get("jobs") or [] if isinstance(j, dict) and j.get("job") == gate.job
+    ]
+    if len(jobs) != 1:
+        raise SetupError(f"{ADO_TEMPLATE} has {len(jobs)} jobs named {gate.job!r}; expected 1")
+    job = jobs[0]
+    extra = set(job) - _ADO_JOB_KEYS
+    if extra:
+        raise SetupError(
+            f"{ADO_TEMPLATE} job {gate.job!r} sets {sorted(extra)}, which this check does not model"
+        )
+    steps = [s for s in _ado_expand(job.get("steps"), params) if s.get("displayName") == gate.step]
+    if len(steps) != 1:
+        raise SetupError(
+            f"{ADO_TEMPLATE} job {gate.job!r} has {len(steps)} steps named {gate.step!r} "
+            "with the defaults; expected 1"
+        )
+    step = steps[0]
+    extra = set(step) - _ADO_STEP_KEYS
+    if extra:
+        raise SetupError(
+            f"{ADO_TEMPLATE} step {gate.step!r} sets {sorted(extra)}, "
+            "which this check does not model"
+        )
+    body = step.get("script")
+    if not isinstance(body, str) or not body.strip():
+        raise SetupError(f"{ADO_TEMPLATE} step {gate.step!r} has no script")
+
+    def substitute(match: re.Match[str]) -> str:
+        name = match.group(1)
+        if name not in params:
+            raise SetupError(f"{ADO_TEMPLATE} step {gate.step!r} names an undeclared {name!r}")
+        value = params[name]
+        if not isinstance(value, str):
+            raise SetupError(f"{ADO_TEMPLATE} step {gate.step!r} substitutes non-string {name!r}")
+        return value
+
+    run = _ADO_PARAM.sub(substitute, body)
+    # `$(name)` is an ADO macro as well as bash's command substitution, and
+    # this check cannot tell which the agent would make of it.
+    if "${{" in run or "$[" in run or "$(" in run:
+        raise SetupError(
+            f"{ADO_TEMPLATE} step {gate.step!r} uses an expression this check cannot run"
+        )
+    return run, {}, "."
+
+
+def run_command(gate: Gate, run: str, cwd: Path, env: dict[str, str], scratch: Path):
+    """Run a gate's command the way its lane's CI runs it."""
+    bash = shutil.which("bash")
+    if not bash:
+        raise SetupError("bash is not on PATH; both lanes' steps run under bash")
+    if gate.lane == "ado":
+        # CmdLine on Linux: the body in a file, `bash --noprofile --norc
+        # <file>`, no errexit; the step fails only on the last exit status.
+        body = scratch / f"{gate.label.replace(' ', '-')}.sh"
+        body.write_text(run, encoding="utf-8")
+        argv = [bash, "--noprofile", "--norc", str(body)]
+    else:
+        # `bash -e`, as GitHub runs a `run:` step on Linux.
+        argv = [bash, "-e", "-c", run]
+    return subprocess.run(
+        argv,
+        cwd=cwd,
+        env={**_clean_env(), **env},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
 def judge(gate: Gate, seeds: dict[str, str], returncode: int, output: str) -> list[str]:
     """What is wrong with a gate's run; empty when it failed and reported every seed."""
     problems = []
@@ -277,11 +436,16 @@ def plant(dest: Path, seeds: dict[str, str]) -> None:
         target.write_text(content, encoding="utf-8")
 
 
-def run_gate(root: Path, workflow: dict, gate: Gate, workdir: Path) -> list[str]:
-    run, env, cwd = command_for(workflow, gate)
+def run_gate(root: Path, sources: dict[str, dict], gate: Gate, workdir: Path) -> list[str]:
+    if gate.lane == "ado":
+        run, env, cwd = ado_command_for(sources["ado"], gate)
+    else:
+        run, env, cwd = command_for(sources["github"], gate)
     names = tracked_files(root)
     seeds = seeds_for(gate, names)
     copy = workdir / gate.label.replace(" ", "-")
+    scratch = workdir / f"{copy.name}-scratch"
+    scratch.mkdir()
     copy.mkdir()
     copy_tree(root, copy, names)
     plant(copy, seeds)
@@ -289,18 +453,7 @@ def run_gate(root: Path, workflow: dict, gate: Gate, workdir: Path) -> list[str]
     _git(["init", "-q"], copy)
     _git(["add", "-A"], copy)
     _git(["-c", "commit.gpgsign=false", "commit", "-q", "--no-verify", "-m", "seeded"], copy)
-    bash = shutil.which("bash")
-    if not bash:
-        raise SetupError("bash is not on PATH; ci.yml's steps run under bash")
-    # `bash -e`, as GitHub runs a `run:` step on Linux.
-    done = subprocess.run(
-        [bash, "-e", "-c", run],
-        cwd=copy / cwd,
-        env={**_clean_env(), **env},
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    done = run_command(gate, run, copy / cwd, env, scratch)
     output = done.stdout + done.stderr
     problems = judge(gate, seeds, done.returncode, output)
     status = "FAILED as required" if not problems else "DID NOT FAIL AS REQUIRED"
@@ -325,14 +478,18 @@ def main(argv: list[str] | None = None) -> int:
     root = args.root.resolve()
     failed = []
     try:
-        workflow = yaml.safe_load(
-            (root / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-        )
-        if not isinstance(workflow, dict):
-            raise SetupError("ci.yml did not parse as a mapping")
+        sources = {}
+        for lane, path in (
+            ("github", PurePosixPath(".github/workflows/ci.yml")),
+            ("ado", ADO_TEMPLATE),
+        ):
+            doc = yaml.safe_load((root / path).read_text(encoding="utf-8"))
+            if not isinstance(doc, dict):
+                raise SetupError(f"{path} did not parse as a mapping")
+            sources[lane] = doc
         with tempfile.TemporaryDirectory(prefix="seeded-defects-") as tmp:
-            for gate in GATES:
-                if run_gate(root, workflow, gate, Path(tmp)):
+            for gate in (*GATES, *ADO_GATES):
+                if run_gate(root, sources, gate, Path(tmp)):
                     failed.append(gate.label)
     # Every way the check itself can break is "could not run" (2), never
     # "a gate was switched off" (1), and never a pass.
@@ -345,7 +502,7 @@ def main(argv: list[str] | None = None) -> int:
             f"{failed}. Something in the configuration they read switches them off."
         )
         return 1
-    print(f"seeded-defects: all {len(GATES)} gates failed on every planted defect")
+    print(f"seeded-defects: all {len(GATES) + len(ADO_GATES)} gates failed on every planted defect")
     return 0
 
 
