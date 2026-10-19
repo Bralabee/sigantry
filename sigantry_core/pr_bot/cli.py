@@ -49,6 +49,7 @@ from typing import Literal
 
 import typer
 
+from sigantry_core._ado_organization import AdoOrganizationError, ado_organization_name
 from sigantry_core.auth import get_token_provider
 from sigantry_core.client.errors import (
     AuthError,
@@ -194,7 +195,10 @@ def _build_ado_provider() -> AdoProvider:
         raise typer.BadParameter(
             f"ADO provider requires SYSTEM_TEAMFOUNDATIONCOLLECTIONURI env var; got: {org_uri!r}"
         )
-    org = org_uri.rsplit("/", 1)[1]
+    try:
+        org = ado_organization_name(org_uri)
+    except AdoOrganizationError as exc:
+        raise typer.BadParameter(str(exc)) from exc
     project = os.environ.get("SYSTEM_TEAMPROJECT", "")
     if not project:
         raise typer.BadParameter("ADO provider requires SYSTEM_TEAMPROJECT env var; empty.")

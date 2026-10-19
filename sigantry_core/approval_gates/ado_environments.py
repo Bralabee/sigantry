@@ -55,6 +55,7 @@ import time
 from datetime import UTC, datetime
 from typing import Any, Final
 
+from sigantry_core._ado_organization import ado_organization_name
 from sigantry_core.auth import TokenProvider
 from sigantry_core.auth.audiences import AZURE_DEVOPS_SCOPE
 from sigantry_core.client.base import BaseRestClient
@@ -111,6 +112,7 @@ class AdoEnvironmentsApprovalGate:
         token_provider: TokenProvider,
         http_client: Any | None = None,
     ) -> None:
+        organization = ado_organization_name(organization)
         self._organization = organization
         self._project = project
         self._client = BaseRestClient(
