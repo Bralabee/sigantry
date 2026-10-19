@@ -224,7 +224,7 @@ sequenceDiagram
 | `--republish-existing` | Modifier on `--with-publish`: also refresh the content of manifest items that already exist in the workspace (matched by display name + type). |
 | `--params` | Path to `parameters.yml`. Required when `--with-publish` is set. |
 | `--bulk` | Modifier on `--with-publish`: when more than one item is published, publish them through a concurrent worker pool. Has no effect without `--with-publish`. |
-| `--unpublish-orphans` | Delete workspace folders + items absent from the manifest. Destructive: items of every type go, Lakehouses and Warehouses included (the packagers never stage them, so they are never in a manifest). Needs `--force`; `--dry-run` lists what would go. The manifest's `folders[]` preservation set + every ancestor of each declared path is excluded. Default off. |
+| `--unpublish-orphans` | Delete workspace folders + items absent from the manifest. Destructive. An item is deleted only if its type is in `PACKAGER_REGISTRY` (the five types sync can create) and it is outside every `folders[]` path; a Lakehouse, Warehouse or other type is kept, as is everything in a preserved folder, and both are listed as kept with the reason. A `folders[]` entry keeps its folder, everything below it, and its ancestors (as folders); a folder still holding a kept item is kept. Needs `--force`; `--dry-run` lists what would go and what is kept. Default off. |
 | `--force` | Confirms `--unpublish-orphans`; a real run without it exits 1 before any request, with no audit record. `--dry-run` needs none, and `--force` alone enables nothing. |
 
 **Sync apply lifecycle:**
@@ -236,7 +236,7 @@ flowchart TD
     PACK --> STG["Staging tempdir<br/>/tmp/sigantry-sync-*<br/>(D-17 preserve-on-failure)"]
     STG --> RECON["plan_reconcile<br/>compute folders + moves + orphans"]
     RECON --> FILTER{"folders[] preserve?"}
-    FILTER -->|yes| EXCL["exclude path + ancestors<br/>from delete_folders"]
+    FILTER -->|yes| EXCL["keep path, its subtree + ancestors;<br/>keep the items inside"]
     FILTER -->|no| KEEP["delete_folders unchanged"]
     EXCL --> APPLY{"apply mode"}
     KEEP --> APPLY
@@ -251,11 +251,11 @@ flowchart TD
 
 **`folders[]` preservation contract** (audit-2026-05-05 closure):
 
-The manifest's top-level `folders` list is a preservation set. When `--unpublish-orphans` is passed, the reconciler computes the orphan-folder list, then filters out every entry that matches a preserved path or is an ancestor of one. Declaring `/raw/UI-Created` therefore implicitly keeps `/raw` alive too -- otherwise leaf-first deletion of the parent would still drop the protected child.
+The manifest's top-level `folders` list is a preservation set. When `--unpublish-orphans` is passed, a declared folder is kept with everything below it: its subfolders and the items in them, which are listed as kept rather than deleted (#101). Every ancestor of a declared folder is kept as a folder too -- declaring `/raw/UI-Created` keeps `/raw` alive, otherwise leaf-first deletion of the parent would still drop the protected child -- but an orphan item sitting directly in `/raw` is not protected by that. Separately, an orphan item whose type is not in `PACKAGER_REGISTRY` is never deleted (#102), and a folder still holding any kept item is not deleted.
 
-- Helper: `sigantry_core/workspace/reconciler.py::_normalise_preserve_set` (ancestor-inclusive expansion).
-- Wiring: `sigantry_core/sync/apply.py:apply_sync` -> `reconcile_folders_from_repo(preserve_paths=manifest.folders, ...)`.
-- Falsifiability: 5 tests in `tests/sigantry_core/workspace/test_reconciler.py` (`test_normalise_preserve_set_*`, `test_plan_preserve_paths_*`, `test_reconcile_folders_from_repo_threads_preserve_paths_through`).
+- Helpers: `sigantry_core/workspace/reconciler.py::_preserve_roots` (declared paths, subtree rule) and `_normalise_preserve_set` (ancestor-inclusive expansion).
+- Wiring: `sigantry_core/sync/apply.py:apply_sync` -> `reconcile_folders_from_repo(preserve_paths=manifest.folders, managed_item_types=frozenset(PACKAGER_REGISTRY), ...)`.
+- Falsifiability: `tests/sigantry_core/workspace/test_reconciler.py` (`test_normalise_preserve_set_*`, `test_plan_preserve_paths_*`, `test_plan_orphan_item_in_a_preserved_folder_is_kept`, `test_plan_preserved_folder_keeps_its_whole_subtree`, `test_plan_unmanaged_type_is_kept_and_its_folders_survive`, `test_reconcile_folders_from_repo_threads_preserve_paths_through`) and, through the real reconciler with only HTTP faked, `tests/sync/test_apply_unpublish_force.py::test_forced_apply_through_the_real_reconciler_deletes_only_the_managed_orphans`.
 
 **Schema reference:** [`reference/sync-schema.md`](reference/sync-schema.md) -- top-level `items[]` + `folders[]` shape, validation rules, folder-less item types (D-07 / SYNC-06).
 

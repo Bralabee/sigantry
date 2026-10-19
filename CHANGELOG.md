@@ -40,6 +40,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   made after it.
 
 ### Fixed
+- `sigantry sync apply --unpublish-orphans --force` no longer deletes a
+  Lakehouse, a Warehouse or any other item of a type sync cannot create
+  (#102), nor an item inside a folder that `folders[]` preserves (#101). An
+  orphan item is deleted only when its type is in `PACKAGER_REGISTRY`
+  (Notebook, DataPipeline, SemanticModel, Report, SparkJobDefinition) and it
+  sits outside every `folders[]` path. A `folders[]` entry now keeps the
+  folder with everything below it: its subfolders, empty or not, and the
+  items in them. Its ancestors are still kept as folders, but an orphan item
+  sitting directly in an ancestor is not protected. A folder that still holds
+  a kept item is not deleted, nor are its ancestors. The dry run and an
+  applied run list the kept items with the reason (`-- kept: sync cannot
+  create this type` or `-- kept: in a folder that folders[] preserves`), and
+  `SyncApplyReport.kept_orphan_items` carries them. In the library,
+  `plan_reconcile` and `reconcile_folders_from_repo` take
+  `managed_item_types`; the default names no type, so a caller that passes
+  none deletes no item. The kept items are in `ReconcilePlan.kept_items`.
 - `sigantry sync apply --unpublish-orphans` now needs `--force`, as
   `docs/runbooks/sync/apply.md` always said. It passed `force` to the
   reconciler on the strength of `--unpublish-orphans` alone, so that one flag

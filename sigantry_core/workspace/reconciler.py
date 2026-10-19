@@ -19,7 +19,17 @@ moves items into their expected folders. Orphan cleanup is **opt-in**
 (``include_orphans=True`` at plan time; ``unpublish_orphans=True`` +
 ``force=True`` at apply time) and destructive — it deletes workspace items
 whose (displayName, type) is not in the repo tree, and folders that end up
-empty as a result.
+empty as a result. Two kinds of orphan item are kept instead, and listed in
+``ReconcilePlan.kept_items`` with the reason:
+
+* an item whose type is not in ``managed_item_types``, the types the
+  caller's repo tree can hold at all. ``sync apply`` passes its packager
+  registry, so a Lakehouse is never an orphan of a sync run (issue #102);
+* an item in, or below, a folder named in ``preserve_paths`` (the
+  manifest's ``folders[]``), which keeps a folder with its contents (#101).
+
+A folder that still holds a kept item is not deleted, and nor are its
+ancestors: Fabric refuses to delete a folder that is not empty.
 
 Folder-path resolution
 ----------------------
@@ -33,7 +43,7 @@ folder path is ``["bronze", "raw"]``. An item whose parent directory is
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -82,10 +92,28 @@ class PlannedItemUnpublish:
     display_name: str
     item_type: str
     current_folder_id: str | None
-    # Where the item sits now; empty at the workspace root. A folder kept by the
-    # manifest's ``folders[]`` does not protect the items inside it, so an
-    # operator reading the plan needs to see which folder each one is in.
+    # Where the item sits now; empty at the workspace root. Shown in the dry
+    # run so an operator can see which folder each delete empties.
     current_folder_path: tuple[str, ...] = ()
+
+
+KEPT_UNMANAGED_TYPE = "unmanaged-type"
+"""Kept: the repo tree cannot hold an item of this type, so its absence there
+says nothing about whether the item is wanted."""
+
+KEPT_PRESERVED_FOLDER = "preserved-folder"
+"""Kept: the item sits in, or below, a folder named in ``preserve_paths``."""
+
+
+@dataclass(frozen=True, slots=True)
+class KeptOrphanItem:
+    """A workspace item absent from the repo tree that orphan cleanup keeps."""
+
+    item_id: str
+    display_name: str
+    item_type: str
+    current_folder_path: tuple[str, ...]
+    reason: str  # KEPT_UNMANAGED_TYPE or KEPT_PRESERVED_FOLDER
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +149,13 @@ class ReconcilePlan:
     ``include_orphans=True``. Ordered leaf-first (longest path first) so
     apply can delete children before parents, matching Fabric's requirement
     that a folder be empty before deletion.
+    """
+    kept_items: list[KeptOrphanItem] = field(default_factory=list)
+    """Workspace items absent from the repo tree that orphan cleanup keeps.
+
+    Populated only when :func:`plan_reconcile` is called with
+    ``include_orphans=True``; each entry carries the reason. Applying the
+    plan never touches them.
     """
 
 
@@ -195,19 +230,32 @@ def _normalise_preserve_set(preserve_paths: Iterable[str] | None) -> frozenset[t
     ``/raw/UI-Created`` implicitly preserves ``/raw`` -- otherwise leaf-first
     deletion of the parent would still drop the protected child.
     """
-    if not preserve_paths:
-        return frozenset()
-    expanded: set[tuple[str, ...]] = set()
-    for raw in preserve_paths:
-        if not raw:
-            continue
-        normalised = raw.lstrip("/").rstrip("/")
-        if not normalised:
-            continue
-        segments = tuple(normalised.split("/"))
-        for i in range(1, len(segments) + 1):
-            expanded.add(segments[:i])
-    return frozenset(expanded)
+    return frozenset(_with_ancestors(_preserve_roots(preserve_paths)))
+
+
+def _preserve_roots(preserve_paths: Iterable[str] | None) -> frozenset[tuple[str, ...]]:
+    """The ``folders[]`` entries as declared, each a tuple of segments.
+
+    Unlike :func:`_normalise_preserve_set` this adds no ancestors: a declared
+    path keeps everything below it, while an ancestor is kept only so that
+    the declared folder survives. Its other contents were never declared.
+    """
+    roots: set[tuple[str, ...]] = set()
+    for raw in preserve_paths or ():
+        normalised = raw.lstrip("/").rstrip("/") if raw else ""
+        if normalised:
+            roots.add(tuple(normalised.split("/")))
+    return frozenset(roots)
+
+
+def _with_ancestors(paths: Iterable[tuple[str, ...]]) -> set[tuple[str, ...]]:
+    """Every path plus each of its non-empty ancestors."""
+    return {path[:i] for path in paths for i in range(1, len(path) + 1)}
+
+
+def _is_at_or_below(path: tuple[str, ...], roots: Iterable[tuple[str, ...]]) -> bool:
+    """True when ``path`` is one of ``roots`` or lies inside one of them."""
+    return any(path[: len(root)] == root for root in roots)
 
 
 def plan_reconcile(
@@ -217,21 +265,32 @@ def plan_reconcile(
     repository_directory: str | Path,
     include_orphans: bool = False,
     preserve_paths: Iterable[str] | None = None,
+    managed_item_types: Collection[str] = (),
 ) -> ReconcilePlan:
     """Compute the plan without executing anything.
 
     ``include_orphans=True`` additionally populates ``unpublish_items``
     (workspace items whose ``(displayName, type)`` is absent from the repo
-    tree) and ``delete_folders`` (workspace folders whose path is absent
+    tree), ``kept_items`` (such items that are not deleted, with the
+    reason) and ``delete_folders`` (workspace folders whose path is absent
     from the repo tree). Applying these still requires the destructive
     gates at apply time — the plan itself has no side effects.
 
+    ``managed_item_types`` names the item types the repo tree can hold.
+    Only an orphan of one of those types can be deleted: an item of any
+    other type is absent from the tree because the tree cannot express it,
+    not because it is unwanted. The default is empty, so a caller that
+    names no type deletes no item.
+
     ``preserve_paths`` is the operator-supplied folder-preservation set
-    (the manifest's ``folders[]`` list). Any folder path in this set, OR
-    any ancestor of such a path, is excluded from ``delete_folders`` even
-    when it is otherwise an orphan. The exclusion is exact-match on the
-    path tuple plus its computed ancestors (so declaring ``/raw/UI-Created``
-    also keeps ``/raw`` alive). Has no effect when ``include_orphans=False``.
+    (the manifest's ``folders[]`` list). A declared folder is kept together
+    with everything below it: its subfolders and the items in them. Every
+    ancestor of a declared folder is kept too (so declaring
+    ``/raw/UI-Created`` also keeps ``/raw`` alive), but not the rest of the
+    ancestor's contents. Has no effect when ``include_orphans=False``.
+
+    A folder that holds a kept item, and every ancestor of it, is never in
+    ``delete_folders``.
     """
     repo_dir = Path(repository_directory).resolve()
     repo_items = _scan_repo(repo_dir)
@@ -284,32 +343,59 @@ def plan_reconcile(
             )
 
     unpublish_items: list[PlannedItemUnpublish] = []
+    kept_items: list[KeptOrphanItem] = []
     delete_folders: list[PlannedFolderDelete] = []
     if include_orphans:
+        preserve_roots = _preserve_roots(preserve_paths)
+        managed = frozenset(managed_item_types)
         # Orphan items: in workspace but not in repo.
         for it in existing_items:
-            if (it.display_name, it.type) not in repo_keys:
-                unpublish_items.append(
-                    PlannedItemUnpublish(
+            if (it.display_name, it.type) in repo_keys:
+                continue
+            folder_path = path_for_id.get(it.folder_id, ()) if it.folder_id else ()
+            if it.type not in managed:
+                reason: str | None = KEPT_UNMANAGED_TYPE
+            elif _is_at_or_below(folder_path, preserve_roots):
+                reason = KEPT_PRESERVED_FOLDER
+            else:
+                reason = None
+            if reason is not None:
+                kept_items.append(
+                    KeptOrphanItem(
                         item_id=it.id,
                         display_name=it.display_name,
                         item_type=it.type,
-                        current_folder_id=it.folder_id,
-                        current_folder_path=path_for_id.get(it.folder_id, ())
-                        if it.folder_id
-                        else (),
+                        current_folder_path=folder_path,
+                        reason=reason,
                     )
                 )
+                continue
+            unpublish_items.append(
+                PlannedItemUnpublish(
+                    item_id=it.id,
+                    display_name=it.display_name,
+                    item_type=it.type,
+                    current_folder_id=it.folder_id,
+                    current_folder_path=folder_path,
+                )
+            )
         # Orphan folders: existing paths that are neither required by the repo
-        # nor an ancestor of a required path. Ordered leaf-first (longest path
-        # first) so apply can delete children before parents.
-        needed_paths: set[tuple[str, ...]] = set()
-        for req in required_paths:
-            for i in range(1, len(req) + 1):
-                needed_paths.add(req[:i])
+        # nor an ancestor of a required path, are not preserved, and hold no
+        # kept item. Ordered leaf-first (longest path first) so apply can
+        # delete children before parents.
+        needed_paths = _with_ancestors(required_paths)
         preserved = _normalise_preserve_set(preserve_paths)
+        holding_kept = _with_ancestors(k.current_folder_path for k in kept_items)
         orphan_paths = sorted(
-            (p for p in existing_paths if p and p not in needed_paths and p not in preserved),
+            (
+                p
+                for p in existing_paths
+                if p
+                and p not in needed_paths
+                and p not in preserved
+                and p not in holding_kept
+                and not _is_at_or_below(p, preserve_roots)
+            ),
             key=lambda p: (-len(p), p),
         )
         for path in orphan_paths:
@@ -324,6 +410,7 @@ def plan_reconcile(
         unresolved_items=unresolved,
         unpublish_items=unpublish_items,
         delete_folders=delete_folders,
+        kept_items=kept_items,
     )
 
 
@@ -452,6 +539,7 @@ def reconcile_folders_from_repo(
     runbook_id: str | None = None,
     token_provider: TokenProvider | None = None,
     preserve_paths: Iterable[str] | None = None,
+    managed_item_types: Collection[str] = (),
 ) -> ReconcileReport:
     """Top-level entry: plan + optionally apply.
 
@@ -468,10 +556,10 @@ def reconcile_folders_from_repo(
     surfaced so dry-run callers can review orphans before opting into
     destruction.
 
-    ``preserve_paths`` is the operator-supplied folder-preservation set
-    (the manifest's ``folders[]`` list). Threaded through to
-    :func:`plan_reconcile`; folders matching a preserved path or any of
-    its ancestors are excluded from ``delete_folders``.
+    ``preserve_paths`` (the manifest's ``folders[]`` list) and
+    ``managed_item_types`` are threaded through to :func:`plan_reconcile`:
+    a preserved folder keeps its contents, and only an orphan of a managed
+    type can be deleted. The default names no type, so no item is deleted.
     """
     plan = plan_reconcile(
         client,
@@ -479,6 +567,7 @@ def reconcile_folders_from_repo(
         repository_directory=repository_directory,
         include_orphans=unpublish_orphans,
         preserve_paths=preserve_paths,
+        managed_item_types=managed_item_types,
     )
     if not apply:
         return ReconcileReport(plan=plan)
