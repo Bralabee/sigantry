@@ -89,8 +89,8 @@ jobs:
         shell: python
         run: |
           import os, shutil, subprocess, sys, tempfile, zlib
-          sys.path.insert(0, "tests/ci")
-          from test_name_gate import _pdf
+          sys.path.insert(0, ".")
+          from tests.ci.test_name_gate import _pdf
           for tool in ("pdftotext", "pdfinfo"):
               print(tool, "->", shutil.which(tool))
           w = subprocess.run(["where", "pdftotext"], capture_output=True, text=True)
