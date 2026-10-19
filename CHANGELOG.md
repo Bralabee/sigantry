@@ -88,7 +88,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now runs in no CI lane, as it ran in none that executed before. The
   template's parameters are unchanged. `tests/templates/test_ado_lint_job_runs.py`
   runs the job's steps as a Linux agent does on an adopter-shaped tree: it
-  passes on a clean tree and fails at `Ruff check` on an unused import.
+  passes on a clean tree and fails at `Ruff check` on an unused import. It
+  runs on Linux and macOS, not Windows, and the `test` extra now includes
+  `ruff` (pinned as in `dev`) so that it can.
 - `sigantry sync apply --unpublish-orphans` now needs `--force`, as
   `docs/runbooks/sync/apply.md` always said. It passed `force` to the
   reconciler on the strength of `--unpublish-orphans` alone, so that one flag

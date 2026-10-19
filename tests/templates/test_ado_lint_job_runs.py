@@ -35,6 +35,12 @@ from typing import Any
 import pytest
 import yaml
 
+# A Linux agent's bash is what this models. On a Windows runner `bash` can
+# resolve to WSL's launcher with no distribution installed, which runs nothing.
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32", reason="models a Linux agent's bash; Windows' bash.exe may be WSL"
+)
+
 _TEMPLATE = Path(__file__).resolve().parents[2] / "templates" / "jobs" / "lint-python.yml"
 _TYPE_CHECK_IF = "${{ if eq(parameters.enableTypeCheck, true) }}"
 _PARAM_REF = re.compile(r"\$\{\{\s*parameters\.(\w+)\s*\}\}")
