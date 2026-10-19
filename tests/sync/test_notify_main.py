@@ -80,6 +80,7 @@ _NOT_REPORTS = {
     "list-not-a-list": json.dumps({**DriftReport().to_json(), "added": "abc"}),
     "entries-not-objects": json.dumps({**DriftReport().to_json(), "added": ["abc"]}),
     "schema-2": json.dumps({**DriftReport().to_json(), "schema_version": "2.0.0"}),
+    "schema-text": json.dumps({**DriftReport().to_json(), "schema_version": "SENTINEL-TEXT"}),
 }
 
 
@@ -92,9 +93,10 @@ def test_no_report_is_announced_as_an_operational_failure(
     body = listener.bodies[0]
     assert "drift check FAILED" in body and "not drift" in body, body
     assert "drift OK" not in body and "no drift." not in body, body
-    assert "token expired" not in body and "could not resolve" not in body, (
-        "the file's content must not be echoed into the channel"
-    )
+    for content_text in ("token expired", "could not resolve", "SENTINEL-TEXT", "2.0.0"):
+        assert content_text not in body, "the file's content must not be echoed into the channel"
+    assert str(tmp_path) not in body, "the agent's path must not reach the channel"
+    assert "run_url" not in body, "no run URL in this environment, so no empty run_url field"
 
 
 @pytest.mark.parametrize(
@@ -135,9 +137,12 @@ def test_ado_run_url(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in ("GITHUB_SERVER_URL", "GITHUB_REPOSITORY", "GITHUB_RUN_ID"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("SYSTEM_COLLECTIONURI", "https://dev.azure.com/org/")
-    monkeypatch.setenv("SYSTEM_TEAMPROJECT", "proj")
+    monkeypatch.setenv("SYSTEM_TEAMPROJECT", "My Data Platform")
     monkeypatch.setenv("BUILD_BUILDID", "7")
-    assert _notify_main._run_url() == "https://dev.azure.com/org/proj/_build/results?buildId=7"
+    assert (
+        _notify_main._run_url()
+        == "https://dev.azure.com/org/My%20Data%20Platform/_build/results?buildId=7"
+    )
 
 
 def test_an_invalid_sink_configuration_sends_nothing_and_exits_1(

@@ -63,12 +63,6 @@ stages:
       - job: drift_check
         displayName: 'sigantry diff'
         steps:
-          # #34: an empty drift.json from the start, so a job that fails
-          # before the diff step (install, sign-in) still publishes one. The
-          # notify stage then announces that the check produced no report,
-          # instead of failing at the artifact download with nothing sent.
-          - script: ': > drift.json'
-            displayName: 'Start with an empty drift.json'
           - template: ../steps/sigantry-install.yml
             parameters:
               sigantryVersion: ${{ parameters.sigantryVersion }}
@@ -111,8 +105,14 @@ stages:
           - template: ../steps/sigantry-install.yml
             parameters:
               sigantryVersion: ${{ parameters.sigantryVersion }}
+          # #34: when the drift job failed before publishing anything
+          # (checkout, install, sign-in), there is no artifact. The
+          # dispatcher must still run: it announces a missing drift.json as
+          # a check that produced no report. So the download may fail
+          # without stopping the job.
           - download: current
             artifact: drift_json
+            continueOnError: true
           - script: |
               set -e
               python -m sigantry_core.sync._notify_main \

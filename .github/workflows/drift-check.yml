@@ -79,12 +79,6 @@ jobs:
       SIGANTRY_DRIFT_ENVIRONMENT: ${{ inputs.environment }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # #34: an empty drift.json from the start, so a job that fails before
-      # the diff step (sign-in, install) still uploads one. The notify job
-      # then announces that the check produced no report, instead of failing
-      # at the artifact download with nothing sent.
-      - name: Start with an empty drift.json
-        run: ': > drift.json'
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with: { python-version: '3.11' }
       - name: Azure login (OIDC)
@@ -135,7 +129,12 @@ jobs:
         env:
           SIGANTRY_VERSION: ${{ inputs.sigantryVersion }}
         run: pip install "sigantry${SIGANTRY_VERSION:+==$SIGANTRY_VERSION}"
+      # #34: when the drift job failed before uploading anything (checkout,
+      # sign-in, install), there is no artifact. The dispatcher must still
+      # run: it announces a missing drift.json as a check that produced no
+      # report. So the download may fail without stopping the job.
       - name: Download drift.json artifact
+        continue-on-error: true
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: drift_json

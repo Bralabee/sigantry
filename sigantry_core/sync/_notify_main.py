@@ -60,6 +60,7 @@ import logging
 import os
 import sys
 from pathlib import Path
+from urllib.parse import quote
 
 from sigantry_core.notifications import sink_from_env
 from sigantry_core.protocols import NotificationEvent
@@ -129,7 +130,7 @@ def _drift_report_from_json(payload: object) -> DriftReport:
         raise NoDriftReportError(f"the object lacks the drift report keys {missing}")
     version = payload["schema_version"]
     if not isinstance(version, str) or not version.startswith("1."):
-        raise NoDriftReportError(f"schema_version is not a 1.x version string: {version!r}")
+        raise NoDriftReportError("schema_version is not a 1.x version string")
     for key in _REPORT_LISTS:
         value = payload[key]
         if not isinstance(value, list) or not all(isinstance(e, dict) for e in value):
@@ -144,18 +145,20 @@ def _drift_report_from_json(payload: object) -> DriftReport:
 
 
 def _read_report(path: Path) -> DriftReport:
+    """The report at ``path``; the reasons name the file only, not the agent's path."""
+    name = path.name
     if not path.is_file():
-        raise NoDriftReportError(f"{path} does not exist")
+        raise NoDriftReportError(f"{name} does not exist")
     try:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
-        raise NoDriftReportError(f"{path} could not be read ({type(exc).__name__})") from exc
+        raise NoDriftReportError(f"{name} could not be read ({type(exc).__name__})") from exc
     if not text.strip():
-        raise NoDriftReportError(f"{path} is empty")
+        raise NoDriftReportError(f"{name} is empty")
     try:
         payload = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise NoDriftReportError(f"{path} is not valid JSON ({exc.msg})") from exc
+        raise NoDriftReportError(f"{name} is not valid JSON ({exc.msg})") from exc
     return _drift_report_from_json(payload)
 
 
@@ -171,7 +174,7 @@ def _run_url() -> str:
     project = env.get("SYSTEM_TEAMPROJECT", "")
     build = env.get("BUILD_BUILDID", "")
     if collection and project and build:
-        return f"{collection.rstrip('/')}/{project}/_build/results?buildId={build}"
+        return f"{collection.rstrip('/')}/{quote(project)}/_build/results?buildId={quote(build)}"
     return ""
 
 
@@ -187,7 +190,11 @@ def _no_report_event(reason: str, *, workspace_id: str) -> NotificationEvent:
             f"workspace was not compared. {where}"
         ),
         level="error",
-        properties={"workspace_id": workspace_id, "outcome": "no_report", "run_url": url},
+        properties={
+            "workspace_id": workspace_id,
+            "outcome": "no_report",
+            **({"run_url": url} if url else {}),
+        },
     )
 
 
@@ -240,7 +247,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         report = _read_report(drift_path)
     except NoDriftReportError as exc:
-        logger.error("drift_json_not_a_report path=%s reason=%s", drift_path, exc)
+        logger.error("drift_json_not_a_report path=%s reason=%s", drift_path.resolve(), exc)
         print(
             f"sigantry _notify_main: no drift report ({exc}); "
             "announcing an operational failure of the drift check",

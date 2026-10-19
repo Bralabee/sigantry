@@ -225,30 +225,31 @@ def test_dual_ci_parity_lint_passes_with_drift_pair() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 9. A drift.json exists however the drift job fails (#34)
+# 9. The dispatcher runs even when there is no artifact (#34)
 # ---------------------------------------------------------------------------
 
-_EMPTY_DRIFT_JSON = ": > drift.json"
 
+def test_drift_pair_runs_the_dispatcher_when_the_artifact_is_missing() -> None:
+    """The download may fail without stopping the notify job, so the dispatcher still runs.
 
-def test_drift_pair_starts_with_an_empty_drift_json_and_always_uploads_it() -> None:
-    """The file is created before any step that can fail, and uploaded on any outcome.
-
-    Without it, a drift job failing before ``sigantry diff`` (sign-in,
-    install) uploads no artifact, the notify job dies at the download, and
-    nobody hears the drift check stopped working. ``actions/checkout``
-    cleans the workspace, so on GitHub the step must come after it.
+    A drift job that fails before uploading (checkout, sign-in, install)
+    leaves no artifact. A failing download would end the notify job with
+    nothing sent; the dispatcher announces a missing drift.json as a check
+    that produced no report, so it must run after the download either way.
     """
-    gha_steps = yaml.safe_load(GHA_WORKFLOW.read_text("utf-8"))["jobs"]["drift_check"]["steps"]
-    assert str(gha_steps[0].get("uses", "")).startswith("actions/checkout@"), gha_steps[0]
-    assert gha_steps[1].get("run") == _EMPTY_DRIFT_JSON, gha_steps[1]
-    (upload,) = [s for s in gha_steps if str(s.get("uses", "")).startswith("actions/upload")]
-    assert upload.get("if") == "always()" and upload["with"]["path"] == "drift.json", upload
+    gha_steps = yaml.safe_load(GHA_WORKFLOW.read_text("utf-8"))["jobs"]["notify"]["steps"]
+    (download,) = [s for s in gha_steps if str(s.get("uses", "")).startswith("actions/download")]
+    assert download.get("continue-on-error") is True, download
+    after = gha_steps[gha_steps.index(download) + 1 :]
+    (dispatch,) = [s for s in after if "_notify_main" in str(s.get("run", ""))]
+    assert "if" not in dispatch and "continue-on-error" not in dispatch, dispatch
 
     ado = yaml.safe_load(ADO_TEMPLATE.read_text("utf-8"))
-    (stage,) = [s for s in ado["stages"] if s["stage"] == "drift_check"]
+    (stage,) = [s for s in ado["stages"] if s["stage"] == "notify"]
     (job,) = stage["jobs"]
-    ado_steps = job["steps"]
-    assert ado_steps[0].get("script") == _EMPTY_DRIFT_JSON, ado_steps[0]
-    (publish,) = [s for s in ado_steps if "publish" in s]
-    assert publish == {"publish": "drift.json", "artifact": "drift_json", "condition": "always()"}
+    steps = job["steps"]
+    (download,) = [s for s in steps if s.get("download") == "current"]
+    assert download == {"download": "current", "artifact": "drift_json", "continueOnError": True}
+    after = steps[steps.index(download) + 1 :]
+    (dispatch,) = [s for s in after if "_notify_main" in str(s.get("script", ""))]
+    assert "condition" not in dispatch and "continueOnError" not in dispatch, dispatch
