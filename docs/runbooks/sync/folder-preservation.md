@@ -75,7 +75,7 @@ After `sigantry sync apply` (no `--unpublish-orphans`):
   archive/                          <-- untouched (additive default)
 ```
 
-After `sigantry sync apply --unpublish-orphans` (opt-in cleanup pass):
+After `sigantry sync apply --unpublish-orphans --force` (opt-in cleanup pass; without `--force` a real run is refused):
 
 ```text
 /
@@ -93,7 +93,7 @@ The `/archive/` folder was orphan and not in `folders[]`, so the reconciler's le
 
 ## 5. Verification
 
-Run `sigantry sync apply --dry-run --unpublish-orphans` and inspect the printed plan. The plan structure includes a `delete_folders[]` array; entries in `folders[]` (and their ancestors) MUST NOT appear there:
+Run `sigantry sync apply --dry-run --unpublish-orphans` and read the list it prints: every workspace item (type and name) and every folder it would delete. A path in `folders[]` (or an ancestor of one) MUST NOT appear in it, and nor may any item you did not expect to lose, a Lakehouse or Warehouse above all, since the manifest never lists them. A dry run needs no `--force`:
 
 ```bash
 sigantry sync apply --manifest sync.yml --workspace-id <id> --dry-run --unpublish-orphans

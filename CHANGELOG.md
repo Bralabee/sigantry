@@ -40,6 +40,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   made after it.
 
 ### Fixed
+- `sigantry sync apply --unpublish-orphans` now needs `--force`, as
+  `docs/runbooks/sync/apply.md` always said. It passed `force` to the
+  reconciler on the strength of `--unpublish-orphans` alone, so that one flag
+  deleted every workspace item absent from `sync.yml`, whatever its type: a
+  Lakehouse or Warehouse is never in a manifest. `--dry-run` computed that
+  list and printed none of it; it now names every item and folder it would
+  delete, and the applied run names those it deleted. A real run without
+  `--force` exits 1 before the first request and writes no audit record
+  (`apply_sync` raises `OrphanUnpublishNotForcedError`). A script that passes
+  only `--unpublish-orphans` must add `--force`.
 - `scripts/ci/check-no-sys-path.py` no longer passes having read nothing, or
   having skipped what git lists (#14). A root that does not exist, a
   directory with no files outside git, and a file it cannot read now exit 2

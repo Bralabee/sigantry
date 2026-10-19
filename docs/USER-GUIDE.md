@@ -1314,7 +1314,8 @@ Verbs (18 subcommands; run `sigantry <verb> --help` for the full flag set):
       --dry-run                          print plan, exit 0 without applying
       --with-publish                     compose folder reconcile + first-time publish
       --params PATH                      required when --with-publish
-      --unpublish-orphans                delete folders/items absent from manifest
+      --unpublish-orphans                delete folders/items absent from manifest (needs --force)
+      --force                            confirm --unpublish-orphans; --dry-run needs none
     pull                                 -- mirror live workspace into local IaC
       --workspace-id GUID                (required)
       --into DIR                         (required) destination; must be empty
