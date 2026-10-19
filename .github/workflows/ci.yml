@@ -88,26 +88,39 @@ jobs:
         if: runner.os == 'Windows'
         shell: python
         run: |
-          import os, shutil, subprocess, sys, tempfile, zlib
+          import importlib.util, subprocess, sys
+          from collections import Counter
           sys.path.insert(0, ".")
           from tests.ci.test_name_gate import _pdf
-          for tool in ("pdftotext", "pdfinfo"):
-              print(tool, "->", shutil.which(tool))
-          w = subprocess.run(["where", "pdftotext"], capture_output=True, text=True)
-          print("where:", w.stdout, w.stderr)
-          v = subprocess.run([shutil.which("pdftotext"), "-v"], capture_output=True)
-          print("version rc", v.returncode, v.stdout[:300], v.stderr[:300])
+          spec = importlib.util.spec_from_file_location("gate", "scripts/ci/check-name-gate.py")
+          gate = importlib.util.module_from_spec(spec); sys.modules["gate"] = gate; spec.loader.exec_module(gate)
+          real = subprocess.run
+          log = []
+          def spy(cmd, *a, **k):
+              r = real(cmd, *a, **k)
+              if "pdftotext" in str(cmd[0]).lower():
+                  log.append((r.returncode, r.stderr[:200]))
+              return r
+          gate.subprocess.run = spy
           for lead in (b"", b"\n"):
               data = _pdf("Prepared for zqplant", lead=lead)
-              results = []
-              for i in range(20):
-                  with tempfile.TemporaryDirectory() as d:
-                      p = os.path.join(d, "in.pdf")
-                      open(p, "wb").write(data)
-                      r = subprocess.run([shutil.which("pdftotext"), "-q", "-enc", "UTF-8", p, "-"], capture_output=True, timeout=120)
-                      results.append((r.returncode, r.stdout[:60], r.stderr[:200]))
-              from collections import Counter
-              print("lead", lead, Counter(results).most_common())
+              log.clear(); texts = Counter()
+              for i in range(50):
+                  for u in gate.extract_units(data, "docs/report.pdf"):
+                      if u.name.endswith("#pdf-text"):
+                          texts["UNREADABLE" if u.texts is None else "read"] += 1
+              print("lead", lead, "tool results", Counter(log).most_common(), "units", texts.most_common())
+          gate.subprocess.run = real
+          fails = 0
+          for i in range(25):
+              p = real([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
+                        "tests/ci/test_name_gate.py::test_a_pdf_with_bytes_before_its_header_is_still_a_pdf"],
+                       capture_output=True, text=True)
+              if p.returncode != 0:
+                  fails += 1
+                  if fails == 1:
+                      print(p.stdout[-1500:])
+          print("isolated test runs: 25, failed:", fails)
       - name: Run pytest
         run: python -m pytest tests/ -m "not integration and not smoke"
 
