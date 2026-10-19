@@ -85,6 +85,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Both old names are planned for removal in 2.0.
 
 ### Fixed
+- A scheduled drift check that produces no drift report is announced as
+  failed instead of sending nothing (#34). When `sigantry diff` exits 2 it
+  leaves `drift.json` empty, and `python -m sigantry_core.sync._notify_main`
+  exited 1 without posting. It now resolves the sink first and posts an
+  error-level "Sigantry drift check FAILED" message that says the workspace
+  was not compared and links the CI run, then exits 1. It also no longer
+  reads an object that is not a drift report as one: `{}` or
+  `{"error": "..."}` posted "drift OK" and exited 0, and a drift report
+  missing a key had that key read as empty. A report must now carry all five
+  D-23 keys, a `1.x` `schema_version`, and lists of objects; further keys
+  are accepted. The message names the file only and quotes nothing from
+  it. In both drift-check templates (`.github/workflows/drift-check.yml`,
+  `templates/schedules/drift-check.yml`) the notify job's artifact download
+  may now fail without stopping the job, so a drift job that failed before
+  uploading anything (checkout, sign-in, install) is announced too, as a
+  missing `drift.json`. Both install sigantry from PyPI, so the fix reaches
+  them with the release that carries it.
 - The ADO job template `templates/jobs/lint-python.yml` fails when `ruff
   check` fails (part of #22). It ran `ruff check` and `ruff format --check`
   in one `script:` step. On a Linux agent that step is bash without errexit,

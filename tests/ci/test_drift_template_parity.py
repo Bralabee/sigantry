@@ -222,3 +222,34 @@ def test_dual_ci_parity_lint_passes_with_drift_pair() -> None:
     assert "drift-check.yml" in result.stdout, (
         f"drift-check pair did not appear in dual-CI parity verbose output:\n{result.stdout}"
     )
+
+
+# ---------------------------------------------------------------------------
+# 9. The dispatcher runs even when there is no artifact (#34)
+# ---------------------------------------------------------------------------
+
+
+def test_drift_pair_runs_the_dispatcher_when_the_artifact_is_missing() -> None:
+    """The download may fail without stopping the notify job, so the dispatcher still runs.
+
+    A drift job that fails before uploading (checkout, sign-in, install)
+    leaves no artifact. A failing download would end the notify job with
+    nothing sent; the dispatcher announces a missing drift.json as a check
+    that produced no report, so it must run after the download either way.
+    """
+    gha_steps = yaml.safe_load(GHA_WORKFLOW.read_text("utf-8"))["jobs"]["notify"]["steps"]
+    (download,) = [s for s in gha_steps if str(s.get("uses", "")).startswith("actions/download")]
+    assert download.get("continue-on-error") is True, download
+    after = gha_steps[gha_steps.index(download) + 1 :]
+    (dispatch,) = [s for s in after if "_notify_main" in str(s.get("run", ""))]
+    assert "if" not in dispatch and "continue-on-error" not in dispatch, dispatch
+
+    ado = yaml.safe_load(ADO_TEMPLATE.read_text("utf-8"))
+    (stage,) = [s for s in ado["stages"] if s["stage"] == "notify"]
+    (job,) = stage["jobs"]
+    steps = job["steps"]
+    (download,) = [s for s in steps if s.get("download") == "current"]
+    assert download == {"download": "current", "artifact": "drift_json", "continueOnError": True}
+    after = steps[steps.index(download) + 1 :]
+    (dispatch,) = [s for s in after if "_notify_main" in str(s.get("script", ""))]
+    assert "condition" not in dispatch and "continueOnError" not in dispatch, dispatch

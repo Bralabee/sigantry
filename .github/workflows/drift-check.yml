@@ -129,7 +129,12 @@ jobs:
         env:
           SIGANTRY_VERSION: ${{ inputs.sigantryVersion }}
         run: pip install "sigantry${SIGANTRY_VERSION:+==$SIGANTRY_VERSION}"
+      # #34: when the drift job failed before uploading anything (checkout,
+      # sign-in, install), there is no artifact. The dispatcher must still
+      # run: it announces a missing drift.json as a check that produced no
+      # report. So the download may fail without stopping the job.
       - name: Download drift.json artifact
+        continue-on-error: true
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: drift_json
