@@ -403,8 +403,10 @@ def _run_tool(tool: str, args: list[str], data: bytes) -> str | None:
                 timeout=TOOL_TIMEOUT_SECONDS,
             )
         except subprocess.TimeoutExpired:
+            sys.stderr.write(f"DIAG {tool} timeout\n")
             return None
     if result.returncode != 0:
+        sys.stderr.write(f"DIAG {tool} rc={result.returncode} err={result.stderr[:300]!r}\n")
         return None
     return result.stdout.decode("utf-8", errors="replace")
 

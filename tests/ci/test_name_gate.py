@@ -324,7 +324,7 @@ def test_a_pdf_with_bytes_before_its_header_is_still_a_pdf(tmp_path: Path) -> No
     pdf = _pdf("Prepared for zqplant", lead=b"\n")
     proc = _run(_tree(tmp_path, {**BASE, "docs/report.pdf": pdf}), tmp_path)
     assert proc.returncode == 1
-    assert "docs/report.pdf#pdf-text:1 S01" in _hits(proc)
+    assert "docs/report.pdf#pdf-text:1 S01" in _hits(proc), proc.stderr
 
 
 def test_pdf_metadata_is_read_from_the_raw_bytes(tmp_path: Path) -> None:
