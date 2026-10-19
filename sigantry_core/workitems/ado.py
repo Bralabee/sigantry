@@ -41,6 +41,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Final
 
+from sigantry_core._ado_organization import ado_organization_name
 from sigantry_core.auth import TokenProvider, get_token_provider
 from sigantry_core.auth.audiences import AZURE_DEVOPS_SCOPE
 from sigantry_core.client.base import BaseRestClient
@@ -128,6 +129,7 @@ class AdoWorkItemProvider:
         token_provider: TokenProvider,
         http_client: Any | None = None,
     ) -> None:
+        organization = ado_organization_name(organization)
         self._client = BaseRestClient(
             token_provider=token_provider,
             base_url=f"https://dev.azure.com/{organization}",

@@ -181,7 +181,7 @@ sigantry release record --provider github \
 # expect: one-line summary; issue #42 gains a release comment with the audit hash
 ```
 
-ADO works the same with `--provider ado --ado-organization ... --ado-project ...`.
+ADO works the same with `--provider ado --ado-organization ... --ado-project ...`; `--ado-organization` takes the organization name or the collection URL a pipeline holds in `$(System.CollectionUri)`.
 
 ## A note on ledger hygiene
 

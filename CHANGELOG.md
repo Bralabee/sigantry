@@ -80,6 +80,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   as one line): the name must be `sigantry`, unpinned or pinned
   `>=1.N,<2` (the four ADRs that quote the old instructions as history are
   exempt).
+- The Azure DevOps CD template no longer fails its release-record step on the
+  first request. It passes `--ado-organization "$(System.CollectionUri)"`, a
+  full URL, and every ADO client built `https://dev.azure.com/{organization}`
+  from the string it was given, so the base URL read
+  `https://dev.azure.com/https://dev.azure.com/<org>/`. The work-item
+  provider, the PR bot provider, the approval gate and the variable-group
+  secret store now read the organization from either its name or its
+  collection URL (`https://dev.azure.com/<org>/` or
+  `https://<org>.visualstudio.com/`). Any other URL, an Azure DevOps Server
+  collection for one, is refused with a message naming the host only;
+  `release record` reports it as a usage error (exit 2) and writes no audit
+  record, where it used to record against the nonsense URL and exit 0. The PR
+  bot's pipeline-variable parse, which took the last path segment, read a
+  `visualstudio.com` URL as the organization `<org>.visualstudio.com`; it now
+  uses the same reader.
 
 ## [1.1.0] - 2026-10-15
 
