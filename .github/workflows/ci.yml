@@ -84,6 +84,30 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: pip install -e '.[test]'
+      - name: DIAGNOSTIC (temporary) pdftotext on Windows
+        if: runner.os == 'Windows'
+        shell: python
+        run: |
+          import os, shutil, subprocess, sys, tempfile, zlib
+          sys.path.insert(0, "tests/ci")
+          from test_name_gate import _pdf
+          for tool in ("pdftotext", "pdfinfo"):
+              print(tool, "->", shutil.which(tool))
+          w = subprocess.run(["where", "pdftotext"], capture_output=True, text=True)
+          print("where:", w.stdout, w.stderr)
+          v = subprocess.run([shutil.which("pdftotext"), "-v"], capture_output=True)
+          print("version rc", v.returncode, v.stdout[:300], v.stderr[:300])
+          for lead in (b"", b"\n"):
+              data = _pdf("Prepared for zqplant", lead=lead)
+              results = []
+              for i in range(20):
+                  with tempfile.TemporaryDirectory() as d:
+                      p = os.path.join(d, "in.pdf")
+                      open(p, "wb").write(data)
+                      r = subprocess.run([shutil.which("pdftotext"), "-q", "-enc", "UTF-8", p, "-"], capture_output=True, timeout=120)
+                      results.append((r.returncode, r.stdout[:60], r.stderr[:200]))
+              from collections import Counter
+              print("lead", lead, Counter(results).most_common())
       - name: Run pytest
         run: python -m pytest tests/ -m "not integration and not smoke"
 
