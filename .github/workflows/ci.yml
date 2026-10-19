@@ -88,43 +88,18 @@ jobs:
         if: runner.os == 'Windows'
         shell: python
         run: |
-          import os, subprocess, sys, tempfile, textwrap
-          from collections import Counter
-          from pathlib import Path
-          sys.path.insert(0, ".")
-          from tests.ci.test_name_gate import _pdf, _tree, LIST, BASE, GATE
-          wrapper = textwrap.dedent("""
-              import importlib.util, subprocess, sys, os
-              spec = importlib.util.spec_from_file_location("gate", sys.argv[1])
-              gate = importlib.util.module_from_spec(spec); sys.modules["gate"] = gate; spec.loader.exec_module(gate)
-              real = subprocess.run
-              def spy(cmd, *a, **k):
-                  try:
-                      r = real(cmd, *a, **k)
-                  except Exception as e:
-                      sys.stderr.write("SPY EXC %r %r\\n" % (cmd[0], e)); raise
-                  if "pdftotext" in str(cmd[0]).lower():
-                      sys.stderr.write("SPY rc=%s err=%r exists=%s\\n" % (r.returncode, r.stderr[:300], [os.path.exists(c) for c in cmd[1:] if str(c).endswith('.pdf')]))
-                  return r
-              gate.subprocess.run = spy
-              sys.exit(gate.main(sys.argv[2:]))
-          """)
-          base = Path(tempfile.mkdtemp())
-          (base / "w.py").write_text(wrapper)
-          lst = base / "list.txt"; lst.write_text(LIST, encoding="utf-8")
-          outcomes = Counter(); shown = 0
+          import subprocess, sys
+          fails = 0
           for i in range(60):
-              tmp = base / f"t{i}"; tmp.mkdir()
-              root = _tree(tmp, {**BASE, "docs/report.pdf": _pdf("Prepared for zqplant", lead=b"\n")})
-              env = {k: v for k, v in os.environ.items() if k != "NAME_GATE_TOKENS"}
-              env["GIT_CEILING_DIRECTORIES"] = str(tmp)
-              p = subprocess.run([sys.executable, str(base / "w.py"), str(GATE), "--root", str(root), "--list-file", str(lst)], capture_output=True, text=True, env=env)
-              bad = "pdf-text:0 UNREADABLE" in p.stdout
-              outcomes[bad] += 1
-              if bad and shown < 4:
-                  shown += 1
-                  print("RUN", i, "STDERR:", p.stderr[-800:])
-          print("gate CLI runs 60, UNREADABLE:", outcomes[True])
+              p = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
+                                  "tests/ci/test_name_gate.py::test_a_pdf_with_bytes_before_its_header_is_still_a_pdf"],
+                                 capture_output=True, text=True)
+              if p.returncode != 0:
+                  fails += 1
+                  for line in p.stdout.splitlines():
+                      if "DIAG" in line:
+                          print("RUN", i, line.strip()[:500])
+          print("isolated test runs: 60, failed:", fails)
       - name: Run pytest
         run: python -m pytest tests/ -m "not integration and not smoke"
 
