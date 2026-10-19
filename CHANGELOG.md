@@ -34,6 +34,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `addopts`. Configuration that excludes a single existing file is not seen.
 
 ### Changed
+- A `Review-Record:` comment counts for the `review-record` status only when
+  it names the head commit in full: `on <40-hex sha>`, or 64 hex in a
+  SHA-256 repository (#98). The vendored
+  `scripts/gates/review-record-check.sh` matched the first 12 hex, so two
+  commits sharing that prefix shared one record. The owner's waiver is
+  matched the same way and is written `Review-Record: WAIVED sha=<the full
+  head sha>`; a record or waiver naming a 12-hex prefix no longer counts.
 - `steps/fabric-validate.yml`, `steps/fabric-vl-apply.yml` and
   `steps/fabric-git-commit.yml` pass the version to `pip` through the step's
   `env:`, as `steps/fabric-deploy.yml` does, instead of writing the
