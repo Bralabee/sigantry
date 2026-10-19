@@ -40,6 +40,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   made after it.
 
 ### Fixed
+- `sigantry sync apply --unpublish-orphans` now needs `--force`, as
+  `docs/runbooks/sync/apply.md` always said. It passed `force` to the
+  reconciler on the strength of `--unpublish-orphans` alone, so that one flag
+  deleted every workspace item absent from `sync.yml`, whatever its type: a
+  Lakehouse or Warehouse is never in a manifest. `--dry-run` computed that
+  list and printed none of it; it now names every item and folder it would
+  delete (and the folder each item is in: a `folders[]` entry keeps the
+  folder, not the items inside it), and a successful applied run names those
+  it deleted. A real run without
+  `--force` exits 1 before the first request and writes no audit record
+  (`apply_sync` raises `OrphanUnpublishNotForcedError`). A script that passes
+  only `--unpublish-orphans` must add `--force`.
 - The name gate (`scripts/ci/check-name-gate.py`) runs a PDF reader again
   when it crashes, up to five runs in all. On `windows-latest` the
   `pdftotext` on PATH is the xpdf 4.06 that Git for Windows ships. For a PDF

@@ -4,15 +4,17 @@
 
 ## 1. Overview
 
-By default, `sigantry sync apply` is **purely additive** -- it creates folders and moves items, but **does not delete any folders or items** even if they are absent from the manifest. Operators who want to clean up workspace folders that have drifted away from the manifest must opt in with `sigantry sync apply --unpublish-orphans` (default off, SemVer-safe).
+By default, `sigantry sync apply` is **purely additive** -- it creates folders and moves items, but **does not delete any folders or items** even if they are absent from the manifest. Operators who want to clean up workspace folders that have drifted away from the manifest must opt in with `sigantry sync apply --unpublish-orphans --force` (default off, SemVer-safe; without `--force` a real run is refused before it touches the workspace).
 
 When `--unpublish-orphans` is set, the reconciler computes the orphan-folder list (workspace folders that are not required by any manifest item), filters it through the manifest's `folders[]` preservation set, and deletes the remainder. The preservation filter is **inclusive of ancestors** -- declaring `/raw/UI-Created` as preserved automatically keeps `/raw` alive too, because leaf-first deletion of the parent would otherwise drop the protected child.
 
-`--with-publish` (Phase 17 / SYNC-PUBLISH) is a separate flag that drives `fabric-cicd.publish_all_items` for first-time item creation. fabric-cicd 1.0.x has its own internal `_unpublish_folders` behaviour during publish; that behaviour is **not** filtered by `manifest.folders[]` today. If you need to publish first-time items AND protect UI-created folders simultaneously, the safest order is: `sync apply --with-publish` for the items, then a separate `sync apply --unpublish-orphans` pass to enforce the preservation contract over the post-publish workspace state. (Or skip `--unpublish-orphans` entirely if you don't need cleanup.)
+**The preservation set keeps folders, not the items inside them.** A workspace item whose `(display name, type)` is absent from the manifest is deleted wherever it sits, including inside a folder listed in `folders[]`; the folder survives empty. The dry run names the folder each item is in (`Notebook: Adhoc (in raw/UI-Created)`), so read that list before confirming with `--force`.
+
+`--with-publish` (Phase 17 / SYNC-PUBLISH) is a separate flag that drives `fabric-cicd.publish_all_items` for first-time item creation. fabric-cicd 1.0.x has its own internal `_unpublish_folders` behaviour during publish; that behaviour is **not** filtered by `manifest.folders[]` today. If you need to publish first-time items AND protect UI-created folders simultaneously, the safest order is: `sync apply --with-publish` for the items, then a separate `sync apply --unpublish-orphans` pass to enforce the preservation contract over the post-publish workspace state: first with `--dry-run` to read what it would delete (section 5), then with `--force` to delete it. (Or skip `--unpublish-orphans` entirely if you don't need cleanup.)
 
 ## 2. Why this matters
 
-If an operator created a folder via the Fabric portal UI -- e.g. an analyst manually created `/raw/UI-Created` to drop ad-hoc files into -- and that folder is NOT declared in the manifest's `folders[]` preservation set, then a future `sync apply --unpublish-orphans` run will delete it because the staging tree (built from `sync.yml`'s `items[]`) doesn't reach into that path.
+If an operator created a folder via the Fabric portal UI -- e.g. an analyst manually created `/raw/UI-Created` to drop ad-hoc files into -- and that folder is NOT declared in the manifest's `folders[]` preservation set, then a future `sync apply --unpublish-orphans --force` run will delete it because the staging tree (built from `sync.yml`'s `items[]`) doesn't reach into that path.
 
 The deletion is non-recoverable without a workspace restore. **If you intend to use `--unpublish-orphans`, treat the preservation set as a hard constraint, not a nice-to-have.** A pure `sync apply` (no `--unpublish-orphans`) leaves these folders untouched regardless.
 
@@ -75,7 +77,7 @@ After `sigantry sync apply` (no `--unpublish-orphans`):
   archive/                          <-- untouched (additive default)
 ```
 
-After `sigantry sync apply --unpublish-orphans` (opt-in cleanup pass):
+After `sigantry sync apply --unpublish-orphans --force` (opt-in cleanup pass; without `--force` a real run is refused):
 
 ```text
 /
@@ -93,7 +95,7 @@ The `/archive/` folder was orphan and not in `folders[]`, so the reconciler's le
 
 ## 5. Verification
 
-Run `sigantry sync apply --dry-run --unpublish-orphans` and inspect the printed plan. The plan structure includes a `delete_folders[]` array; entries in `folders[]` (and their ancestors) MUST NOT appear there:
+Run `sigantry sync apply --dry-run --unpublish-orphans` and read the list it prints: every workspace item (type and name) and every folder it would delete. A path in `folders[]` (or an ancestor of one) MUST NOT appear in it, and nor may any item you did not expect to lose, a Lakehouse or Warehouse above all, since the manifest never lists them. A dry run needs no `--force`:
 
 ```bash
 sigantry sync apply --manifest sync.yml --workspace-id <id> --dry-run --unpublish-orphans

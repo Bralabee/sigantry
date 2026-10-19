@@ -48,6 +48,15 @@ class ManifestValidationError(SyncEngineError):
         self.violations: list[dict] = violations or []
 
 
+class OrphanUnpublishNotForcedError(SyncEngineError):
+    """``sync apply --unpublish-orphans`` without ``--force``; refused up front.
+
+    Raised before the first request, so nothing is changed and no audit
+    record is written. ``--dry-run`` is exempt: it deletes nothing, and it is
+    how an operator reads the list before confirming.
+    """
+
+
 class WorkspacePendingGitUpdateError(SyncEngineError):
     """Workspace has pending Git Sync updates; ``sync apply`` refuses (D-18).
 
@@ -205,6 +214,7 @@ class PullDefinitionDecodeError(PullDefinitionFetchError):
 
 __all__ = (
     "ManifestValidationError",
+    "OrphanUnpublishNotForcedError",
     "PullDefinitionDecodeError",
     "PullDefinitionFetchError",
     "PullDefinitionPathTraversalError",

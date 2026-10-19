@@ -79,6 +79,7 @@ from sigantry_core.deploy.sync_publish import (
 from sigantry_core.governance.audit import emit_deploy_record
 from sigantry_core.release.record import DeployRecord
 from sigantry_core.sync.errors import (
+    OrphanUnpublishNotForcedError,
     ReconcilerWrapError,
     SyncPublishError,
     WorkspacePendingGitUpdateError,
@@ -87,6 +88,7 @@ from sigantry_core.sync.manifest import SyncItem, SyncManifest, load_manifest
 from sigantry_core.sync.packagers import PACKAGER_REGISTRY
 from sigantry_core.sync.snapshot import snapshot_workspace
 from sigantry_core.workspace.reconciler import (
+    ReconcilePlan,
     ReconcileReport,
     reconcile_folders_from_repo,
 )
@@ -124,6 +126,23 @@ class SyncApplyReport:
     # failed publish can no longer read as a green ``sync apply``.
     publish_outcome: str | None = None
     failed_item: str | None = None
+    # Workspace items and folders absent from the manifest that the
+    # reconciler planned to remove; empty unless ``unpublish_orphans``. On a
+    # dry run this is what WOULD be deleted, after a forced apply what WAS.
+    orphan_items: tuple[str, ...] = ()
+    orphan_folders: tuple[str, ...] = ()
+
+
+def _orphan_items(plan: ReconcilePlan) -> tuple[str, ...]:
+    return tuple(
+        f"{i.item_type}: {i.display_name}"
+        + (f" (in {'/'.join(i.current_folder_path)})" if i.current_folder_path else "")
+        for i in plan.unpublish_items
+    )
+
+
+def _orphan_folders(plan: ReconcilePlan) -> tuple[str, ...]:
+    return tuple("/".join(f.path) for f in plan.delete_folders)
 
 
 def _utc_iso_with_z() -> str:
@@ -234,6 +253,7 @@ def _reconcile_phase(
     staging_dir: Path,
     apply: bool,
     unpublish_orphans: bool,
+    force: bool,
     token_provider: TokenProvider | None,
     manifest,
     reconcile_fn,
@@ -253,7 +273,7 @@ def _reconcile_phase(
                 repository_directory=staging_dir,
                 apply=apply,
                 unpublish_orphans=unpublish_orphans,
-                force=unpublish_orphans,
+                force=force,
                 token_provider=token_provider,
                 preserve_paths=manifest.folders if manifest else None,
             ),
@@ -364,6 +384,8 @@ def _emit_combined_publish_record_phase(
         # raises on failure -- must not be swallowed into a green exit.
         publish_outcome=publish_result.outcome,
         failed_item=publish_result.failed_item,
+        orphan_items=_orphan_items(report.plan),
+        orphan_folders=_orphan_folders(report.plan),
     )
 
 
@@ -400,6 +422,8 @@ def _emit_default_record_phase(
         outcome="succeeded",
         failure_reason=None,
         staging_dir=None,
+        orphan_items=_orphan_items(report.plan),
+        orphan_folders=_orphan_folders(report.plan),
     )
 
 
@@ -618,6 +642,22 @@ def _build_combined_record(
     ).with_hash()
 
 
+def _refuse_unforced_orphan_cleanup(unpublish_orphans: bool, force: bool, dry_run: bool) -> None:
+    """Refuse ``--unpublish-orphans`` without ``--force``.
+
+    A dry run is exempt: it deletes nothing and is how the list gets read
+    before the operator confirms.
+    """
+    if unpublish_orphans and not force and not dry_run:
+        raise OrphanUnpublishNotForcedError(
+            "--unpublish-orphans deletes every workspace item and folder that "
+            "is absent from the manifest, items of every type included (a "
+            "Lakehouse or Warehouse is never in a manifest). Preview it with "
+            "--dry-run --unpublish-orphans, then re-run with --force to "
+            "confirm. Nothing was changed and no audit record was written."
+        )
+
+
 def apply_sync(
     manifest_path: str | Path,
     workspace_id: str,
@@ -630,6 +670,7 @@ def apply_sync(
     bulk: bool = False,
     params_path: str | Path | None = None,
     unpublish_orphans: bool = False,
+    force: bool = False,
     client: FabricRestClient | None = None,
     token_provider: TokenProvider | None = None,
     tenant_id: str | None = None,
@@ -707,10 +748,19 @@ def apply_sync(
         Optional :class:`FabricRestClient`; when ``None`` the function
         constructs one via :meth:`FabricRestClient.from_defaults` and
         closes it on exit.
+    unpublish_orphans:
+        Also delete workspace items and folders absent from the manifest.
+        Items of EVERY type go, including Lakehouses and Warehouses, which
+        the packagers never stage and so never appear in a manifest. Needs
+        ``force=True`` unless ``dry_run``; without it
+        :class:`OrphanUnpublishNotForcedError` is raised before the first
+        request. ``SyncApplyReport.orphan_items`` / ``orphan_folders`` list
+        what a dry run would delete and what a forced apply deleted.
+    force:
+        Confirms ``unpublish_orphans``. Alone it enables nothing.
     token_provider:
         Optional :class:`TokenProvider` forwarded to the reconciler's
-        destructive-op gate (used only when orphan cleanup fires --
-        ``apply_sync`` does NOT enable orphan cleanup).
+        destructive-op gate (used only when orphan cleanup fires).
     tenant_id:
         Tenant ID (GUID) the client and the publish credential this
         function builds itself are pinned to: a token from any other
@@ -749,6 +799,9 @@ def apply_sync(
     + ``docs/runbooks/sync/apply.md`` §1.3.
     """
     manifest_path_p = Path(manifest_path)
+
+    # Before a client, a staging dir or an audit record exists.
+    _refuse_unforced_orphan_cleanup(unpublish_orphans, force, dry_run)
 
     # W6: pre-bind ``manifest`` and ``items_packaged`` so the outer
     # ``except`` block can reference them safely even if
@@ -864,6 +917,7 @@ def apply_sync(
             staging_dir=staging_dir,
             apply=not dry_run,
             unpublish_orphans=unpublish_orphans,
+            force=force,
             token_provider=token_provider,
             manifest=manifest,
             reconcile_fn=reconcile_fn,
@@ -896,6 +950,8 @@ def apply_sync(
                 outcome="dry_run",
                 failure_reason=None,
                 staging_dir=None,
+                orphan_items=_orphan_items(report.plan),
+                orphan_folders=_orphan_folders(report.plan),
             )
 
         # Step 8 (W4.2 _emit_*_phase): success -- emit DeployRecord + return.

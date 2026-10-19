@@ -341,6 +341,55 @@ def test_plan_include_orphans_lists_stale_items_and_folders(tmp_path: Path) -> N
     assert ("bronze",) not in [p.path for p in plan.delete_folders]
 
 
+def test_plan_orphan_item_in_a_preserved_folder_is_still_listed_with_its_folder(
+    tmp_path: Path,
+) -> None:
+    """``folders[]`` keeps a FOLDER; it does not protect the items inside it.
+
+    The plan must say so: the orphan stays in ``unpublish_items`` and carries the
+    path of the preserved folder it sits in, so whoever reads the dry run can see
+    what a ``--force`` run takes out of a folder they declared.
+    """
+    _make_platform(tmp_path / "bronze" / "keep.Notebook", "keep", "Notebook")
+    client = MagicMock()
+    client.list_paginated.side_effect = [
+        iter(
+            [
+                {"id": "fb", "displayName": "bronze"},
+                {"id": "fk", "displayName": "keep-me"},
+            ]
+        ),
+        iter(
+            [
+                {
+                    "id": "i_keep",
+                    "displayName": "keep",
+                    "type": "Notebook",
+                    "workspaceId": "ws1",
+                    "folderId": "fb",
+                },
+                {
+                    "id": "i_adhoc",
+                    "displayName": "Adhoc",
+                    "type": "Notebook",
+                    "workspaceId": "ws1",
+                    "folderId": "fk",
+                },
+            ]
+        ),
+    ]
+    plan = plan_reconcile(
+        client,
+        "ws1",
+        repository_directory=tmp_path,
+        include_orphans=True,
+        preserve_paths=["/keep-me"],
+    )
+    assert [p.path for p in plan.delete_folders] == []  # the folder is kept ...
+    (orphan,) = plan.unpublish_items  # ... the item in it is not
+    assert (orphan.display_name, orphan.current_folder_path) == ("Adhoc", ("keep-me",))
+
+
 def test_apply_orphans_requires_force_when_opted_in(tmp_path: Path) -> None:
     """unpublish_orphans=True + force=False when plan has orphans raises
     DestructiveOpError BEFORE any mutation. Mirrors the @destructive_op

@@ -13,8 +13,10 @@ Exit-code conventions:
 
 * ``apply``:
     - ``0`` on success or dry-run.
-    - ``1`` on :class:`ManifestValidationError` (manifest bad shape) and
-      on any other :class:`SyncEngineError` subclass.
+    - ``1`` on :class:`ManifestValidationError` (manifest bad shape),
+      on :class:`OrphanUnpublishNotForcedError` (``--unpublish-orphans``
+      without ``--force``, refused before any request) and on any other
+      :class:`SyncEngineError` subclass.
     - ``2`` on :class:`WorkspacePendingGitUpdateError` (Git Sync state
       not yet ``Synced`` -- D-18). Distinguishable from validation
       errors so CI runners can branch on the exit code.
@@ -67,7 +69,7 @@ from sigantry_core.deploy.parameters import (
     load_and_validate,
 )
 from sigantry_core.governance.audit_io import resolve_audit_dir
-from sigantry_core.sync.apply import apply_sync
+from sigantry_core.sync.apply import SyncApplyReport, apply_sync
 from sigantry_core.sync.errors import (
     ManifestValidationError,
     PullTargetNotEmptyError,
@@ -228,6 +230,28 @@ sync_app = typer.Typer(
 _console = Console()
 
 
+def _print_orphans(report: SyncApplyReport, *, would: bool) -> None:
+    """List the orphans a dry run would delete, or a forced apply deleted.
+
+    Each name goes out as ``Text``: a display name is data, and an item named
+    ``[bold]x[/bold]`` must not be read as Rich markup (issue #80).
+    """
+    if not (report.orphan_items or report.orphan_folders):
+        return
+    verb = "would unpublish" if would else "unpublished"
+    _console.print(
+        Text.assemble(
+            (verb, "yellow"),
+            f" {len(report.orphan_items)} item(s) and delete "
+            f"{len(report.orphan_folders)} folder(s) absent from the manifest:",
+        )
+    )
+    for label in report.orphan_items:
+        _console.print(Text(f"  - {label}"))
+    for path in report.orphan_folders:
+        _console.print(Text(f"  - folder: {path}"))
+
+
 @sync_app.command("apply")
 @stops_on_tenant_error(exit_code=1)
 def apply_cmd(
@@ -295,10 +319,20 @@ def apply_cmd(
         "--unpublish-orphans",
         help=(
             "Delete workspace folders + items absent from the manifest. "
-            "Folders listed in the manifest's `folders[]` preservation set "
-            "(plus their ancestors) are excluded from deletion. Default "
-            "off preserves SemVer-safe additive behaviour. See "
-            "docs/runbooks/sync/folder-preservation.md."
+            "DESTRUCTIVE: items of every type go, Lakehouses and "
+            "Warehouses included, and it needs --force (preview with "
+            "--dry-run). Folders listed in the manifest's `folders[]` "
+            "preservation set (plus their ancestors) are excluded from "
+            "deletion. Default off preserves SemVer-safe additive "
+            "behaviour. See docs/runbooks/sync/folder-preservation.md."
+        ),
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help=(
+            "Required acknowledgement for --unpublish-orphans; "
+            "--dry-run needs none. Alone it enables nothing."
         ),
     ),
     tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
@@ -382,6 +416,7 @@ def apply_cmd(
             bulk=bulk,
             params_path=params,
             unpublish_orphans=unpublish_orphans,
+            force=force,
             tenant_id=pinned,
         )
     except ManifestValidationError as exc:
@@ -407,6 +442,7 @@ def apply_cmd(
                 "manifest item(s).",
             )
         )
+        _print_orphans(report, would=True)
     else:
         _console.print(
             Text.assemble(
@@ -417,6 +453,7 @@ def apply_cmd(
                 f" items_moved={report.items_moved}",
             )
         )
+        _print_orphans(report, would=False)
         # D-26-bis: surface the sync-apply-vs-deploy-run boundary at the
         # exact moment an operator is most likely to be confused by it
         # (first-time project setup -- new folders just created and no

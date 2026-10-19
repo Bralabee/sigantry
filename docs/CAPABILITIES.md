@@ -224,7 +224,8 @@ sequenceDiagram
 | `--republish-existing` | Modifier on `--with-publish`: also refresh the content of manifest items that already exist in the workspace (matched by display name + type). |
 | `--params` | Path to `parameters.yml`. Required when `--with-publish` is set. |
 | `--bulk` | Modifier on `--with-publish`: when more than one item is published, publish them through a concurrent worker pool. Has no effect without `--with-publish`. |
-| `--unpublish-orphans` | Delete workspace folders + items absent from the manifest. The manifest's `folders[]` preservation set + every ancestor of each declared path is excluded. Default off. |
+| `--unpublish-orphans` | Delete workspace folders + items absent from the manifest. Destructive: items of every type go, Lakehouses and Warehouses included (the packagers never stage them, so they are never in a manifest). Needs `--force`; `--dry-run` lists what would go. The manifest's `folders[]` preservation set + every ancestor of each declared path is excluded. Default off. |
+| `--force` | Confirms `--unpublish-orphans`; a real run without it exits 1 before any request, with no audit record. `--dry-run` needs none, and `--force` alone enables nothing. |
 
 **Sync apply lifecycle:**
 
@@ -241,7 +242,7 @@ flowchart TD
     KEEP --> APPLY
     APPLY -->|"--dry-run"| RICH["Rich-rendered plan to console"]
     APPLY -->|"default"| ADD["apply_reconcile<br/>creates folders + moves items"]
-    APPLY -->|"--unpublish-orphans"| FULL["apply_reconcile<br/>+ delete orphan items + folders<br/>(force=True)"]
+    APPLY -->|"--unpublish-orphans --force"| FULL["apply_reconcile<br/>+ delete orphan items + folders<br/>(force=True)"]
     APPLY -->|"--with-publish"| PUB["fabric-cicd publish_all_items<br/>items_to_include = absent_set"]
     ADD --> AUDIT["emit DeployRecord<br/>provider=sync-engine"]
     FULL --> AUDIT
@@ -258,7 +259,7 @@ The manifest's top-level `folders` list is a preservation set. When `--unpublish
 
 **Schema reference:** [`reference/sync-schema.md`](reference/sync-schema.md) -- top-level `items[]` + `folders[]` shape, validation rules, folder-less item types (D-07 / SYNC-06).
 
-**Item types accepted:** Whatever `fabric_cicd.constants.ItemType` enumerates -- canonical PascalCase strings such as `Notebook`, `DataPipeline`, `SemanticModel`, `Report`, `SparkJobDefinition`, `Lakehouse`, `Warehouse`, `MLModel`, `MLExperiment`, `Eventstream`, `KQLDatabase`, `KQLQueryset`, `MirroredDatabase`. See `sigantry_core/sync/manifest.py`, which also holds the single folder-less type override (`Dataflow` -> `target_folder='/'`).
+**Item types accepted:** The manifest validator accepts whatever `fabric_cicd.constants.ItemType` enumerates -- canonical PascalCase strings such as `Notebook`, `DataPipeline`, `SemanticModel`, `Report`, `SparkJobDefinition`, `Lakehouse`, `Warehouse`, `MLModel`, `MLExperiment`, `Eventstream`, `KQLDatabase`, `KQLQueryset`, `MirroredDatabase`. `sync apply` packages only `Notebook`, `DataPipeline`, `SemanticModel`, `Report` and `SparkJobDefinition`; an item of any other type stops the run at packaging (`No packager registered for type ...`), so a Lakehouse or Warehouse cannot be carried by a manifest. See `sigantry_core/sync/manifest.py`, which also holds the single folder-less type override (`Dataflow` -> `target_folder='/'`).
 
 **Worked example** -- nine notebooks under an `Orders` folder:
 
@@ -272,7 +273,7 @@ folders:
   - /Orders/02_Notebooks_Archive   # operator-created via Fabric UI
 ```
 
-Run `sigantry sync apply --manifest sync.yml --workspace-id <id> --dry-run` to preview; add `--unpublish-orphans` to enable cleanup.
+Run `sigantry sync apply --manifest sync.yml --workspace-id <id> --dry-run` to preview; add `--unpublish-orphans` to the dry run to list every item and folder a cleanup would delete, then `--unpublish-orphans --force` to run it.
 
 ### 2.4 Drift detection
 
