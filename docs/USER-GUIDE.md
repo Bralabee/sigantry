@@ -743,7 +743,11 @@ folders:
 
 The `folders[]` preservation set declares paths that the engine must
 **not** auto-cleanup, even when `--unpublish-orphans` is enabled.
-Adding a path implicitly adds all its ancestors.
+A declared folder is kept with everything below it, items included;
+its ancestors are kept as folders. Separately, `--unpublish-orphans`
+never deletes an item of a type `sync apply` cannot create (a
+Lakehouse or Warehouse, for example). See
+`docs/runbooks/sync/folder-preservation.md`.
 
 The supported `type` values are exactly those listed by
 `fabric_cicd.constants.ItemType`: `Notebook`, `DataPipeline`,

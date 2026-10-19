@@ -6,9 +6,18 @@
 
 By default, `sigantry sync apply` is **purely additive** -- it creates folders and moves items, but **does not delete any folders or items** even if they are absent from the manifest. Operators who want to clean up workspace folders that have drifted away from the manifest must opt in with `sigantry sync apply --unpublish-orphans --force` (default off, SemVer-safe; without `--force` a real run is refused before it touches the workspace).
 
-When `--unpublish-orphans` is set, the reconciler computes the orphan-folder list (workspace folders that are not required by any manifest item), filters it through the manifest's `folders[]` preservation set, and deletes the remainder. The preservation filter is **inclusive of ancestors** -- declaring `/raw/UI-Created` as preserved automatically keeps `/raw` alive too, because leaf-first deletion of the parent would otherwise drop the protected child.
+When `--unpublish-orphans` is set, the reconciler computes the orphan items (workspace items whose `(display name, type)` is absent from the manifest) and the orphan folders (workspace folders no manifest item needs), filters both through the rules below, and deletes the remainder.
 
-**The preservation set keeps folders, not the items inside them.** A workspace item whose `(display name, type)` is absent from the manifest is deleted wherever it sits, including inside a folder listed in `folders[]`; the folder survives empty. The dry run names the folder each item is in (`Notebook: Adhoc (in raw/UI-Created)`), so read that list before confirming with `--force`.
+**What a forced cleanup keeps:**
+
+- **A declared folder and its contents.** A folder listed in `folders[]` is kept with everything below it: its subfolders, empty or not, and every item in them, whatever the item's type (#101).
+- **The ancestors of a declared folder, as folders.** Declaring `/raw/UI-Created` keeps `/raw` alive too, because leaf-first deletion of the parent would otherwise drop the protected child. The ancestor's other contents were never declared: an orphan notebook sitting directly in `/raw` is still deleted, and so is an empty sibling folder such as `/raw/old`.
+- **Every item of a type sync cannot create.** `sync apply` can package only the types in `PACKAGER_REGISTRY` (`sigantry_core/sync/packagers/__init__.py`): Notebook, DataPipeline, SemanticModel, Report and SparkJobDefinition. A Lakehouse, Warehouse, SQLDatabase, Environment or any other type can never be in the staging tree, so its absence says nothing and it is never deleted (#102).
+- **Any folder that still holds a kept item, and its ancestors**, since Fabric does not delete a folder that is not empty.
+
+**What a forced cleanup deletes:** an orphan item of one of the five types above that sits outside every declared folder, and an orphan folder that none of the rules above keeps, an empty one included.
+
+The dry run lists both: each item and folder it would delete, with the folder each item is in (`Notebook: Adhoc (in raw)`), then each item it keeps and why (`Lakehouse: Sales (in old) -- kept: sync cannot create this type`, `Notebook: Adhoc (in raw/UI-Created) -- kept: in a folder that folders[] preserves`). Read it before confirming with `--force`.
 
 `--with-publish` (Phase 17 / SYNC-PUBLISH) is a separate flag that drives `fabric-cicd.publish_all_items` for first-time item creation. fabric-cicd 1.0.x has its own internal `_unpublish_folders` behaviour during publish; that behaviour is **not** filtered by `manifest.folders[]` today. If you need to publish first-time items AND protect UI-created folders simultaneously, the safest order is: `sync apply --with-publish` for the items, then a separate `sync apply --unpublish-orphans` pass to enforce the preservation contract over the post-publish workspace state: first with `--dry-run` to read what it would delete (section 5), then with `--force` to delete it. (Or skip `--unpublish-orphans` entirely if you don't need cleanup.)
 
@@ -34,7 +43,7 @@ folders:
 
 Each entry is a forward-slash path (leading `/` optional). The engine retains the folder even if it's empty. Validation rules (depth cap, banned chars) apply to entries the same way they do to `items[].target_folder`.
 
-The `folders[]` field is `additionalProperties: false`-clean -- only the listed paths are preserved. Anything else the engine considers "unowned" by the manifest gets the auto-cleanup treatment.
+The `folders[]` field is `additionalProperties: false`-clean -- only the listed paths (with everything below them) and their ancestors are preserved. Any other folder the engine considers "unowned" by the manifest gets the auto-cleanup treatment, unless it still holds an item the cleanup keeps (section 1).
 
 ## 4. Worked example
 
@@ -46,10 +55,13 @@ Workspace state before the run:
     01_Notebooks/
       orchestrate (Notebook)
   raw/
-    UI-Created/                     <-- analyst created via Fabric UI; empty
+    UI-Created/                     <-- analyst created via Fabric UI
+      scratch (Notebook)            <-- analyst's ad-hoc notebook; not in sync.yml
   curated/
     Adhoc/                          <-- analyst created via Fabric UI; empty
-  archive/                          <-- leftover from a previous experiment; empty
+  archive/                          <-- leftover from a previous experiment
+    old_etl (Notebook)              <-- not in sync.yml
+  Sales (Lakehouse)                 <-- not in sync.yml (no manifest can list one)
 ```
 
 `sync.yml`:
@@ -72,9 +84,12 @@ After `sigantry sync apply` (no `--unpublish-orphans`):
       orchestrate (Notebook)
   raw/
     UI-Created/                     <-- untouched (additive default)
+      scratch (Notebook)
   curated/
     Adhoc/                          <-- untouched
   archive/                          <-- untouched (additive default)
+    old_etl (Notebook)
+  Sales (Lakehouse)
 ```
 
 After `sigantry sync apply --unpublish-orphans --force` (opt-in cleanup pass; without `--force` a real run is refused):
@@ -86,16 +101,18 @@ After `sigantry sync apply --unpublish-orphans --force` (opt-in cleanup pass; wi
       orchestrate (Notebook)
   raw/
     UI-Created/                     <-- preserved (in folders[])
+      scratch (Notebook)            <-- kept: in a folder that folders[] preserves
   curated/
     Adhoc/                          <-- preserved (in folders[])
-                                    <-- /archive/ is GONE (orphan-cleanup)
+  Sales (Lakehouse)                 <-- kept: sync cannot create this type
+                                    <-- /archive/ and old_etl are GONE (orphan-cleanup)
 ```
 
-The `/archive/` folder was orphan and not in `folders[]`, so the reconciler's leaf-first orphan-deletion sweep removed it. `/raw/UI-Created` and `/curated/Adhoc` were filtered out of the deletion list by the preservation set; their parents `/raw` and `/curated` are kept alive transitively (ancestor-inclusive filtering).
+`old_etl` is a Notebook outside every declared folder, so it was deleted; `/archive/` was then empty, orphan and not in `folders[]`, so the leaf-first folder sweep removed it. `/raw/UI-Created` and `/curated/Adhoc` were kept by the preservation set, `scratch` with its folder; their parents `/raw` and `/curated` are kept alive transitively (ancestor-inclusive filtering). `Sales` is a Lakehouse, a type `sync apply` cannot create, so it is kept wherever it sits; had it been inside `/archive/`, that folder would have been kept too.
 
 ## 5. Verification
 
-Run `sigantry sync apply --dry-run --unpublish-orphans` and read the list it prints: every workspace item (type and name) and every folder it would delete. A path in `folders[]` (or an ancestor of one) MUST NOT appear in it, and nor may any item you did not expect to lose, a Lakehouse or Warehouse above all, since the manifest never lists them. A dry run needs no `--force`:
+Run `sigantry sync apply --dry-run --unpublish-orphans` and read the lists it prints: every workspace item (type and name) and every folder it would delete, then every item it keeps and why. A path in `folders[]` (or an ancestor of one, or a folder below one) MUST NOT appear in the deletion list, and nor may any item you did not expect to lose. A Lakehouse or Warehouse appears only in the kept list. A dry run needs no `--force`:
 
 ```bash
 sigantry sync apply --manifest sync.yml --workspace-id <id> --dry-run --unpublish-orphans
@@ -112,6 +129,13 @@ The contract is pinned by these falsifiability tests in `tests/sigantry_core/wor
 - `test_plan_preserve_paths_excludes_ancestor_of_preserved`
 - `test_plan_preserve_paths_is_no_op_when_include_orphans_false`
 - `test_reconcile_folders_from_repo_threads_preserve_paths_through`
+- `test_plan_orphan_item_in_a_preserved_folder_is_kept` (#101)
+- `test_plan_preserved_folder_keeps_its_whole_subtree`
+- `test_plan_ancestor_of_a_preserved_folder_does_not_keep_its_other_items`
+- `test_plan_unmanaged_type_is_kept_and_its_folders_survive` (#102)
+- `test_plan_without_managed_types_deletes_no_item`
+
+and, through the real reconciler with only HTTP faked, `tests/sync/test_apply_unpublish_force.py::test_forced_apply_through_the_real_reconciler_deletes_only_the_managed_orphans`, which asserts the exact DELETE requests a forced run sends.
 
 ## 6. Cross-references
 

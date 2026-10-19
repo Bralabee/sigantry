@@ -7,6 +7,9 @@ Lakehouses and Warehouses included, which the packagers never stage and so
 never appear in a manifest. ``--dry-run`` computed that plan and printed none of
 it. ``deploy run`` already asks for ``--unpublish-force``; ``sync pull`` already
 asks for ``--force``.
+
+Since #101/#102 the cleanup deletes only items of a type in ``PACKAGER_REGISTRY``
+that sit outside every ``folders[]`` path; the rest are reported as kept.
 """
 
 from __future__ import annotations
@@ -27,7 +30,11 @@ from sigantry_core.sync import cli as sync_cli_mod
 from sigantry_core.sync.apply import SyncApplyReport, apply_sync
 from sigantry_core.sync.cli import sync_app
 from sigantry_core.sync.errors import OrphanUnpublishNotForcedError, SyncEngineError
+from sigantry_core.sync.packagers import PACKAGER_REGISTRY
 from sigantry_core.workspace.reconciler import (
+    KEPT_PRESERVED_FOLDER,
+    KEPT_UNMANAGED_TYPE,
+    KeptOrphanItem,
     PlannedFolderDelete,
     PlannedItemUnpublish,
     ReconcilePlan,
@@ -60,7 +67,7 @@ def _orphan_plan() -> ReconcilePlan:
             PlannedItemUnpublish(
                 item_id="i-lh",
                 display_name="Sales",
-                item_type="Lakehouse",
+                item_type="Notebook",
                 current_folder_id=None,
             )
         ],
@@ -126,6 +133,8 @@ def test_force_and_unpublish_orphans_reach_the_reconciler(tmp_path: Path) -> Non
     assert len(calls) == 1
     assert calls[0]["unpublish_orphans"] is True
     assert calls[0]["force"] is True
+    # Issue #102: the deletable types are the packager registry, read from it.
+    assert calls[0]["managed_item_types"] == frozenset(PACKAGER_REGISTRY)
 
 
 def test_default_apply_is_still_additive_and_not_forced(tmp_path: Path) -> None:
@@ -188,7 +197,7 @@ def test_dry_run_needs_no_force_and_lists_what_would_be_deleted(tmp_path: Path) 
 
     assert report.outcome == "dry_run"
     assert calls[0]["unpublish_orphans"] is True
-    assert report.orphan_items == ("Lakehouse: Sales",)
+    assert report.orphan_items == ("Notebook: Sales",)
     assert report.orphan_folders == ("raw/old",)
     assert list(audit_dir.iterdir()) == []
 
@@ -207,7 +216,7 @@ def test_orphan_label_names_the_folder_the_item_sits_in(tmp_path: Path) -> None:
             PlannedItemUnpublish(
                 item_id="i-root",
                 display_name="Sales",
-                item_type="Lakehouse",
+                item_type="Notebook",
                 current_folder_id=None,
             ),
         ],
@@ -226,7 +235,7 @@ def test_orphan_label_names_the_folder_the_item_sits_in(tmp_path: Path) -> None:
                 _reconcile_fn=_recording_reconcile([], plan),
             )
 
-    assert report.orphan_items == ("Notebook: Adhoc (in curated/keep)", "Lakehouse: Sales")
+    assert report.orphan_items == ("Notebook: Adhoc (in curated/keep)", "Notebook: Sales")
 
 
 def test_refusal_comes_before_a_client_or_a_staging_dir_exists(
@@ -267,8 +276,128 @@ def test_forced_apply_reports_the_orphans_it_removed(tmp_path: Path) -> None:
             )
 
     assert report.outcome == "succeeded"
-    assert report.orphan_items == ("Lakehouse: Sales",)
+    assert report.orphan_items == ("Notebook: Sales",)
     assert report.orphan_folders == ("raw/old",)
+
+
+def test_kept_orphans_are_reported_with_their_reason(tmp_path: Path) -> None:
+    plan = ReconcilePlan(
+        workspace_id=WORKSPACE_ID,
+        kept_items=[
+            KeptOrphanItem("i-lh", "Sales", "Lakehouse", (), KEPT_UNMANAGED_TYPE),
+            KeptOrphanItem("i-nb", "Adhoc", "Notebook", ("keep-me",), KEPT_PRESERVED_FOLDER),
+        ],
+    )
+
+    with respx.mock(base_url=FABRIC_AUDIENCE) as router:
+        _mock_workspace(router)
+        with _client() as client:
+            report = apply_sync(
+                manifest_path=_manifest(tmp_path),
+                workspace_id=WORKSPACE_ID,
+                client=client,
+                audit_dir=tmp_path,
+                dry_run=True,
+                unpublish_orphans=True,
+                _reconcile_fn=_recording_reconcile([], plan),
+            )
+
+    assert report.orphan_items == ()
+    assert report.kept_orphan_items == (
+        "Lakehouse: Sales -- kept: sync cannot create this type",
+        "Notebook: Adhoc (in keep-me) -- kept: in a folder that folders[] preserves",
+    )
+
+
+# A workspace as it is after an analyst used it: a Lakehouse inside a folder
+# the manifest never mentions, a Warehouse at the root, a notebook in a folder
+# ``folders[]`` keeps, a stale notebook, and an empty leftover folder.
+_LIVE_FOLDERS = [
+    {"id": "f-old", "displayName": "old", "workspaceId": WORKSPACE_ID},
+    {"id": "f-keep", "displayName": "keep-me", "workspaceId": WORKSPACE_ID},
+    {"id": "f-arch", "displayName": "archive", "workspaceId": WORKSPACE_ID},
+]
+_LIVE_ITEMS = [
+    {"id": i, "displayName": n, "type": t, "workspaceId": WORKSPACE_ID, "folderId": f}
+    for i, n, t, f in (
+        ("i-lh", "Sales", "Lakehouse", "f-old"),
+        ("i-wh", "Dw", "Warehouse", None),
+        ("i-adhoc", "Adhoc", "Notebook", "f-keep"),
+        ("i-stale", "Stale", "Notebook", None),
+    )
+]
+
+
+def _live_workspace(router: respx.MockRouter) -> None:
+    _mock_workspace(router)
+    router.get(f"/v1/workspaces/{WORKSPACE_ID}/folders").mock(
+        return_value=httpx.Response(200, json={"value": _LIVE_FOLDERS})
+    )
+    router.get(f"/v1/workspaces/{WORKSPACE_ID}/items").mock(
+        return_value=httpx.Response(200, json={"value": _LIVE_ITEMS})
+    )
+
+
+def _manifest_keeping(tmp_path: Path) -> Path:
+    path = tmp_path / "sync.yml"
+    path.write_text(
+        "schema_version: '1.0.0'\nitems: []\nfolders:\n  - /keep-me\n", encoding="utf-8"
+    )
+    return path
+
+
+def test_dry_run_through_the_real_reconciler_keeps_what_sync_cannot_own(
+    tmp_path: Path,
+) -> None:
+    """#101 + #102 end to end: only HTTP is faked."""
+    with respx.mock(base_url=FABRIC_AUDIENCE) as router:
+        _live_workspace(router)
+        with _client() as client:
+            report = apply_sync(
+                manifest_path=_manifest_keeping(tmp_path),
+                workspace_id=WORKSPACE_ID,
+                client=client,
+                audit_dir=tmp_path,
+                dry_run=True,
+                unpublish_orphans=True,
+            )
+
+    assert report.orphan_items == ("Notebook: Stale",)
+    assert report.orphan_folders == ("archive",)
+    assert sorted(report.kept_orphan_items) == [
+        "Lakehouse: Sales (in old) -- kept: sync cannot create this type",
+        "Notebook: Adhoc (in keep-me) -- kept: in a folder that folders[] preserves",
+        "Warehouse: Dw -- kept: sync cannot create this type",
+    ]
+
+
+def test_forced_apply_through_the_real_reconciler_deletes_only_the_managed_orphans(
+    tmp_path: Path,
+) -> None:
+    """The DELETE requests a forced run sends are exactly the stale notebook and
+    the empty folder: no Lakehouse, no Warehouse, nothing in ``keep-me``."""
+    audit_dir = tmp_path / "audit"
+    audit_dir.mkdir()
+    with respx.mock(base_url=FABRIC_AUDIENCE) as router:
+        _live_workspace(router)
+        deletes = router.delete(url__regex=rf"/v1/workspaces/{WORKSPACE_ID}/.*").mock(
+            return_value=httpx.Response(200, json={})
+        )
+        with _client() as client:
+            report = apply_sync(
+                manifest_path=_manifest_keeping(tmp_path),
+                workspace_id=WORKSPACE_ID,
+                client=client,
+                audit_dir=audit_dir,
+                unpublish_orphans=True,
+                force=True,
+            )
+
+    assert report.outcome == "succeeded"
+    assert [c.request.url.path for c in deletes.calls] == [
+        f"/v1/workspaces/{WORKSPACE_ID}/items/i-stale",
+        f"/v1/workspaces/{WORKSPACE_ID}/folders/f-arch",
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -347,7 +476,7 @@ def test_cli_applied_run_prints_the_orphans_it_deleted(
             outcome="succeeded",
             failure_reason=None,
             staging_dir=None,
-            orphan_items=("Lakehouse: Sales",),
+            orphan_items=("Notebook: Sales",),
             orphan_folders=("raw/old",),
         )
 
@@ -360,7 +489,7 @@ def test_cli_applied_run_prints_the_orphans_it_deleted(
     assert result.exit_code == 0, result.output
     assert "sync apply succeeded" in result.output
     assert "unpublished" in result.output
-    assert "Lakehouse: Sales" in result.output
+    assert "Notebook: Sales" in result.output
     assert "raw/old" in result.output
 
 
@@ -380,7 +509,7 @@ def test_cli_dry_run_prints_every_orphan_it_would_delete(
             outcome="dry_run",
             failure_reason=None,
             staging_dir=None,
-            orphan_items=("Lakehouse: Sales", "[bold]Report[/bold]: Q3"),
+            orphan_items=("Notebook: Sales", "[bold]Report[/bold]: Q3"),
             orphan_folders=("raw/old",),
         )
 
@@ -391,7 +520,39 @@ def test_cli_dry_run_prints_every_orphan_it_would_delete(
     )
 
     assert result.exit_code == 0, result.output
-    assert "Lakehouse: Sales" in result.output
+    assert "Notebook: Sales" in result.output
     # Names are data, not Rich markup (issue #80): the brackets survive verbatim.
     assert "[bold]Report[/bold]: Q3" in result.output
     assert "raw/old" in result.output
+
+
+def test_cli_dry_run_prints_the_kept_orphans_even_when_nothing_is_deleted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _bypass_preview_warning(monkeypatch)
+    kept = "[red]Lakehouse[/red]: Sales -- kept: sync cannot create this type"
+
+    def fake_apply(*_a: object, **_k: object) -> SyncApplyReport:
+        return SyncApplyReport(
+            workspace_id=WORKSPACE_ID,
+            manifest_path="sync.yml",
+            items_packaged=0,
+            folders_created=0,
+            items_moved=0,
+            deploy_record_release_id="",
+            outcome="dry_run",
+            failure_reason=None,
+            staging_dir=None,
+            kept_orphan_items=(kept,),
+        )
+
+    monkeypatch.setattr(sync_cli_mod, "apply_sync", fake_apply)
+
+    result = runner.invoke(
+        sync_app, _apply_args(_manifest(tmp_path), "--dry-run", "--unpublish-orphans")
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "kept 1 item(s) absent from the manifest" in result.output
+    assert kept in result.output  # verbatim: data, not markup
+    assert "would unpublish" not in result.output
