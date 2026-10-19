@@ -88,10 +88,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   provider, the PR bot provider, the approval gate and the variable-group
   secret store now read the organization from either its name or its
   collection URL (`https://dev.azure.com/<org>/` or
-  `https://<org>.visualstudio.com/`). Any other URL, an Azure DevOps Server
-  collection for one, is refused with a message naming the host only;
-  `release record` reports it as a usage error (exit 2) and writes no audit
-  record, where it used to record against the nonsense URL and exit 0. The PR
+  `https://<org>.visualstudio.com/`). Anything else is refused, with a message
+  that never quotes the value beyond a host: a URL on another host (an Azure
+  DevOps Server collection, say), a URL that does not parse, and a value that
+  cannot be a name, such as `dev.azure.com/<org>` without its scheme or a name
+  holding a slash or whitespace. `release record` reports it as a usage error
+  (exit 2) and writes no audit record, where it used to record against the
+  nonsense URL and exit 0. The PR
   bot's pipeline-variable parse, which took the last path segment, read a
   `visualstudio.com` URL as the organization `<org>.visualstudio.com`; it now
   uses the same reader.

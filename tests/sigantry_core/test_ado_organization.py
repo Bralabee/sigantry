@@ -64,6 +64,49 @@ def test_the_refusal_does_not_echo_credentials_in_the_url() -> None:
     assert "hunter2-pat" not in str(excinfo.value)
 
 
+def test_a_name_with_surrounding_whitespace_is_trimmed() -> None:
+    assert ado_organization_name("contoso\n") == "contoso"
+    assert ado_organization_name("  contoso ") == "contoso"
+
+
+@pytest.mark.parametrize(
+    "given",
+    [
+        "dev.azure.com/contoso",  # a URL without its scheme
+        "contoso/",
+        "/contoso",
+        "con toso",
+        "contoso?x=1",
+        "user:hunter2-pat@contoso",  # credentials, no scheme
+        "",
+        "   ",
+    ],
+)
+def test_refuses_a_value_that_cannot_be_a_name_and_is_not_a_url(given: str) -> None:
+    """These used to pass through and build https://dev.azure.com/dev.azure.com/contoso."""
+    with pytest.raises(AdoOrganizationError) as excinfo:
+        ado_organization_name(given)
+    assert "hunter2-pat" not in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "given",
+    [
+        "https://[bad/",
+        # urlsplit's own ValueError quotes this netloc, userinfo included (NFKC check).
+        "https://user:hunter2-pat@dev.azure.com\uff0fcontoso/",
+    ],
+)
+def test_an_unparseable_url_is_an_organization_error_that_keeps_no_trace_of_the_parser(
+    given: str,
+) -> None:
+    with pytest.raises(AdoOrganizationError) as excinfo:
+        ado_organization_name(given)
+    assert "hunter2-pat" not in str(excinfo.value)
+    assert excinfo.value.__cause__ is None
+    assert excinfo.value.__context__ is None, "the parser's ValueError quotes the URL"
+
+
 def _token_provider() -> MagicMock:
     tp = MagicMock(spec=TokenProvider)
     tp.get_token.return_value = "test-token"

@@ -75,14 +75,22 @@ def test_the_provider_calls_one_organization_whatever_form_it_was_given(
     assert seen_base_urls == ["https://dev.azure.com/contoso"]
 
 
-def test_a_url_that_is_not_an_azure_devops_services_collection_is_a_usage_error(
-    tmp_path: Path, seen_base_urls: list[str]
+@pytest.mark.parametrize(
+    "organization",
+    [
+        "https://tfs.example.com/tfs/DefaultCollection/",
+        "dev.azure.com/contoso",
+        "https://[bad/",
+        "https://user:hunter2-pat@dev.azure.com\uff0fcontoso/",
+    ],
+)
+def test_a_value_that_names_no_services_organization_is_a_usage_error(
+    organization: str, tmp_path: Path, seen_base_urls: list[str]
 ) -> None:
-    result = runner.invoke(
-        app, _record_args("https://tfs.example.com/tfs/DefaultCollection/", tmp_path)
-    )
+    result = runner.invoke(app, _record_args(organization, tmp_path))
 
     assert result.exit_code == 2, f"{result.output!r} {result.exception!r}"
-    assert "Azure DevOps" in result.output
+    assert "hunter2-pat" not in result.output
+    assert "Traceback" not in result.output
     assert seen_base_urls == []
     assert not (tmp_path / "deploys.jsonl").exists(), "a usage error writes no audit record"

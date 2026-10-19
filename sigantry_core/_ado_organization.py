@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 
 _SERVICES_HOST = "dev.azure.com"
 _LEGACY_SUFFIX = ".visualstudio.com"
+_NOT_IN_A_NAME = "/\\?#:@"
 
 
 class AdoOrganizationError(ValueError):
@@ -22,21 +23,39 @@ class AdoOrganizationError(ValueError):
 def ado_organization_name(value: str) -> str:
     """Return the organization name in ``value``, a name or a collection URL.
 
-    A value with no ``://`` is taken to be the name and comes back unchanged.
+    A value with no ``://`` is taken to be the name and comes back with its
+    surrounding whitespace removed, provided it could be a name at all.
     A ``https://dev.azure.com/<org>/...`` or ``https://<org>.visualstudio.com/...``
     URL gives ``<org>``.
 
     Raises:
-        AdoOrganizationError: ``value`` is a URL on any other host, such as an
+        AdoOrganizationError: ``value`` is empty, is not a name (it holds
+            whitespace or one of ``/ \\ ? # : @``, as in ``dev.azure.com/contoso``),
+            is not a parseable URL, or is a URL on any other host, such as an
             Azure DevOps Server collection, which the ``dev.azure.com`` base
-            these clients use cannot reach, or it names no organization. The
-            message carries the host only, never the rest of the URL, which may
-            hold credentials.
+            these clients use cannot reach, or it names no organization. No
+            message carries any part of ``value`` beyond a host, and the error
+            is raised outside the ``except`` so the parser's own message, which
+            can quote a URL's credentials, is not kept as ``__context__``.
     """
+    value = value.strip()
     if "://" not in value:
+        if not value or any(c.isspace() or c in _NOT_IN_A_NAME for c in value):
+            raise AdoOrganizationError(
+                "an Azure DevOps organization name is not empty and holds no whitespace "
+                f"or any of {_NOT_IN_A_NAME}; pass the name, or https://{_SERVICES_HOST}/<organization>/"
+            )
         return value
-    parts = urlsplit(value.strip())
-    host = (parts.hostname or "").lower()
+    try:
+        parts = urlsplit(value)
+        host = (parts.hostname or "").lower()
+        parse_failed = False
+    except ValueError:
+        parse_failed = True
+    if parse_failed:
+        raise AdoOrganizationError(
+            f"that is not a parseable URL; pass the organization name, or https://{_SERVICES_HOST}/<organization>/"
+        )
     if host == _SERVICES_HOST:
         segments = [s for s in parts.path.split("/") if s]
         if segments:
