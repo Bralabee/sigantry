@@ -73,6 +73,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Both old names are planned for removal in 2.0.
 
 ### Fixed
+- The ADO job template `templates/jobs/lint-python.yml` fails when `ruff
+  check` fails (part of #22). It ran `ruff check` and `ruff format --check`
+  in one `script:` step. On a Linux agent that step is bash without errexit,
+  judged on its last command, so a tree with lint errors and clean formatting
+  passed. Each command now has a step of its own, as in the GitHub `lint`
+  job; pip's upgrade and the package install are split the same way. The job
+  also ran two of this repo's own checks, the dual-CI parity lint and the
+  docs-freshness gate, from `scripts/` files an adopter's tree does not
+  have. The docs-freshness step failed even on this repo's tree, which has no
+  `.docs-freshness.yml`, so the `lint` stage of `templates/stages/ci.yml`
+  stopped every run before `test`. Both steps are removed. The parity lint
+  still runs here under pytest in GitHub CI. The docs-freshness gate
+  now runs in no CI lane, as it ran in none that executed before. The
+  template's parameters are unchanged. `tests/templates/test_ado_lint_job_runs.py`
+  runs the job's steps as a Linux agent does on an adopter-shaped tree: it
+  passes on a clean tree and fails at `Ruff check` on an unused import.
 - `sigantry sync apply --unpublish-orphans` now needs `--force`, as
   `docs/runbooks/sync/apply.md` always said. It passed `force` to the
   reconciler on the strength of `--unpublish-orphans` alone, so that one flag

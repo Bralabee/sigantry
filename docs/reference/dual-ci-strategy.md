@@ -68,7 +68,7 @@ A Python script `scripts/ci/check-dual-ci-parity.py` runs in a required CI check
 2. **Stage-graph parity check.** For each pair, parses both YAMLs and asserts the stage names + dependency edges are identical. Differences in step bodies are allowed; differences in the graph are not.
 3. **Parameter parity check.** Asserts the input parameters declared on both sides have the same names and types. Extra parameters require a matching counterpart or an explicit `sigantry-dual-ci-ignore: <reason>` annotation in both files.
 
-The lint runs under both GitHub Actions and Azure DevOps CI (the CI pipeline of this repo itself must pass both).
+The lint runs in this repo's GitHub Actions CI, through `tests/ci/test_dual_ci_parity.py`. No Azure DevOps pipeline runs this repo, and the shipped ADO job templates do not run the lint: they run on an adopter's tree, which has no copy of the script.
 
 ## Exceptions
 
