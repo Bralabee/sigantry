@@ -52,6 +52,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--force` exits 1 before the first request and writes no audit record
   (`apply_sync` raises `OrphanUnpublishNotForcedError`). A script that passes
   only `--unpublish-orphans` must add `--force`.
+- The name gate (`scripts/ci/check-name-gate.py`) runs a PDF reader again
+  when it crashes, up to five runs in all. On `windows-latest` the
+  `pdftotext` on PATH is the xpdf 4.06 that Git for Windows ships. For a PDF
+  whose header is not at byte 0 it died of heap corruption (`0xC0000374`) or
+  an access violation (`0xC0000005`) on 28 of 120 measured runs. Each crash
+  reported a readable PDF as UNREADABLE and turned a required `Test (windows-latest …)`
+  check red at random. Only a crash (a signal on POSIX, an NTSTATUS error on
+  Windows) is retried; an ordinary failure, and a crash on every run, still
+  fail closed as UNREADABLE.
 - `scripts/ci/check-no-sys-path.py` no longer passes having read nothing, or
   having skipped what git lists (#14). A root that does not exist, a
   directory with no files outside git, and a file it cannot read now exit 2
