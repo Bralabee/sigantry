@@ -84,3 +84,38 @@ def test_publish_stage_redownloads_wheel_artifact(ci_template: dict) -> None:
     job = publish["jobs"][0]
     tasks = [s.get("task", "") for s in job["steps"]]
     assert any(t.startswith("DownloadPipelineArtifact@2") for t in tasks)
+
+
+def test_publish_downloads_the_artifact_the_build_published(
+    ci_template: dict, repo_root: pathlib.Path
+) -> None:
+    """#17: one ``wheelArtifactName`` names the wheel in both stages.
+
+    The publish stage downloaded the literal ``sigantry-core-wheel`` while the
+    build stage published under ``build-python.yml``'s default, so changing
+    one name without the other would leave publish with no wheel to upload.
+    """
+    ref = "${{ parameters.wheelArtifactName }}"
+    params = {p["name"]: p for p in ci_template["parameters"]}
+    build_job = yaml.safe_load(
+        (repo_root / "templates" / "jobs" / "build-python.yml").read_text(encoding="utf-8")
+    )
+    job_default = next(p for p in build_job["parameters"] if p["name"] == "wheelArtifactName")
+    assert params["wheelArtifactName"]["default"] == job_default["default"]
+
+    build = next(s for s in ci_template["stages"] if s["stage"] == "build")
+    (build_ref,) = [
+        j for j in build["jobs"] if str(j.get("template", "")).endswith("build-python.yml")
+    ]
+    assert build_ref["parameters"]["wheelArtifactName"] == ref
+
+    publish = next(s for s in ci_template["stages"] if s["stage"] == "publish")
+    (download,) = [
+        s
+        for s in publish["jobs"][0]["steps"]
+        if str(s.get("task", "")).startswith("DownloadPipelineArtifact@2")
+    ]
+    assert download["inputs"]["artifact"] == ref
+
+    text = (repo_root / "templates" / "stages" / "ci.yml").read_text(encoding="utf-8")
+    assert text.count(job_default["default"]) == 1, "the name is spelled once: the default"

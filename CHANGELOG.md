@@ -10,6 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- A `sigantryVersion` parameter on the ADO step templates
+  `steps/fabric-deploy.yml`, `steps/fabric-validate.yml`,
+  `steps/fabric-vl-apply.yml` and `steps/fabric-git-commit.yml` (#17), the
+  name `steps/sigantry-install.yml` and the stage templates already use.
+  Empty installs the latest `sigantry`. `stages/sigantry-cd.yml` now passes
+  it to the deploy step under that name.
+- A `wheelArtifactName` parameter on `templates/stages/ci.yml` (#17). The
+  build stage publishes the wheel under it and the publish stage downloads
+  it, so the two stages name the same artifact. Its default is
+  `sigantry-core-wheel`, as before.
 - A `Seeded defects` CI job (#47), a required check that gates the artifact
   build. `scripts/ci/check-seeded-defects.py` copies the tracked tree, plants
   one defect in every directory each quality gate covers (an unused import,
@@ -24,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `addopts`. Configuration that excludes a single existing file is not seen.
 
 ### Changed
+- `steps/fabric-validate.yml`, `steps/fabric-vl-apply.yml` and
+  `steps/fabric-git-commit.yml` pass the version to `pip` through the step's
+  `env:`, as `steps/fabric-deploy.yml` does, instead of writing the
+  parameter's value into the script text (#17).
 - The release gate finds publishing jobs by the credential they hold, not by
   how their upload command is spelled (#33). A job that can request an OIDC
   token, other than the pinned `azure/login` jobs, is a publishing job and
@@ -38,6 +52,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   test, not with today (#23). A commit that passed keeps passing on re-runs
   and releases; an entry whose date has passed fails on the first commit
   made after it.
+
+### Deprecated
+- `fabricDataopsVersion` on the four ADO step templates above (#17). It is
+  still read when `sigantryVersion` is empty, and setting it logs a pipeline
+  warning; when both are set, `sigantryVersion` is used. Pass
+  `sigantryVersion` instead.
+- The default ADO wheel artifact name `sigantry-core-wheel`
+  (`wheelArtifactName` in `templates/jobs/build-python.yml` and
+  `templates/stages/ci.yml`). The default is unchanged in this release. A
+  pipeline that downloads the wheel by name can pass `wheelArtifactName`
+  explicitly so that a later change of default does not reach it.
+- Both old names are planned for removal in 2.0.
 
 ### Fixed
 - `sigantry sync apply --unpublish-orphans` now needs `--force`, as

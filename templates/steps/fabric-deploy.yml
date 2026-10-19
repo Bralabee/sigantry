@@ -33,6 +33,12 @@ parameters:
   - name: artifactsFeed
     type: string
     default: 'fabric-dataops-toolkits'
+  # The sigantry version to install; empty installs the latest.
+  - name: sigantryVersion
+    type: string
+    default: ''
+  # Deprecated alias of sigantryVersion, read only when sigantryVersion is
+  # empty. Setting it logs a pipeline warning; planned for removal in 2.0.
   - name: fabricDataopsVersion
     type: string
     default: ''
@@ -52,6 +58,10 @@ steps:
       artifactFeeds: ${{ parameters.artifactsFeed }}
       onlyAddExtraIndex: true
 
+  - ${{ if ne(parameters.fabricDataopsVersion, '') }}:
+      - bash: echo "##vso[task.logissue type=warning]fabricDataopsVersion is deprecated and planned for removal in sigantry 2.0; set sigantryVersion instead. When both are set, sigantryVersion is used."
+        displayName: 'Warn: fabricDataopsVersion is deprecated'
+
   - script: |
       set -e
       python -m pip install --upgrade pip
@@ -59,7 +69,7 @@ steps:
     displayName: 'pip install sigantry (from ADO Artifacts)'
     # The version reaches bash through env (WR-05), never interpolated.
     env:
-      SIGANTRY_VERSION: ${{ parameters.fabricDataopsVersion }}
+      SIGANTRY_VERSION: ${{ coalesce(parameters.sigantryVersion, parameters.fabricDataopsVersion) }}
 
   - task: AzureCLI@2
     displayName: 'sigantry deploy run (${{ parameters.environment }})'

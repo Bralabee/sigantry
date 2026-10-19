@@ -7,7 +7,8 @@
 # `sigantry` must install it; the smoke, integration, promote and
 # drift-check jobs use this template. The deploy stage keeps
 # steps/fabric-deploy.yml, which installs from the ADO Artifacts feed
-# with the same version parameter (`fabricDataopsVersion`).
+# with the same version parameter (`sigantryVersion`; its deprecated
+# alias `fabricDataopsVersion` is still read when `sigantryVersion` is empty).
 #
 # The version reaches bash through `env:` (WR-05), never interpolated
 # into the script.
