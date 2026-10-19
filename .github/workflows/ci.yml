@@ -84,22 +84,6 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: pip install -e '.[test]'
-      - name: DIAGNOSTIC (temporary) pdftotext on Windows
-        if: runner.os == 'Windows'
-        shell: python
-        run: |
-          import subprocess, sys
-          fails = 0
-          for i in range(60):
-              p = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
-                                  "tests/ci/test_name_gate.py::test_a_pdf_with_bytes_before_its_header_is_still_a_pdf"],
-                                 capture_output=True, text=True)
-              if p.returncode != 0:
-                  fails += 1
-                  for line in p.stdout.splitlines():
-                      if "DIAG" in line:
-                          print("RUN", i, line.strip()[:500])
-          print("isolated test runs: 60, failed:", fails)
       - name: Run pytest
         run: python -m pytest tests/ -m "not integration and not smoke"
 

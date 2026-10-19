@@ -13,6 +13,7 @@ from __future__ import annotations
 import base64
 import gzip
 import hashlib
+import importlib.util
 import io
 import os
 import re
@@ -23,6 +24,7 @@ import tarfile
 import zipfile
 import zlib
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 import yaml
@@ -324,7 +326,60 @@ def test_a_pdf_with_bytes_before_its_header_is_still_a_pdf(tmp_path: Path) -> No
     pdf = _pdf("Prepared for zqplant", lead=b"\n")
     proc = _run(_tree(tmp_path, {**BASE, "docs/report.pdf": pdf}), tmp_path)
     assert proc.returncode == 1
-    assert "docs/report.pdf#pdf-text:1 S01" in _hits(proc), proc.stderr
+    assert "docs/report.pdf#pdf-text:1 S01" in _hits(proc)
+
+
+def _gate_module() -> ModuleType:
+    spec = importlib.util.spec_from_file_location("check_name_gate", GATE)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # the dataclasses resolve their module by name
+    spec.loader.exec_module(module)
+    return module
+
+
+def _scripted_tool(
+    monkeypatch: pytest.MonkeyPatch, returncodes: list[int]
+) -> tuple[ModuleType, list[int]]:
+    """The gate module with a pdftotext whose runs exit with ``returncodes`` in turn."""
+    gate = _gate_module()
+    calls: list[int] = []
+
+    def run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        rc = returncodes[len(calls)]
+        calls.append(rc)
+        return subprocess.CompletedProcess(
+            cmd, rc, stdout=b"Prepared for zqplant\n" if rc == 0 else b"", stderr=b""
+        )
+
+    monkeypatch.setattr(gate.shutil, "which", lambda tool: f"/fake/{tool}")
+    monkeypatch.setattr(gate.subprocess, "run", run)
+    return gate, calls
+
+
+# The xpdf pdftotext on a Windows runner crashes on some runs, not all, for a
+# PDF whose header is not at byte 0 (0xC0000374 heap corruption, 0xC0000005
+# access violation): the case test_a_pdf_with_bytes_before_its_header_is_still_a_pdf
+# reads. A crash is run again; anything else is final.
+@pytest.mark.parametrize("crash", [0xC0000374, 0xC0000005, -11])
+def test_a_reader_that_crashes_is_run_again(monkeypatch: pytest.MonkeyPatch, crash: int) -> None:
+    gate, calls = _scripted_tool(monkeypatch, [crash, crash, 0])
+    assert gate._run_tool("pdftotext", [], b"%PDF-1.4\n") == "Prepared for zqplant\n"
+    assert calls == [crash, crash, 0]
+
+
+def test_a_reader_that_crashes_every_run_is_unreadable(monkeypatch: pytest.MonkeyPatch) -> None:
+    gate, calls = _scripted_tool(monkeypatch, [0xC0000374] * 10)
+    assert gate._run_tool("pdftotext", [], b"%PDF-1.4\n") is None
+    assert len(calls) == gate.TOOL_CRASH_RUNS
+
+
+def test_a_reader_that_fails_without_crashing_is_not_run_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gate, calls = _scripted_tool(monkeypatch, [1, 0])
+    assert gate._run_tool("pdftotext", [], b"%PDF-1.4\n") is None
+    assert calls == [1]
 
 
 def test_pdf_metadata_is_read_from_the_raw_bytes(tmp_path: Path) -> None:

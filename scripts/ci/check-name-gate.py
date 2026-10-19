@@ -198,6 +198,14 @@ BINARY_PROBE_BYTES = 8000
 PDF_HEADER_WINDOW = 1024
 MAX_NESTING = 4
 TOOL_TIMEOUT_SECONDS = 120
+# A reader that CRASHES is run again, up to this many runs in all. The xpdf
+# pdftotext that Git for Windows puts on a Windows runner's PATH dies of heap
+# corruption (0xC0000374) or an access violation (0xC0000005) on some runs, not
+# all, for a PDF whose header is not at byte 0: 28 of 120 runs measured on
+# windows-latest, each one turning a readable PDF into UNREADABLE. Only a crash
+# is retried; an ordinary failure is final, and so is a crash on every run.
+TOOL_CRASH_RUNS = 5
+_NTSTATUS_ERROR = 0xC0000000
 _ID = re.compile(r"[A-Za-z0-9_-]+")
 _DIGITS = re.compile(r"[0-9]+")
 _TRAILING_COMMENT = re.compile(r"\s#")
@@ -387,26 +395,35 @@ def _is_binary(data: bytes) -> bool:
     return _CONTROL_BYTE.search(data[:BINARY_PROBE_BYTES]) is not None
 
 
+def _crashed(returncode: int) -> bool:
+    """True for a process killed by a signal (POSIX) or an NTSTATUS error (Windows)."""
+    return returncode < 0 or returncode >= _NTSTATUS_ERROR
+
+
 def _run_tool(tool: str, args: list[str], data: bytes) -> str | None:
-    """Run a poppler tool on ``data``; None when it is missing, fails or hangs."""
+    """Run a poppler tool on ``data``; None when it is missing, fails or hangs.
+
+    A run that crashes is repeated, up to ``TOOL_CRASH_RUNS`` runs in all.
+    """
     path = shutil.which(tool)
     if path is None:
         return None
     with tempfile.TemporaryDirectory() as scratch:
         source = Path(scratch) / "in.pdf"
         source.write_bytes(data)
-        try:
-            result = subprocess.run(
-                [path, *args, str(source), *(["-"] if tool == "pdftotext" else [])],
-                capture_output=True,
-                check=False,
-                timeout=TOOL_TIMEOUT_SECONDS,
-            )
-        except subprocess.TimeoutExpired:
-            sys.stderr.write(f"DIAG {tool} timeout\n")
-            return None
+        for _ in range(TOOL_CRASH_RUNS):
+            try:
+                result = subprocess.run(
+                    [path, *args, str(source), *(["-"] if tool == "pdftotext" else [])],
+                    capture_output=True,
+                    check=False,
+                    timeout=TOOL_TIMEOUT_SECONDS,
+                )
+            except subprocess.TimeoutExpired:
+                return None
+            if not _crashed(result.returncode):
+                break
     if result.returncode != 0:
-        sys.stderr.write(f"DIAG {tool} rc={result.returncode} err={result.stderr[:300]!r}\n")
         return None
     return result.stdout.decode("utf-8", errors="replace")
 
