@@ -19,7 +19,10 @@ On every PR that touches `**/*.tmdl`, `**/*.Lakehouse/**`, or
 1. Diffs the base-branch tree against the head-branch tree for the
    semantic model (TMDL line-based parser, indentation-aware) and for
    the Lakehouse metadata files (`.platform`, `lakehouse.metadata.json`,
-   `shortcuts.metadata.json`, `data-access-roles.json`).
+   `shortcuts.metadata.json`, `data-access-roles.json`). Non-Lakehouse
+   `.platform` files matched by the workflow `paths:` trigger are used
+   only to trigger the job; the deep structural parser operates on
+   `.SemanticModel` (`*.tmdl`) and `.Lakehouse` metadata files.
 2. Renders a single-source Markdown body with provider-agnostic GFM so
    the byte-identical body posts cleanly on either GitHub or Azure
    DevOps. The body always carries an `audit_hash:` line (SHA-256 of
@@ -56,7 +59,13 @@ Exit codes (D-07):
    `secrets.GITHUB_TOKEN` (the auto-provisioned per-job token); no PAT
    or App auth is required for first-party repos. The token has the
    `pull-requests: write` permission set in the workflow's `permissions:`
-   block.
+   block. Note the `pull_request` vs `pull_request_target` trade-off:
+   on fork PRs, `pull_request` provides a read-only `GITHUB_TOKEN` and
+   cannot post comments, whereas `pull_request_target` runs in the base
+   repository's context with write permissions and must never execute
+   untrusted fork code. The shipped `.github/workflows/sigantry-pr-bot.yml`
+   uses `pull_request` for first-party branches and refuses to check out
+   untrusted PR code if invoked via `pull_request_target` or `workflow_run`.
 
 4. **Push a test PR** that touches a `*.tmdl` file. Within ~60 seconds
    the bot's comment should appear on the PR.
@@ -213,19 +222,19 @@ CI runner that does not set those env vars, pass `--provider` explicitly.
 
 The TMDL parser is intentionally simple: line-based, indentation-aware,
 recognising `table`, `measure`, `column`, `relationship`, `partition`,
-`model` blocks. Heavy semantics (DAX expression equivalence, partition
-source identity) are out of scope -- the bot surfaces "modified" when
-text changes; downstream reviewer adjudicates significance.
+`model`, `role`, `perspective`, `expression`, `hierarchy`,
+`calculationGroup`, and `calculationItem` blocks. Heavy semantics (DAX
+expression equivalence, partition source identity) are out of scope --
+the bot surfaces "modified" when text changes; downstream reviewer
+adjudicates significance.
 
 Indentation is read as tabs or spaces, a tab counting as four columns, so
 a tab-indented export and a four-space hand-written file parse the same
 way. A file that mixes tabs with a space width other than four can
 misnest, and misnesting never raises: it shows as a wrong or empty diff,
 not as an error. Inside a ``` expression fence indentation is ignored up
-to the closing fence. Objects outside the recognised kinds (roles,
-perspectives, cultures, shared expressions, functions, the unnamed
-`database` file) are not read at all; a hierarchy or calculation group
-inside a table surfaces as that table modified.
+to the closing fence. Objects outside the recognised kinds (`culture`,
+`function`, and the unnamed `database` file) are not read at all.
 
 ### No live REST queries during PR review
 

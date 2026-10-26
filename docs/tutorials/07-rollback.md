@@ -64,16 +64,17 @@ work-item details `release record` needs:
 
 ```bash
 export AUDIT_DIR=$(mktemp -d)
+export AZURE_TENANT_ID=<your-tenant-guid>
 export TUT07_OWNER=<github-owner> TUT07_REPO=<scratch-repo> TUT07_ISSUE=<issue-number>
 sigantry deploy run --source . --workspace-id "$TUT06_WSID" --environment DEV \
-  --params parameters.yml
+  --params parameters.yml --tenant-id "$AZURE_TENANT_ID"
 # expect: per-item "Published ..." lines, then a JSON summary of item counts
 #   (no release_id: a forward deploy writes no ledger record)
 ITEMS=$(ls -d */ | sed 's#/$##' | grep -E '\.(Lakehouse|Environment|Notebook|DataPipeline)$' | paste -sd, -)
 sigantry release record --release-id tut07-A --workspace "$TUT06_WSID" \
   --fabric-items "$ITEMS" --work-items "$TUT07_ISSUE" --approver "$USER" \
   --provider github --github-owner "$TUT07_OWNER" --github-repo "$TUT07_REPO" \
-  --audit-dir "$AUDIT_DIR"
+  --tenant-id "$AZURE_TENANT_ID" --audit-dir "$AUDIT_DIR"
 # expect: "Recorded release tut07-A with audit_hash ...; commented on 1 work items."
 sigantry release list --audit-dir "$AUDIT_DIR"
 ```
@@ -143,6 +144,8 @@ sigantry release list --audit-dir "$AUDIT_DIR"
 sigantry release show <rollback-release-id> --audit-dir "$AUDIT_DIR"
 # expect: JSON with test_evidence {"rollback_of": "tut07-A"}, approver
 #   "cli@sigantry", the item names copied from tut07-A, and an audit_hash
+sigantry release verify --audit-dir "$AUDIT_DIR"
+# expect: "Audit ledger verified: 3 records in deploys.jsonl, 0 tampered."
 ```
 
 Open the workspace notebook in the portal: the Step 3 edit is gone — content matches

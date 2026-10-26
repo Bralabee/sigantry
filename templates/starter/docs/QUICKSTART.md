@@ -1,14 +1,14 @@
 # Quickstart
 
 Get from a fresh clone of `sigantry-starter` to a green
-`sigantry deploy run --dry-run` against `DEV` placeholder values in
-under 15 minutes.
+`sigantry config validate` and `sigantry deploy validate` against `DEV`
+placeholder values in under 15 minutes.
 
 This walkthrough assumes you have Python 3.11 or 3.12 (`sigantry`
 declares `requires-python = ">=3.11"`)
 and a recent `git`.
 You will need a Fabric workspace ID + capacity ID for each of `DEV`,
-`PREPROD`, and `PROD` -- the dry-run flow below does NOT contact
+`PREPROD`, and `PROD` -- the validation flow below does NOT contact
 Fabric, so dummy values work for the first pass.
 
 ## Steps
@@ -58,10 +58,12 @@ Fabric, so dummy values work for the first pass.
    (Adopters with a `scripts/live-creds.template` source the real
    GUIDs from there instead.)
 
-6. **Validate `parameters.yml`** with the new config validator:
+6. **Validate `parameters.yml`** with the config validator (either for
+   all environments or scoped to `DEV`):
 
    ```bash
    sigantry config validate parameters.yml
+   sigantry config validate parameters.yml --environment DEV
    ```
 
    Expected output:
@@ -70,15 +72,17 @@ Fabric, so dummy values work for the first pass.
    OK -- 3 environment(s) parsed: DEV, PREPROD, PROD
    ```
 
-7. **Run a dry-run deploy** against `DEV` to see what `sigantry
-   deploy run` would publish without touching Fabric:
+7. **Validate your item tree and preflight manifest** once you have
+   populated `fabric_items/` and authored `sync.yml` (or pulled an
+   existing workspace with `sigantry sync pull --workspace-id "$SIGANTRY_FABRIC_WORKSPACE_ID_DEV" --into .`
+   or prepared a `workspace.yml` for `sigantry workspace bootstrap`):
 
    ```bash
-   sigantry deploy run --dry-run --env DEV
+   sigantry deploy validate --source ./fabric_items --params parameters.yml --environment DEV
+   sigantry preflight --manifest sync.yml --params parameters.yml --environment DEV
    ```
 
-   The dry-run prints the substitution plan + the items it would
-   publish. No REST calls are made.
+   Both commands validate locally without writing to Fabric.
 
 8. **Open your first PR** by branching off `main` with a
    conventional name and pushing:
@@ -118,4 +122,5 @@ Fabric, so dummy values work for the first pass.
 That's the 15-minute walkthrough. From here, replace the placeholder
 GUIDs in your env-var block with real Fabric IDs, register a service
 principal with workspace contributor role, and run
-`sigantry deploy run --env DEV` (without `--dry-run`) to publish.
+`sigantry deploy run --source ./fabric_items --params parameters.yml --workspace-id "$SIGANTRY_FABRIC_WORKSPACE_ID_DEV" --environment DEV --tenant-id "<tenant-guid>"`
+to publish.

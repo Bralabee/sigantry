@@ -75,9 +75,9 @@ Three surfaces, diffed semantically:
 
 | Surface | Files | What gets reported |
 |---|---|---|
-| Semantic models | `*.tmdl` | tables / columns / measures added, removed, changed |
-| Item identity | `**/.platform` | item renames, type changes |
-| Lakehouse | `*.Lakehouse/**` metadata files | table/schema-level changes |
+| Semantic models | `*.tmdl` | tables / columns / measures / relationships / roles / perspectives / shared expressions / hierarchies / calculation groups & items added, removed, changed |
+| Item identity | `*.Lakehouse/.platform` (`**/.platform` in workflow `paths:`) | Lakehouse item display-name, description, and schema-toggle changes (non-Lakehouse `.platform` files trigger the workflow but are not parsed by `diff_tmdl` or `diff_lakehouse`) |
+| Lakehouse | `*.Lakehouse/**` metadata files | table/shortcut/role/schema-level changes |
 
 Everything else in the PR is ignored — the bot complements, not replaces, human review.
 
@@ -137,7 +137,7 @@ reviewers learn to trust its silence as a signal too.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| diff reports no changes on a file you edited | the object lives in a file the parser does not read: a role, perspective, culture, shared expression or function, or the unnamed `database` file | these are outside the diff today (runbook, "TMDL parser semantics are shallow"); an edit inside a table's hierarchy or calculation group surfaces as that table modified, not by name |
+| diff reports no changes on a file you edited | the object lives in a file the parser does not read (`culture`, `function`, or the unnamed `database` file), or a non-Lakehouse `.platform` file | `culture`, `function`, and `database` files are outside `diff_tmdl` today (see runbook, "TMDL parser semantics are shallow") |
 | `GitHub provider requires --token or GITHUB_TOKEN` | no token, even on dry-run | export `GITHUB_TOKEN` (dry-run still reads PR metadata) |
 | `GITHUB_REPOSITORY env var must be 'owner/repo'` | running outside GHA | export it manually; CI sets it automatically |
 | `HTTP 401` on dry-run | dummy/expired token | dry-run needs a REAL token; use the Python loop for credential-free testing |

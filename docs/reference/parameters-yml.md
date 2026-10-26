@@ -204,12 +204,14 @@ settings (or a CI-wide `SIGANTRY_DEPLOY__ALLOW_RAW_GUIDS`) allow them. The
 settings file is resolved from the working directory, as for every other
 sigantry setting, not from `--source`.
 
-`_ALL_` is matched in any case (`_all_` too), as fabric-cicd matches it. With
-a target environment, a `semantic_model_binding` `default` or `models[]`
-entry whose `connection_id` names no slot for that environment is left out
-of the copy handed to fabric-cicd, and the whole section when nothing
-remains: fabric-cicd requires `connection_id` on each and refuses an empty
-`default`.
+`_ALL_` is matched in any case (`_all_` too), as fabric-cicd matches it,
+whereas named environment keys (`DEV`, `PREPROD`, `PROD`, etc.) are
+**case-sensitive** and must match `--environment` (`-e DEV` does not
+match `dev:`). With a target environment, a `semantic_model_binding`
+`default` or `models[]` entry whose `connection_id` names no slot for
+that environment is left out of the copy handed to fabric-cicd, and the
+whole section when nothing remains: fabric-cicd requires `connection_id`
+on each and refuses an empty `default`.
 
 ## `parameters.yml` or `parameter.yml`
 
