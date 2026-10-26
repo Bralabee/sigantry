@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Config deprecation window wording (`sigantry_core.config`, `docs/migration/2.x-to-3.0.md`, `README.md`, `docs/CAPABILITIES.md`).**
+  Replaced the relative `"one more minor release"` / `"through 1.0.x"` wording in
+  the legacy config-filename and `FDT_` environment-prefix deprecation warnings
+  and migration docs with the explicit version horizon `"read in 1.x and removed
+  in 2.0 (ADR-0011)"`.
+
 ### Fixed
 - When `resolve_tenant_id(None)` returns `None` from a directory that has
   neither `.sigantry.toml` nor the legacy config file while an ancestor

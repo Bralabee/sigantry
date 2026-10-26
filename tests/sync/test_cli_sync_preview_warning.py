@@ -133,8 +133,8 @@ def test_preview_warning_suppressed_when_flag_true(
     warning emission path short-circuits before the logger call.
 
     Deliberately still uses the legacy ``FDT_`` prefix: this is the
-    end-to-end proof that the one-minor legacy env surface keeps working
-    through the CLI, not just in the loader's own unit tests.
+    end-to-end proof that the 1.x legacy env surface (removed in 2.0) keeps
+    working through the CLI, not just in the loader's own unit tests.
     """
     monkeypatch.setenv("FDT_WORKFLOW__PREVIEW_APIS_ACKNOWLEDGED", "true")
     _stub_apply_to_raise_validation_error(monkeypatch)

@@ -52,7 +52,7 @@ pip install sigantry
 > - **On 1.0.1 or later,** rename the file to `.sigantry.toml` and keep only that one,
 >   change any path you pass explicitly, such as `from_config(".fabric-dataops.toml")`, to
 >   the new name, and rename the overrides to `SIGANTRY_`. The old names are still read
->   during a deprecation period, and through 1.0.x an old name wins over a new one: while
+>   in 1.x (and removed in 2.0), and in 1.x an old name wins over a new one: while
 >   both config files exist and differ, `.fabric-dataops.toml` is the file read.
 >   `from_config()` reports an old name through a `DeprecationWarning`, which Python shows
 >   by default only when the script being run made the call; the `sigantry` commands do not

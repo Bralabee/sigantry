@@ -61,6 +61,7 @@ def test_note_has_one_section_per_legacy_surface(guide_text: str) -> None:
         "SIGANTRY_<SECTION>__<KEY>",
         "FDT_",
         "DeprecationWarning",
+        "removed in 2.0",
         r"'s/\bfabric_dataops_toolkits\b/sigantry_core/g'",
     ],
 )

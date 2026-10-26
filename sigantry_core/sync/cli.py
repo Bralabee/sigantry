@@ -182,7 +182,7 @@ def _unprefixed_acknowledgement(settings: ToolkitSettings) -> bool:
     sigantry 1.0.0 bound unprefixed variables, in any letter case, to settings
     fields. Settings no longer read them, because a generic name could select
     which plugin runs. This one only silences an advisory, so the sync
-    commands keep honouring it through 1.0.x where no file or prefixed
+    commands keep honouring it in 1.x (removed in 2.0) where no file or prefixed
     variable sets the field (1.0.0 ranked it below both). Its
     ``FutureWarning`` is recorded and dropped like the other settings warnings.
     """
@@ -201,7 +201,7 @@ def _unprefixed_acknowledgement(settings: ToolkitSettings) -> bool:
     if acknowledged:
         with settings_warnings_dropped():
             warnings.warn(
-                f"{_UNPREFIXED_ACKNOWLEDGEMENT} is honoured through 1.0.x only. "
+                f"{_UNPREFIXED_ACKNOWLEDGEMENT} is honoured in 1.x and removed in 2.0. "
                 "Set SIGANTRY_WORKFLOW__PREVIEW_APIS_ACKNOWLEDGED=true or "
                 "[workflow] preview_apis_acknowledged = true in .sigantry.toml "
                 "instead.",

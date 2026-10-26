@@ -370,12 +370,14 @@ def test_default_path_reads_sigantry_toml(tmp_path: Path, monkeypatch: pytest.Mo
 def test_default_path_falls_back_to_legacy_filename_with_deprecation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The legacy filename still loads, but says it is on the way out."""
+    """The legacy filename still loads in 1.x, and states it is removed in 2.0."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".fabric-dataops.toml").write_text(
         '[core]\ntenant_id = "from-legacy-name"\n', encoding="utf-8"
     )
-    with pytest.deprecated_call(match=r"\.fabric-dataops\.toml is deprecated"):
+    with pytest.deprecated_call(
+        match=r"is deprecated.*The legacy filename is read in 1\.x and removed in 2\.0 \(ADR-0011\)"
+    ):
         settings = load_settings()
     assert settings.core.tenant_id == "from-legacy-name"
 
@@ -411,10 +413,12 @@ def test_sigantry_env_prefix_overrides_toml(
 def test_legacy_env_prefix_still_works_but_deprecates(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``FDT_`` keeps working for one minor, with a warning naming the key."""
+    """``FDT_`` keeps working in 1.x (removed in 2.0), with a warning naming the key."""
     path = _write_sample(tmp_path)
     monkeypatch.setenv("FDT_CORE__TENANT_ID", "from-legacy-env")
-    with pytest.deprecated_call(match="FDT_CORE__TENANT_ID"):
+    with pytest.deprecated_call(
+        match=r"FDT_CORE__TENANT_ID.*The legacy prefix is read in 1\.x and removed in 2\.0 \(ADR-0011\)"
+    ):
         settings = load_settings(path)
     assert settings.core.tenant_id == "from-legacy-env"
 
