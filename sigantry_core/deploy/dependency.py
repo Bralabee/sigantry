@@ -28,7 +28,16 @@ _DEFAULT_DOT_DIR = Path("./deploy-artefacts")
 # recorded as nodes (so the DOT is complete) but get no outgoing edges —
 # extending to Warehouse / SemanticModel / Report is a post-Phase-4 task.
 _CANONICAL_TYPES: frozenset[str] = frozenset(
-    {"Lakehouse", "Environment", "Notebook", "DataPipeline"}
+    {
+        "Lakehouse",
+        "Environment",
+        "Notebook",
+        "DataPipeline",
+        "SemanticModel",
+        "Report",
+        "Warehouse",
+        "SparkJobDefinition",
+    }
 )
 
 # Matches both $items.<Type>.<Name> and $items.<Type>.<Name>.$id forms.
@@ -37,7 +46,9 @@ _ITEM_REF_RE = re.compile(
     r"\.(?P<name>[A-Za-z0-9_\-]+)(?:\.\$id)?"
 )
 
-_BODY_SUFFIXES: frozenset[str] = frozenset({".py", ".json", ".yml", ".yaml", ".pbism"})
+_BODY_SUFFIXES: frozenset[str] = frozenset(
+    {".py", ".ipynb", ".json", ".yml", ".yaml", ".pbism", ".tmdl"}
+)
 
 _Node = tuple[str, str]
 _Edge = tuple[_Node, _Node]

@@ -242,6 +242,7 @@ def _snapshot_for_publish_phase(
     *,
     snapshot_workspace_fn,
     environment: str | None = None,
+    allow_raw_guids: bool | None = None,
 ) -> tuple[set[tuple[str, str]], Path, tempfile.TemporaryDirectory]:
     """W4.2 phase: pre-reconcile snapshot + parameters substitution for
     ``with_publish=True``.
@@ -261,7 +262,9 @@ def _snapshot_for_publish_phase(
     """
     snapshot = snapshot_workspace_fn(workspace_id, client=client_obj)
     existing_set = {(it.display_name, it.type) for it in snapshot.items_by_id.values()}
-    params_config = load_and_validate(Path(params_path), environment=environment)
+    params_config = load_and_validate(
+        Path(params_path), allow_raw_guids=allow_raw_guids, environment=environment
+    )
     publish_params_tmpdir = tempfile.TemporaryDirectory(prefix="sigantry-sync-publish-params-")
     substituted_params_path = write_substituted_parameters(
         params_config,
@@ -701,6 +704,7 @@ def apply_sync(
     params_path: str | Path | None = None,
     unpublish_orphans: bool = False,
     force: bool = False,
+    allow_raw_guids: bool | None = None,
     client: FabricRestClient | None = None,
     token_provider: TokenProvider | None = None,
     tenant_id: str | None = None,
@@ -916,11 +920,9 @@ def apply_sync(
                 )
             existing_set, substituted_params_path, publish_params_tmpdir = (
                 _snapshot_for_publish_phase(
-                    workspace_id,
-                    client_obj,
-                    params_path,
+                    workspace_id, client_obj, params_path,
                     snapshot_workspace_fn=snapshot_workspace_fn,
-                    environment=environment,
+                    environment=environment, allow_raw_guids=allow_raw_guids,
                 )
             )
 

@@ -552,3 +552,87 @@ def test_cli_rollback_forwards_the_raw_guid_flags(
         )
     assert res.exit_code == 0, res.output
     assert mock_dw.call_args.kwargs.get("allow_raw_guids") is expected
+
+
+def test_rollback_rejects_failed_or_partial_failure_deploy_record(
+    tmp_path: Path,
+) -> None:
+    """rollback-accepts-failed-deploy-record: rollback_to_release refuses DeployRecords
+    whose sync_engine_outcome or outcome is 'failed' or 'partial-failure'."""
+    base_rec = _record("sync-failed-1", "ws-A", ["nb_1.Notebook"])
+    failed_rec = base_rec.model_copy(
+        update={
+            "test_evidence": {
+                "sync_engine_outcome": "failed",
+                "sync_engine_failure": "RuntimeError",
+            }
+        }
+    ).with_hash()
+    emit_deploy_record(failed_rec, audit_dir=tmp_path)
+
+    with pytest.raises(ValueError, match="failed"):
+        rollback_to_release(
+            "sync-failed-1",
+            workspace="ws-A",
+            repository_directory=str(tmp_path),
+            environment="dev",
+            item_type_in_scope=["Notebook"],
+            audit_dir=tmp_path,
+            force=True,
+        )
+
+
+def test_deploy_workspace_enables_feature_flags_and_formats_bulk_items_as_name_dot_type(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SIG-003 & deploy-bulk-item-spec-lacks-type-suffix: deploy_workspace appends
+    enable_experimental_features + enable_items_to_include when items_to_include or bulk=True,
+    and formats bulk candidate items as <name>.<type>."""
+    import sigantry_core.deploy.core as core_mod
+
+    (tmp_path / "parameters.yml").write_text("find_replace: []\n", encoding="utf-8")
+    monkeypatch.setattr(core_mod, "validate_order", lambda **kw: str(tmp_path / "dep.dot"))
+
+    flags_seen: list[str] = []
+    monkeypatch.setattr(
+        core_mod,
+        "append_feature_flag",
+        lambda flag: flags_seen.append(flag),
+        raising=False,
+    )
+
+    published_specs: list[list[str] | None] = []
+
+    class _FakeWS:
+        def __init__(self, **kwargs: object) -> None:
+            self.repository_items = {
+                "Notebook": {"nb_alpha": object(), "nb_beta": object()},
+            }
+
+    monkeypatch.setattr(core_mod, "FabricWorkspace", _FakeWS)
+    monkeypatch.setattr(
+        core_mod,
+        "publish_all_items",
+        lambda ws, **kwargs: published_specs.append(kwargs.get("items_to_include")),
+    )
+    from unittest.mock import MagicMock
+
+    tp = MagicMock()
+    tp.get_credential.return_value = object()
+
+    core_mod.deploy_workspace(
+        workspace_id="ws-A",
+        repository_directory=str(tmp_path),
+        environment="DEV",
+        item_type_in_scope=["Notebook"],
+        token_provider=tp,
+        bulk=True,
+    )
+    assert "enable_experimental_features" in flags_seen
+    assert "enable_items_to_include" in flags_seen
+    assert sorted(spec[0] for spec in published_specs if spec) == [
+        "nb_alpha.Notebook",
+        "nb_beta.Notebook",
+    ]
+

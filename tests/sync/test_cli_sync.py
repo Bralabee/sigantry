@@ -22,7 +22,9 @@ from __future__ import annotations
 
 import json as _json
 from pathlib import Path
+from unittest.mock import MagicMock
 
+import pytest
 from typer.testing import CliRunner
 
 from sigantry_core.cli import app as root_app
@@ -288,3 +290,68 @@ def test_sync_subapp_registered_as_14th_on_root_cli() -> None:
     assert names.index("sync") > names.index("release"), (
         f"sync should register AFTER release (the 13th subapp); got registration order: {names}"
     )
+
+
+@pytest.mark.parametrize(
+    ("extra", "expected"),
+    [(["--allow-raw-guids"], True), (["--no-allow-raw-guids"], False), ([], None)],
+)
+def test_sync_apply_forwards_allow_raw_guids_flags(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    extra: list[str],
+    expected: bool | None,
+) -> None:
+    """SIG-007 / sync-apply-raw-guid-not-overridable: sync apply --with-publish forwards
+    --allow-raw-guids / --no-allow-raw-guids to load_and_validate and apply_sync."""
+    import sigantry_core.sync.cli as sync_cli_mod
+
+    manifest = tmp_path / "sync.yml"
+    manifest.write_text("schema_version: '1.0'\nitems: []\n", encoding="utf-8")
+    params = tmp_path / "parameters.yml"
+    params.write_text(
+        "find_replace:\n"
+        "  - find_value: '11111111-1111-1111-1111-111111111111'\n"
+        "    replace_value:\n"
+        "      _ALL_: '22222222-2222-2222-2222-222222222222'\n",
+        encoding="utf-8",
+    )
+    captured_apply: dict[str, object] = {}
+
+    def _fake_apply_sync(**kwargs: object) -> object:
+        captured_apply.update(kwargs)
+        m = MagicMock()
+        m.outcome = "dry_run"
+        m.folders_created = 0
+        m.items_moved = 0
+        m.items_packaged = 0
+        m.orphan_items = []
+        m.orphan_folders = []
+        m.kept_orphan_items = []
+        return m
+
+    monkeypatch.setattr(sync_cli_mod, "apply_sync", _fake_apply_sync)
+    monkeypatch.setattr(
+        sync_cli_mod,
+        "load_and_validate",
+        lambda path, **kw: MagicMock(environments_seen=frozenset()),
+    )
+
+    res = runner.invoke(
+        sync_app,
+        [
+            "apply",
+            "--manifest",
+            str(manifest),
+            "--workspace-id",
+            "ws-1",
+            "--with-publish",
+            "--params",
+            str(params),
+            "--dry-run",
+            *extra,
+        ],
+    )
+    assert res.exit_code == 0, res.output
+    assert captured_apply.get("allow_raw_guids") is expected
+

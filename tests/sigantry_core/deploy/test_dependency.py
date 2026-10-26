@@ -108,22 +108,22 @@ def test_dot_file_written_atomically(tmp_path: Path) -> None:
 
 
 def test_non_canonical_types_recorded_but_not_scanned(tmp_path: Path) -> None:
-    """Warehouse is non-canonical — it becomes a node but body references
+    """Eventstream is non-canonical — it becomes a node but body references
     inside are ignored (no outgoing edges)."""
     repo = tmp_path / "fabric_items"
-    _make_platform(repo / "W.Warehouse", item_type="Warehouse", display_name="W")
-    # Body file with a $items ref. Because Warehouse is non-canonical, the
+    _make_platform(repo / "E.Eventstream", item_type="Eventstream", display_name="E")
+    # Body file with a $items ref. Because Eventstream is non-canonical, the
     # body scan is skipped — no edge is created.
-    (repo / "W.Warehouse" / "ignored.json").write_text(
+    (repo / "E.Eventstream" / "ignored.json").write_text(
         '{"depends_on": "$items.Notebook.Downstream.$id"}\n', encoding="utf-8"
     )
     path = validate_order(
         repository_directory=repo,
-        item_type_in_scope=["Warehouse"],
+        item_type_in_scope=["Eventstream"],
         dot_output_dir=tmp_path / "out",
     )
     dot = Path(path).read_text(encoding="utf-8")
-    assert '"Warehouse/W"' in dot
+    assert '"Eventstream/E"' in dot
     # No edge was created despite the body ref.
     assert "->" not in dot
 
@@ -163,3 +163,32 @@ def test_self_reference_ignored(tmp_path: Path) -> None:
     # Node exists but no self-edge.
     assert '"Notebook/Solo"' in dot
     assert "->" not in dot
+
+
+def test_canonical_types_and_ipynb_tmdl_body_suffixes_detect_cycles(
+    tmp_path: Path,
+) -> None:
+    """SIG-009 & SIG-010: .ipynb and .tmdl body files and SemanticModel/Report/Warehouse/SparkJobDefinition
+    are scanned for $items references and detect cycles."""
+    repo = tmp_path / "fabric_items"
+    _make_platform(repo / "Prep.Notebook", item_type="Notebook", display_name="Prep")
+    (repo / "Prep.Notebook" / "notebook-content.ipynb").write_text(
+        '{"cells": [{"source": ["# depends on $items.SemanticModel.SalesModel.$id"]}]}\n',
+        encoding="utf-8",
+    )
+    _make_platform(
+        repo / "SalesModel.SemanticModel",
+        item_type="SemanticModel",
+        display_name="SalesModel",
+    )
+    (repo / "SalesModel.SemanticModel" / "expressions.tmdl").write_text(
+        'expression SourceNb = "$items.Notebook.Prep.$id"\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(DependencyCycleError):
+        validate_order(
+            repository_directory=repo,
+            item_type_in_scope=["Notebook", "SemanticModel"],
+            dot_output_dir=tmp_path / "out",
+        )
+

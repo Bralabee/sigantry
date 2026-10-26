@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in 2.0 (ADR-0011)"`.
 
 ### Fixed
+- **Deploy, preflight, and sync engine correctness (`sigantry_core/deploy/`, `sigantry_core/preflight/probes.py`, `sigantry_core/sync/`).**
+  Called `append_feature_flag("enable_experimental_features")` and `append_feature_flag("enable_items_to_include")` before `publish_all_items()` in `deploy_workspace` and `publish_absent_items` and formatted bulk `items_to_include` entries as `<name>.<type>`; parsed `lakehouse:` metadata in `.py` and `.ipynb` notebooks plus `"type": "LakehouseReference"` / `"PipelineReference"` / `"DatasetReference"` in `pipeline-content.json` in `extract_dependencies()`; forwarded `environment` into `load_and_validate()` in `SchemaSyntaxProbe.run()`; added `--allow-raw-guids` / `--no-allow-raw-guids` to `sigantry sync apply` and threaded `environment` and `allow_raw_guids` into `apply_sync()` -> `_snapshot_for_publish_phase()`; and parsed `items/<Type>/<Name>` entries from `sync pull` in `rollback_to_release()`.
 - **PR-bot TMDL & Lakehouse diff completeness and ADO token wiring (`sigantry_core/pr_bot/`).**
   Honored `--token` and `SYSTEM_ACCESSTOKEN` in `sigantry pr-bot run` on Azure
   DevOps before falling back to `get_token_provider(tenant_id=resolve_tenant_id(None))`;

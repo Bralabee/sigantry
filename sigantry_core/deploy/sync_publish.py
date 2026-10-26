@@ -335,6 +335,7 @@ def publish_absent_items(
                 publish_all_items(ws, items_to_include=[spec])
                 return (spec, True)
             except Exception:
+                logger.error("sync_bulk_publish_item_failed spec=%s", spec, exc_info=True)
                 return (spec, False)
 
         workers = min(max_workers, len(items_to_include))

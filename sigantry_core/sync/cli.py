@@ -67,6 +67,7 @@ from sigantry_core.config import ToolkitSettings
 from sigantry_core.deploy.parameters import (
     HardcodedGuidError,
     load_and_validate,
+    opt_in_from_flags,
 )
 from sigantry_core.governance.audit_io import resolve_audit_dir
 from sigantry_core.sync.apply import SyncApplyReport, apply_sync
@@ -345,6 +346,19 @@ def apply_cmd(
             "--dry-run needs none. Alone it enables nothing."
         ),
     ),
+    allow_raw_guids: bool = typer.Option(
+        False,
+        "--allow-raw-guids",
+        help=(
+            "Let raw GUIDs in parameters.yml through when --with-publish is set "
+            "(stock fabric-cicd file); each one is logged."
+        ),
+    ),
+    no_allow_raw_guids: bool = typer.Option(
+        False,
+        "--no-allow-raw-guids",
+        help="Refuse raw GUIDs for this run although the settings allow them.",
+    ),
     tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
 ) -> None:
     """Push manifest items into ``--workspace-id``.
@@ -370,6 +384,7 @@ def apply_cmd(
     # cluttering the operator's error output with the Preview-API
     # warning. Mirrors the rollback-gate pattern from
     # sigantry_core/deploy/cli.py:152-158.
+    effective_allow_raw_guids = opt_in_from_flags(allow_raw_guids, no_allow_raw_guids)
     if republish_existing and not with_publish:
         # D-17-10 gate: --republish-existing is a modifier on the publish
         # path; alone it would silently no-op. Attribute the error to the
@@ -395,7 +410,11 @@ def apply_cmd(
         # exception. The bounded f-string (str(exc)) avoids leaking raw
         # tracebacks per T-17-cli-leak.
         try:
-            params_config = load_and_validate(Path(params), environment=environment)
+            params_config = load_and_validate(
+                Path(params),
+                allow_raw_guids=effective_allow_raw_guids,
+                environment=environment,
+            )
         except (HardcodedGuidError, FileNotFoundError, ValueError) as exc:
             raise typer.BadParameter(f"--params validation failed: {exc}") from exc
         # D-17-02: when parameters.yml references any environment beyond
@@ -427,6 +446,7 @@ def apply_cmd(
             params_path=params,
             unpublish_orphans=unpublish_orphans,
             force=force,
+            allow_raw_guids=effective_allow_raw_guids,
             tenant_id=pinned,
         )
     except ManifestValidationError as exc:

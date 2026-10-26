@@ -90,3 +90,44 @@ def test_a_probe_gets_each_new_argument_it_declares(tmp_path: Path) -> None:
 
     assert report.passed
     assert _ProbeNamingSome.seen == {"tenant_id": "22222222-2222-2222-2222-222222222222"}
+
+
+def test_schema_syntax_probe_forwards_environment_to_parameters_validator(
+    tmp_path: Path,
+) -> None:
+    """SIG-005 / preflight-params-probe-env-discard: SchemaSyntaxProbe forwards environment
+    into load_and_validate so environment-scoped $ENV: validation and UnknownEnvironmentError work."""
+    from sigantry_core.preflight.probes import ProbeStatus, SchemaSyntaxProbe
+
+    manifest = tmp_path / "sync.yml"
+    manifest.write_text(
+        "schema_version: '1.0'\nitems: []\n",
+        encoding="utf-8",
+    )
+    params = tmp_path / "parameters.yml"
+    params.write_text(
+        "find_replace:\n"
+        "  - find_value: 'DEV_ENDPOINT'\n"
+        "    replace_value:\n"
+        "      DEV: '$ENV:SIGANTRY_TEST_DEV_WS_ID'\n"
+        "      PROD: '$ENV:SIGANTRY_TEST_UNSET_PROD_WS_ID'\n",
+        encoding="utf-8",
+    )
+    import os
+
+    os.environ["SIGANTRY_TEST_DEV_WS_ID"] = "22222222-2222-2222-2222-222222222222"
+    os.environ.pop("SIGANTRY_TEST_UNSET_PROD_WS_ID", None)
+    try:
+        probe = SchemaSyntaxProbe()
+        # 1. Validating DEV should PASS even when PROD's $ENV: var is unset
+        res_dev = probe.run(manifest_path=manifest, environment="DEV", params_path=params)
+        assert res_dev.status == ProbeStatus.PASS, res_dev.message
+
+        # 2. Validating an undeclared environment STAGING should FAIL
+        res_unknown = probe.run(
+            manifest_path=manifest, environment="STAGING", params_path=params
+        )
+        assert res_unknown.status == ProbeStatus.FAIL
+    finally:
+        os.environ.pop("SIGANTRY_TEST_DEV_WS_ID", None)
+
