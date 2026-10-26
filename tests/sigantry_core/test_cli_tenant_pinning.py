@@ -658,3 +658,98 @@ def test_a_settings_error_names_the_field_but_never_prints_its_value(
     _assert_refused(outcome, command, "release.github", "--tenant-id")
     assert sentinel not in outcome.output
     assert authority.requested_tenants == []
+
+
+def test_subdirectory_with_ancestor_config_emits_notice_and_returns_none(
+    authority: _Authority,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from sigantry_core import _cli_tenant
+
+    cfg = tmp_path / ".sigantry.toml"
+    cfg.write_text(f'[core]\ntenant_id = "{TENANT_A}"\n', encoding="utf-8")
+    subdir = tmp_path / "sub" / "dir"
+    subdir.mkdir(parents=True)
+
+    monkeypatch.chdir(tmp_path)
+    assert _cli_tenant.resolve_tenant_id(None) == TENANT_A
+    assert capsys.readouterr().err == ""
+
+    monkeypatch.chdir(subdir)
+    assert _cli_tenant.resolve_tenant_id(None) is None
+    err = capsys.readouterr().err
+    assert str(cfg.resolve()) in err
+    assert "working directory" in err
+    assert "--tenant-id" in err
+    assert "SIGANTRY_CORE__TENANT_ID" in err
+
+
+def test_subdirectory_with_ancestor_legacy_config_emits_notice(
+    authority: _Authority,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from sigantry_core import _cli_tenant
+    from sigantry_core.config import _LEGACY_CONFIG_FILENAME
+
+    legacy_cfg = tmp_path / _LEGACY_CONFIG_FILENAME
+    legacy_cfg.write_text(f'[core]\ntenant_id = "{TENANT_A}"\n', encoding="utf-8")
+    subdir = tmp_path / "sub"
+    subdir.mkdir(parents=True)
+
+    monkeypatch.chdir(subdir)
+    assert _cli_tenant.resolve_tenant_id(None) is None
+    err = capsys.readouterr().err
+    assert str(legacy_cfg.resolve()) in err
+
+
+def test_ancestor_config_above_git_root_is_ignored(
+    authority: _Authority,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from sigantry_core import _cli_tenant
+
+    (tmp_path / ".sigantry.toml").write_text(
+        f'[core]\ntenant_id = "{TENANT_A}"\n', encoding="utf-8"
+    )
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    subdir = repo / "sub"
+    subdir.mkdir(parents=True)
+
+    monkeypatch.chdir(subdir)
+    assert _cli_tenant.resolve_tenant_id(None) is None
+    assert capsys.readouterr().err == ""
+
+
+def test_ancestor_notice_suppressed_when_cwd_has_config_or_env_pin_or_flag(
+    authority: _Authority,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from sigantry_core import _cli_tenant
+
+    (tmp_path / ".sigantry.toml").write_text(
+        f'[core]\ntenant_id = "{TENANT_A}"\n', encoding="utf-8"
+    )
+    subdir = tmp_path / "sub"
+    subdir.mkdir(parents=True)
+    monkeypatch.chdir(subdir)
+
+    assert _cli_tenant.resolve_tenant_id(TENANT_A) == TENANT_A
+    assert capsys.readouterr().err == ""
+
+    monkeypatch.setenv("SIGANTRY_CORE__TENANT_ID", TENANT_A)
+    assert _cli_tenant.resolve_tenant_id(None) == TENANT_A
+    assert capsys.readouterr().err == ""
+    monkeypatch.delenv("SIGANTRY_CORE__TENANT_ID")
+
+    (subdir / ".sigantry.toml").write_text("", encoding="utf-8")
+    assert _cli_tenant.resolve_tenant_id(None) is None
+    assert capsys.readouterr().err == ""
