@@ -426,7 +426,7 @@ Notes on `env sync` (proven live on a production workspace, 2026-06-14):
 | `sigantry release list` | List releases (most recent first). | `cli.py:310` |
 | `sigantry release show <id>` | Show one `DeployRecord`. | `cli.py:378` |
 | `sigantry release diff <id1> <id2>` | Diff `fabric_items_changed` between two releases. | `cli.py:432` |
-| `sigantry release verify` | Check that an audit ledger (`deploys.jsonl` by default, `--ledger-file <name>`, or `--all`) has valid SHA-256 `audit_hash` digests. The digests are unkeyed; see the [audit ledger threat model](reference/audit-ledger-threat-model.md). | `cli.py:562` |
+| `sigantry release verify` | Check that an audit ledger (`deploys.jsonl` by default, `--ledger-file <name>`, or `--all`) forms an unbroken SHA-256 chain (`audit_hash` digests and `prev_hash` linkage). The chain is unkeyed; see the [audit ledger threat model](reference/audit-ledger-threat-model.md). | `cli.py:735` |
 
 **Audit invariants:**
 

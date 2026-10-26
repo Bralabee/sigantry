@@ -54,10 +54,27 @@ def test_branching_docs_include_forward_deploy_run_example() -> None:
 
 
 def test_tutorial_07_rollback_documents_tenant_pin_and_release_verify() -> None:
-    """docs/tutorials/07-rollback.md documents tenant pinning and runs `sigantry release verify`."""
+    """docs/tutorials/07-rollback.md documents tenant pinning on deploy run and runs `sigantry release verify`."""
+    import re
+
     tut07 = (_REPO_ROOT / "docs" / "tutorials" / "07-rollback.md").read_text(encoding="utf-8")
-    assert "AZURE_TENANT_ID" in tut07 or "--tenant-id" in tut07
+    assert "AZURE_TENANT_ID" in tut07
     assert "sigantry release verify" in tut07
+    assert "CHAIN VALID" in tut07
+
+    deploy_blocks = re.findall(r"^sigantry deploy run(?:\\\n|[^\n])+", tut07, flags=re.MULTILINE)
+    assert len(deploy_blocks) == 3, f"expected 3 deploy run invocations; got {len(deploy_blocks)}"
+    for block in deploy_blocks:
+        assert "--tenant-id" in block, f"deploy run block missing --tenant-id:\n{block}"
+
+    record_blocks = re.findall(
+        r"^sigantry release record(?:\\\n|[^\n])+", tut07, flags=re.MULTILINE
+    )
+    assert len(record_blocks) == 2
+    for block in record_blocks:
+        assert "--tenant-id" not in block, (
+            f"sigantry release record has no --tenant-id flag (only --ado-tenant-id):\n{block}"
+        )
 
 
 def test_pr_bot_docs_reflect_expanded_tmdl_coverage_and_fork_tradeoffs() -> None:

@@ -74,7 +74,7 @@ ITEMS=$(ls -d */ | sed 's#/$##' | grep -E '\.(Lakehouse|Environment|Notebook|Dat
 sigantry release record --release-id tut07-A --workspace "$TUT06_WSID" \
   --fabric-items "$ITEMS" --work-items "$TUT07_ISSUE" --approver "$USER" \
   --provider github --github-owner "$TUT07_OWNER" --github-repo "$TUT07_REPO" \
-  --tenant-id "$AZURE_TENANT_ID" --audit-dir "$AUDIT_DIR"
+  --audit-dir "$AUDIT_DIR"
 # expect: "Recorded release tut07-A with audit_hash ...; commented on 1 work items."
 sigantry release list --audit-dir "$AUDIT_DIR"
 ```
@@ -93,7 +93,7 @@ change a line — content is what deploy pushes), deploy again, and record relea
 cp -r . ../sigantry-tut07-A
 # ... edit a notebook under ./ ...
 sigantry deploy run --source . --workspace-id "$TUT06_WSID" --environment DEV \
-  --params parameters.yml
+  --params parameters.yml --tenant-id "$AZURE_TENANT_ID"
 sigantry release record --release-id tut07-B --workspace "$TUT06_WSID" \
   --fabric-items "$ITEMS" --work-items "$TUT07_ISSUE" --approver "$USER" \
   --provider github --github-owner "$TUT07_OWNER" --github-repo "$TUT07_REPO" \
@@ -125,7 +125,8 @@ source, the copy you kept in Step 3; pointing it at the edited tree would publis
 sigantry deploy run --rollback --to-release tut07-A --rollback-force \
   --rollback-runbook-id DRILL-001 \
   --workspace-id "$TUT06_WSID" --source ../sigantry-tut07-A --environment DEV \
-  --params ../sigantry-tut07-A/parameters.yml --audit-dir "$AUDIT_DIR"
+  --params ../sigantry-tut07-A/parameters.yml --tenant-id "$AZURE_TENANT_ID" \
+  --audit-dir "$AUDIT_DIR"
 # expect: re-publish of A's recorded items, then a JSON summary with
 #   "rollbackOfRelease": "tut07-A"; a third DeployRecord lands in $AUDIT_DIR
 ```
@@ -145,7 +146,7 @@ sigantry release show <rollback-release-id> --audit-dir "$AUDIT_DIR"
 # expect: JSON with test_evidence {"rollback_of": "tut07-A"}, approver
 #   "cli@sigantry", the item names copied from tut07-A, and an audit_hash
 sigantry release verify --audit-dir "$AUDIT_DIR"
-# expect: "Audit ledger verified: 3 records in deploys.jsonl, 0 tampered."
+# expect: "CHAIN VALID  3 record(s) verified in append order from .../deploys.jsonl"
 ```
 
 Open the workspace notebook in the portal: the Step 3 edit is gone — content matches
