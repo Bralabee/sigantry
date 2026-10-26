@@ -107,3 +107,29 @@ class TestResolveSecretKvUri:
             pytest.raises(KeyVaultResolutionError, match="null value"),
         ):
             resolve_secret("kv://example-kv-prod/empty-secret", credential=fake_credential)
+
+    def test_kv_uri_passes_tenant_id_to_default_credential(
+        self, fake_credential, fake_secret_client
+    ) -> None:
+        """SIG-017 / kv-token-helper-tenant-pin-drop: resolve_secret forwards tenant_id
+        to get_default_credential when credential is None."""
+        seen: list[str | None] = []
+
+        def _fake_default_cred(*, tenant_id: str | None = None):
+            seen.append(tenant_id)
+            return fake_credential
+
+        with (
+            patch(
+                "sigantry_core.auth.token_provider.get_default_credential",
+                side_effect=_fake_default_cred,
+            ),
+            patch(
+                "sigantry_core.auth.keyvault.SecretClient",
+                return_value=fake_secret_client,
+            ),
+        ):
+            tid = "00000000-0000-0000-0000-00000000000a"
+            s = resolve_secret("kv://example-kv-prod/fabric-pat", tenant_id=tid)
+        assert s.value == "resolved-secret-value"
+        assert seen == [tid]

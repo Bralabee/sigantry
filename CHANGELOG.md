@@ -22,6 +22,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in 2.0 (ADR-0011)"`.
 
 ### Fixed
+- **Tenant pinning and audit ledger hardening (`sigantry_core/release/cli.py`, `sigantry_core/auth/token_provider.py`, `sigantry_core/auth/keyvault.py`, `sigantry_core/workspace/records.py`, `sigantry_core/governance/audit_io.py`).**
+  Wired `resolve_tenant_id(tenant_id)` and `[release]` / `[release.ado]` /
+  `[release.github]` settings fallback into `sigantry release record` (`_build_provider`);
+  threaded `tenant_id` through `get_default_credential`, the six `get_*_token`
+  helpers, and `resolve_secret` so direct library callers also honour ADR-0006
+  tenant pinning; routed `emit_bootstrap_record()` through `write_audit_record()`
+  (`0o700` directory, `0o600` file, `os.fsync()`, and structured logging); added
+  `--ledger-file` and `--all` flags to `sigantry release verify`; and emitted a
+  redacted stderr warning in `resolve_audit_dir()` when `sigantry.toml` cannot be
+  parsed.
 - **Deploy, preflight, and sync engine correctness (`sigantry_core/deploy/`, `sigantry_core/preflight/probes.py`, `sigantry_core/sync/`).**
   Called `append_feature_flag("enable_experimental_features")` and `append_feature_flag("enable_items_to_include")` before `publish_all_items()` in `deploy_workspace` and `publish_absent_items`, formatted bulk `items_to_include` entries as `<name>.<type>`, and logged per-item bulk worker exceptions; expanded `_CANONICAL_TYPES` (`SemanticModel`, `Report`, `Warehouse`, `SparkJobDefinition`) and `_BODY_SUFFIXES` (`.ipynb`, `.tmdl`) in `sigantry_core/deploy/dependency.py`; forwarded `environment` into `load_and_validate()` in `SchemaSyntaxProbe.run()`; added `--allow-raw-guids` / `--no-allow-raw-guids` to `sigantry sync apply` and threaded `environment` and `allow_raw_guids` into `apply_sync()` -> `_snapshot_for_publish_phase()`; and refused `failed` / `partial-failure` releases in `rollback_to_release()`.
 - **PR-bot TMDL & Lakehouse diff completeness and ADO token wiring (`sigantry_core/pr_bot/`).**

@@ -65,6 +65,7 @@ def resolve_secret(
     ref: str,
     *,
     credential: TokenCredential | None = None,
+    tenant_id: str | None = None,
 ) -> Secret:
     """Resolve a kv://<vault>/<secret> URI to a `Secret`.
 
@@ -77,6 +78,8 @@ def resolve_secret(
         credential: Optional explicit credential (e.g. for testing). When None,
             a DefaultAzureCredential-backed TokenProvider is used via its
             shared credential (imported lazily to avoid circular imports).
+        tenant_id: Optional Entra tenant ID (GUID) to pin when acquiring the
+            Key Vault token; falls back to ``core.tenant_id`` in settings.
 
     Returns:
         Secret wrapping the resolved cleartext.
@@ -95,7 +98,7 @@ def resolve_secret(
         # token_provider is too - both are safe to import here at call time.
         from sigantry_core.auth.token_provider import get_default_credential
 
-        credential = get_default_credential()
+        credential = get_default_credential(tenant_id=tenant_id)
 
     try:
         client = SecretClient(vault_url=vault_url, credential=credential)

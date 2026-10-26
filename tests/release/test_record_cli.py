@@ -375,3 +375,37 @@ def test_empty_work_items_exits_nonzero(
         ],
     )
     assert result.exit_code != 0
+
+
+def test_record_ado_provider_resolves_tenant_id_and_release_settings_defaults(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    patched_ado_provider: tuple[MagicMock, MagicMock],
+) -> None:
+    """SIG-016 / release-record-ado-tenant-pin-drop: release record --provider ado
+    falls back to core.tenant_id via resolve_tenant_id and [release] / [release.ado] settings."""
+    fake_factory, _fake_provider = patched_ado_provider
+    work = tmp_path / "work"
+    work.mkdir()
+    tid = "00000000-0000-0000-0000-00000000000a"
+    (work / ".sigantry.toml").write_text(
+        f'[core]\ntenant_id = "{tid}"\n\n[release]\nprovider = "ado"\n\n[release.ado]\norganization = "cfg-org"\nproject = "cfg-proj"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(work)
+    result = runner.invoke(
+        app,
+        [
+            "release",
+            "record",
+            "--audit-dir",
+            str(tmp_path / "audit"),
+            *_common_args(),
+        ],
+    )
+    assert result.exit_code == 0, f"stdout={result.stdout!r}, exception={result.exception!r}"
+    fake_factory.assert_called_once()
+    kwargs = fake_factory.call_args.kwargs
+    assert kwargs["organization"] == "cfg-org"
+    assert kwargs["project"] == "cfg-proj"
+    assert kwargs["tenant_id"] == tid

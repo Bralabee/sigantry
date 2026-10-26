@@ -146,3 +146,30 @@ def test_emit_appends_does_not_overwrite(tmp_path: Path) -> None:
     parsed = [json.loads(line) for line in lines]
     assert parsed[0]["workspace_id"] == "aaaa-aaaa"
     assert parsed[1]["workspace_id"] == "bbbb-bbbb"
+
+
+def test_emit_bootstrap_record_enforces_0600_mode_and_fsync(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SIG-018 / bootstrap-ledger-bypass-and-verify-gap: emit_bootstrap_record delegates
+    to write_audit_record so bootstraps.jsonl gets 0o600 permissions, 0o700 parent dir, and fsync."""
+    import os
+    import sys
+
+    import sigantry_core.governance.audit_io as audit_io_mod
+
+    fsync_calls: list[int] = []
+    real_fsync = os.fsync
+
+    def _spy_fsync(fd: int) -> None:
+        fsync_calls.append(fd)
+        real_fsync(fd)
+
+    monkeypatch.setattr(audit_io_mod.os, "fsync", _spy_fsync)
+    target_dir = tmp_path / "sub_audit"
+    written = emit_bootstrap_record(_make_record(), audit_dir=target_dir)
+    assert written == target_dir / "bootstraps.jsonl"
+    assert len(fsync_calls) >= 1
+    if sys.platform != "win32":
+        assert (written.stat().st_mode & 0o777) == 0o600
+        assert (target_dir.stat().st_mode & 0o777) == 0o700

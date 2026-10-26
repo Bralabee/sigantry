@@ -224,3 +224,38 @@ def test_head_tamper_is_caught(tmp_path: Path) -> None:
     payload = json.loads(_verify(tmp_path, "--json").stdout)
     assert payload["valid"] is False
     assert payload["first_bad_index"] == 0
+
+
+def test_verify_ledger_file_and_all_flags_verify_non_deploy_ledgers(
+    tmp_path: Path,
+) -> None:
+    """SIG-018 / bootstrap-ledger-bypass-and-verify-gap: sigantry release verify supports
+    --ledger-file and --all across bootstraps.jsonl, approvals.jsonl, secret_changes.jsonl,
+    and destructive_ops.jsonl."""
+    from sigantry_core.workspace.records import BootstrapRecord, emit_bootstrap_record
+
+    rec = BootstrapRecord(
+        workspace_id="11111111-1111-1111-1111-111111111111",
+        workspace_name="ws-dev",
+        stage="DEV",
+        capacity_id="22222222-2222-2222-2222-222222222222",
+        blueprint="minimal_starter",
+        operator="alice@example.invalid",
+        created_at=datetime.now(UTC),
+    )
+    emit_bootstrap_record(rec, audit_dir=tmp_path)
+    _seed_chain(tmp_path, 2)
+
+    res_boot = _verify(tmp_path, "--ledger-file", "bootstraps.jsonl", "--json")
+    assert res_boot.exit_code == 0, res_boot.stdout
+    boot_payload = json.loads(res_boot.stdout)
+    assert boot_payload["valid"] is True
+    assert boot_payload["records"] == 1
+
+    res_all = _verify(tmp_path, "--all", "--json")
+    assert res_all.exit_code == 0, res_all.stdout
+    all_payload = json.loads(res_all.stdout)
+    assert all_payload["valid"] is True
+    assert all_payload["records"] == 3
+    assert all_payload["ledgers"]["deploys.jsonl"]["records"] == 2
+    assert all_payload["ledgers"]["bootstraps.jsonl"]["records"] == 1

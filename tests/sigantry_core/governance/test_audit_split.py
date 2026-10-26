@@ -182,3 +182,24 @@ def test_audit_module_locked_to_target_size() -> None:
         "expected < 280. Either the dedupe regressed or a new concern "
         "was added inline that should live in destructive.py / audit_io.py."
     )
+
+
+def test_resolve_audit_dir_warns_to_stderr_when_settings_fail_to_load(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """SIG-019 / audit-dir-silent-exception-swallow: resolve_audit_dir emits a warning
+    on stderr when load_settings_for_cli raises, before falling back to default_dir."""
+    from sigantry_core.governance.audit_io import resolve_audit_dir
+
+    work = tmp_path / "work"
+    work.mkdir()
+    (work / ".sigantry.toml").write_text("[release\naudit_dir = \n", encoding="utf-8")
+    monkeypatch.chdir(work)
+    fallback = tmp_path / "fallback_audit"
+    resolved = resolve_audit_dir(None, default_dir=fallback)
+    assert resolved == fallback
+    err = capsys.readouterr().err
+    assert "WARNING" in err
+    assert "release.audit_dir" in err

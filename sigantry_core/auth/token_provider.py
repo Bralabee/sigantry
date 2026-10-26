@@ -247,37 +247,45 @@ def reset_token_provider() -> None:
         _default_providers.clear()
 
 
-def get_default_credential() -> TokenCredential:
+def _resolve_helper_tenant(tenant_id: str | None) -> str | None:
+    """Resolve an explicit ``tenant_id`` or fall back to ``core.tenant_id`` in settings."""
+    from sigantry_core._cli_tenant import resolve_tenant_id
+
+    return resolve_tenant_id(tenant_id)
+
+
+def get_default_credential(*, tenant_id: str | None = None) -> TokenCredential:
     """Return the shared DefaultAzureCredential backing the process singleton.
 
     Used by `sigantry_core.auth.keyvault.resolve_secret` to avoid spawning
-    a second credential chain.
+    a second credential chain. Honors ``tenant_id`` and falls back to
+    ``core.tenant_id`` via :func:`resolve_tenant_id`.
     """
-    return get_token_provider().credential
+    return get_token_provider(_resolve_helper_tenant(tenant_id)).credential
 
 
 # ---- Convenience wrappers per scope -------------------------------------
 
 
-def get_token(scope: str) -> str:
-    return get_token_provider().get_token(scope)
+def get_token(scope: str, *, tenant_id: str | None = None) -> str:
+    return get_token_provider(_resolve_helper_tenant(tenant_id)).get_token(scope)
 
 
-def get_fabric_token() -> str:
-    return get_token_provider().get_token(FABRIC_SCOPE)
+def get_fabric_token(*, tenant_id: str | None = None) -> str:
+    return get_token_provider(_resolve_helper_tenant(tenant_id)).get_token(FABRIC_SCOPE)
 
 
-def get_powerbi_token() -> str:
-    return get_token_provider().get_token(POWERBI_SCOPE)
+def get_powerbi_token(*, tenant_id: str | None = None) -> str:
+    return get_token_provider(_resolve_helper_tenant(tenant_id)).get_token(POWERBI_SCOPE)
 
 
-def get_graph_token() -> str:
-    return get_token_provider().get_token(GRAPH_SCOPE)
+def get_graph_token(*, tenant_id: str | None = None) -> str:
+    return get_token_provider(_resolve_helper_tenant(tenant_id)).get_token(GRAPH_SCOPE)
 
 
-def get_purview_token() -> str:
-    return get_token_provider().get_token(PURVIEW_SCOPE)
+def get_purview_token(*, tenant_id: str | None = None) -> str:
+    return get_token_provider(_resolve_helper_tenant(tenant_id)).get_token(PURVIEW_SCOPE)
 
 
-def get_azure_rm_token() -> str:
-    return get_token_provider().get_token(AZURE_RM_SCOPE)
+def get_azure_rm_token(*, tenant_id: str | None = None) -> str:
+    return get_token_provider(_resolve_helper_tenant(tenant_id)).get_token(AZURE_RM_SCOPE)
