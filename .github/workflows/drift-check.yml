@@ -12,6 +12,7 @@
 # corresponding lines in templates/schedules/drift-check.yml):
 # sigantry-dual-ci-ignore: gha-uses-oidc-not-service-connection
 # sigantry-dual-ci-ignore: ado-gh-env-naming
+# sigantry-dual-ci-ignore: ado-uses-artifacts-feed
 #
 # This workflow carries NO `schedule:` trigger. A scheduled run receives an
 # EMPTY `inputs` context -- declared defaults are not applied either -- so a

@@ -21,12 +21,22 @@ parameters:
   - name: pythonVersion
     type: string
     default: '3.11'
+  - name: artifactsFeed
+    type: string
+    default: ''
 
 steps:
   - task: UsePythonVersion@0
     inputs:
       versionSpec: ${{ parameters.pythonVersion }}
       addToPath: true
+
+  - ${{ if ne(parameters.artifactsFeed, '') }}:
+      - task: PipAuthenticate@1
+        displayName: 'Authenticate pip to ADO Artifacts (${{ parameters.artifactsFeed }})'
+        inputs:
+          artifactFeeds: ${{ parameters.artifactsFeed }}
+          onlyAddExtraIndex: true
 
   - script: |
       set -e
