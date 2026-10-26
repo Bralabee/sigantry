@@ -9,6 +9,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-10-26
+
+### Upgrading from 1.1.0
+- **The bullets below describe ways this release differs from 1.1.0**, one
+  subject each: `sync apply --unpublish-orphans`; ADO organization strings;
+  `delete_workspace(..., pbi_fallback=True)`; Scheduled drift notifications;
+  ADO step template parameters. No module-level export, CLI subapp or flag of
+  1.1.0 was removed or renamed, and the telemetry schema is unchanged.
+- **`sync apply --unpublish-orphans`.** Now requires `--force` (`apply_sync`
+  raises `OrphanUnpublishNotForcedError` without it, and the CLI exits 1 before
+  the first request without writing an audit record), as
+  `docs/runbooks/sync/apply.md` already stated. With `--force`, orphan items
+  whose type is not in `PACKAGER_REGISTRY` (such as `Lakehouse` or `Warehouse`)
+  and items inside a `folders[]` subtree are kept rather than deleted; in the
+  library, `plan_reconcile` and `reconcile_folders_from_repo` default
+  `managed_item_types` to an empty set so a caller that passes none deletes no
+  item.
+- **ADO organization strings.** `--ado-organization` and the ADO client
+  constructors (`WorkItemProvider`, `PrReviewBot`, `ApprovalGate`, and the
+  variable-group `SecretStore`) accept either an organization name or an Azure
+  DevOps Services collection URL (`https://dev.azure.com/<org>/` or
+  `https://<org>.visualstudio.com/`); any other URL or malformed string is
+  refused (`release record` exits 2 without writing an audit record).
+- **`delete_workspace(..., pbi_fallback=True)`.** Refuses a Fabric client whose
+  `base_url` is not `https://api.fabric.microsoft.com` with `ValueError` before
+  any Power BI call, logs a `workspace_delete_fallback` record at `INFO` on
+  `sigantry_core.governance.audit` when the retry runs, and re-raises the
+  original Fabric `HttpError` (with `NotFoundError` as `__cause__`) when the
+  Power BI retry returns HTTP `404`.
+- **Scheduled drift notifications.** `python -m sigantry_core.sync._notify_main`
+  posts an error notification before exiting 1 when `drift.json` is missing or
+  empty, and requires a valid `1.x` drift report shape before posting "drift
+  OK".
+- **ADO step template parameters.** `steps/fabric-deploy.yml`,
+  `steps/fabric-validate.yml`, `steps/fabric-vl-apply.yml` and
+  `steps/fabric-git-commit.yml` accept `sigantryVersion` (matching the stage
+  templates) and `templates/stages/ci.yml` accepts `wheelArtifactName`;
+  `fabricDataopsVersion` and the default `sigantry-core-wheel` artifact name
+  remain supported and are deprecated for removal in 2.0.
+
 ### Added
 - A `sigantryVersion` parameter on the ADO step templates
   `steps/fabric-deploy.yml`, `steps/fabric-validate.yml`,

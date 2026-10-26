@@ -50,6 +50,16 @@ sibling plugin packages that ship alongside the base.
 
 ## Current release
 
+v1.1.1 (2026-10-26). Requires `--force` on `sync apply --unpublish-orphans` and
+keeps unmanaged item types (`Lakehouse`, `Warehouse`) and `folders[]` subtrees
+during orphan reconciliation, accepts Azure DevOps Services collection URLs
+(`$(System.CollectionUri)`) wherever an ADO organization name is taken,
+announces failed or empty scheduled drift checks before exiting 1, guards
+`delete_workspace(..., pbi_fallback=True)` against non-commercial base URLs and
+preserves the original Fabric `HttpError` on Power BI `404`, and aligns the
+Azure Pipelines step and lint templates. `CHANGELOG.md` lists the changes; read
+its "Upgrading from 1.1.0" section before upgrading.
+
 v1.1.0 (2026-10-15). Pins the Entra tenant: `--tenant-id`, now on every
 command that reaches Fabric (`diff` and `sync` included), and `core.tenant_id`
 as its default, request every token from that tenant and refuse one from any
