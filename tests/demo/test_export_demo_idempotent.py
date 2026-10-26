@@ -10,6 +10,7 @@ parameters.yml validates, fabric_items locked logicalIds).
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -19,9 +20,14 @@ _SCRIPT = _REPO / "scripts" / "export-demo.py"
 
 
 def _run_export(args: list[str]) -> subprocess.CompletedProcess[str]:
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(_REPO), *[p for p in env.get("PYTHONPATH", "").split(os.pathsep) if p]]
+    )
     return subprocess.run(
         [sys.executable, str(_SCRIPT), *args],
         cwd=str(_REPO),
+        env=env,
         capture_output=True,
         text=True,
         check=False,
