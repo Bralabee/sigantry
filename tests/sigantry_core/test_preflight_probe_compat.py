@@ -124,10 +124,7 @@ def test_schema_syntax_probe_forwards_environment_to_parameters_validator(
         assert res_dev.status == ProbeStatus.PASS, res_dev.message
 
         # 2. Validating an undeclared environment STAGING should FAIL
-        res_unknown = probe.run(
-            manifest_path=manifest, environment="STAGING", params_path=params
-        )
+        res_unknown = probe.run(manifest_path=manifest, environment="STAGING", params_path=params)
         assert res_unknown.status == ProbeStatus.FAIL
     finally:
         os.environ.pop("SIGANTRY_TEST_DEV_WS_ID", None)
-

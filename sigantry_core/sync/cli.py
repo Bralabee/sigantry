@@ -384,7 +384,10 @@ def apply_cmd(
     # cluttering the operator's error output with the Preview-API
     # warning. Mirrors the rollback-gate pattern from
     # sigantry_core/deploy/cli.py:152-158.
-    effective_allow_raw_guids = opt_in_from_flags(allow_raw_guids, no_allow_raw_guids)
+    try:
+        effective_allow_raw_guids = opt_in_from_flags(allow_raw_guids, no_allow_raw_guids)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
     if republish_existing and not with_publish:
         # D-17-10 gate: --republish-existing is a modifier on the publish
         # path; alone it would silently no-op. Attribute the error to the

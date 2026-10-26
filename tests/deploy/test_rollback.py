@@ -635,4 +635,3 @@ def test_deploy_workspace_enables_feature_flags_and_formats_bulk_items_as_name_d
         "nb_alpha.Notebook",
         "nb_beta.Notebook",
     ]
-

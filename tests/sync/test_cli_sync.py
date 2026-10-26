@@ -354,4 +354,3 @@ def test_sync_apply_forwards_allow_raw_guids_flags(
     )
     assert res.exit_code == 0, res.output
     assert captured_apply.get("allow_raw_guids") is expected
-

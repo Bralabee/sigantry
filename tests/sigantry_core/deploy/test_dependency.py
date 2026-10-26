@@ -191,4 +191,3 @@ def test_canonical_types_and_ipynb_tmdl_body_suffixes_detect_cycles(
             item_type_in_scope=["Notebook", "SemanticModel"],
             dot_output_dir=tmp_path / "out",
         )
-

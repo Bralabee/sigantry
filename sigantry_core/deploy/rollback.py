@@ -168,9 +168,7 @@ def rollback_to_release(
     if not record.fabric_items_changed:
         raise ValueError(f"Release {release_id!r} recorded 0 items changed -- cannot roll back.")
     record_outcome = (
-        record.test_evidence.get("sync_engine_outcome")
-        or record.test_evidence.get("outcome")
-        or ""
+        record.test_evidence.get("sync_engine_outcome") or record.test_evidence.get("outcome") or ""
     )
     if record_outcome in ("failed", "partial-failure"):
         raise ValueError(

@@ -851,13 +851,15 @@ def apply_sync(
     # Build (or borrow) a client. When we own it, we must close it in
     # the ``finally`` block; when the caller passed one in, we leave it
     # alone.
-    owned_client_cm: FabricRestClient | None = None
-    if client is None:
-        owned_client_cm = (
+    owned_client_cm: FabricRestClient | None = (
+        None
+        if client is not None
+        else (
             FabricRestClient.from_defaults()
             if tenant_id is None
             else FabricRestClient.from_defaults(tenant_id=tenant_id)
         )
+    )
     client_obj = owned_client_cm if owned_client_cm is not None else client
     assert client_obj is not None  # narrows for mypy; one of the two must exist
 
@@ -891,17 +893,9 @@ def apply_sync(
         # Step 3: pre-flight Git-Sync sanity (D-18).
         _check_git_sync_state(client_obj, workspace_id)
 
-        # Step 3.5 (Phase 17 / SYNC-PUBLISH): when --with-publish is set
-        # AND we are NOT in dry-run, snapshot the workspace BEFORE the
-        # reconcile so we can compute the absent-items set; load +
-        # validate + $ENV-substitute parameters.yml into a nested
-        # tempfile whose lifetime extends through the publish call
-        # (D-17-07). Skipped on the v3.0 default path.
-        # D-17-10 defence in depth: ``--republish-existing`` is a modifier
-        # on ``--with-publish`` (the CLI layer is the primary gate). A
-        # programmatic caller passing it alone gets a typed error rather
-        # than a silent no-op (the flag only takes effect on the publish
-        # path).
+        # Step 3.5 (Phase 17 / SYNC-PUBLISH): snapshot before reconcile
+        # and $ENV-substitute parameters.yml (D-17-07); D-17-10 guards
+        # republish_existing without with_publish.
         if republish_existing and not with_publish:
             raise SyncPublishError(
                 "republish_existing=True requires with_publish=True. "
@@ -910,19 +904,18 @@ def apply_sync(
 
         if with_publish and not dry_run:
             if params_path is None:
-                # Defence in depth -- the CLI layer (Plan 17-02) is the
-                # primary gate but a programmatic caller could still
-                # forget the kwarg. Fail with a typed error rather than
-                # cryptic AttributeError downstream.
                 raise SyncPublishError(
                     "with_publish=True requires params_path=<parameters.yml>. "
                     "See docs/runbooks/sync/apply.md §1.3."
                 )
             existing_set, substituted_params_path, publish_params_tmpdir = (
                 _snapshot_for_publish_phase(
-                    workspace_id, client_obj, params_path,
+                    workspace_id,
+                    client_obj,
+                    params_path,
                     snapshot_workspace_fn=snapshot_workspace_fn,
-                    environment=environment, allow_raw_guids=allow_raw_guids,
+                    environment=environment,
+                    allow_raw_guids=allow_raw_guids,
                 )
             )
 
