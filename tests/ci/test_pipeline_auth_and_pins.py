@@ -456,6 +456,11 @@ def test_gha_cd_declares_workflow_level_concurrency_per_environment() -> None:
     assert isinstance(concurrency, dict), "GHA sigantry-cd.yml must declare top-level concurrency"
     assert concurrency.get("group") == "deploy-${{ inputs.environment }}"
     assert concurrency.get("cancel-in-progress") is False
+    promote_concurrency = doc["jobs"]["promote"].get("concurrency")
+    assert isinstance(promote_concurrency, dict)
+    assert promote_concurrency.get("group") == "promote-${{ inputs.environment }}", (
+        "job-level concurrency group must differ from workflow-level group to avoid GHA parent/child deadlock"
+    )
 
 
 def test_cd_promote_fabric_items_discovery_reads_platform_metadata_and_filters_item_types(
@@ -527,6 +532,6 @@ def test_cd_promote_fabric_items_discovery_reads_platform_metadata_and_filters_i
             check=False,
         )
         assert res.returncode == 0, f"{label} discovery failed: {res.stderr}"
-        assert res.stdout == "etl_daily:Notebook,sales_curated:Lakehouse", (
+        assert res.stdout == "etl_daily.Notebook,sales_curated.Lakehouse", (
             f"{label} discovery output mismatch: {res.stdout!r}"
         )

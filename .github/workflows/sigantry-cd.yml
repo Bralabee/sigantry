@@ -116,7 +116,7 @@ jobs:
           SIGANTRY_WORK_ITEMS: ${{ inputs.workItems }}
         run: |
           set -e
-          if [ -z "${SIGANTRY_WORK_ITEMS// /}" ]; then
+          if [ -z "${SIGANTRY_WORK_ITEMS//[ ,]/}" ]; then
             echo "::error::workItems must not be empty; pass at least one work item ID before deploying"
             exit 1
           fi
@@ -215,7 +215,7 @@ jobs:
     needs: [integration]
     environment: ${{ inputs.environment }}
     concurrency:
-      group: deploy-${{ inputs.environment }}
+      group: promote-${{ inputs.environment }}
       cancel-in-progress: false
     permissions:
       contents: read
@@ -324,7 +324,7 @@ jobs:
               if (not name or not itype) and "." in pf.parent.name:
                   name, itype = pf.parent.name.rsplit(".", 1)
               if name and itype and (not allowed or itype in allowed):
-                  items.append(f"{name}:{itype}")
+                  items.append(f"{name}.{itype}")
           print(",".join(sorted(set(items))))
           ' "$SIGANTRY_SOURCE_DIR" "$SIGANTRY_ITEM_TYPES")
           fi
