@@ -1980,8 +1980,16 @@ def test_ci_workflow_installs_poppler_on_windows_before_pytest() -> None:
     )
     step = steps[names.index(step_name)]
     assert step.get("if") == "runner.os == 'Windows'"
+    assert step.get("shell") == "bash", "Windows step uses bash syntax and must set shell: bash"
     run = str(step.get("run", ""))
-    for required in ("poppler", "pdftotext.exe", "pdfinfo.exe", "GITHUB_PATH"):
+    for required in (
+        "poppler",
+        "poppler_root=",
+        'find "$poppler_root"',
+        "pdftotext.exe",
+        "pdfinfo.exe",
+        "GITHUB_PATH",
+    ):
         assert required in run, f"Windows Poppler step missing {required!r}"
 
 
