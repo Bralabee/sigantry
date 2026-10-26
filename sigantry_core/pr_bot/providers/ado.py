@@ -39,7 +39,7 @@ from __future__ import annotations
 from typing import Any, Final
 
 from sigantry_core._ado_organization import ado_organization_name
-from sigantry_core.auth import TokenProvider, get_token_provider
+from sigantry_core.auth import TokenProviderProtocol, get_token_provider
 from sigantry_core.auth.audiences import AZURE_DEVOPS_SCOPE
 from sigantry_core.client.base import BaseRestClient
 from sigantry_core.pr_bot.providers.base import (
@@ -124,7 +124,7 @@ class AdoProvider:
         org: str,
         project: str,
         repository_id: str,
-        token_provider: TokenProvider | None = None,
+        token_provider: TokenProviderProtocol | None = None,
         http_client: Any | None = None,
     ) -> None:
         if token_provider is None:

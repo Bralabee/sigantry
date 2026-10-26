@@ -22,6 +22,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in 2.0 (ADR-0011)"`.
 
 ### Fixed
+- **PR-bot TMDL & Lakehouse diff completeness and ADO token wiring (`sigantry_core/pr_bot/`).**
+  Honored `--token` and `SYSTEM_ACCESSTOKEN` in `sigantry pr-bot run` on Azure
+  DevOps before falling back to `get_token_provider(tenant_id=resolve_tenant_id(None))`;
+  expanded `diff_tmdl` to parse and diff `role`, `perspective`, `expression`,
+  `hierarchy`, `calculationGroup`, and `calculationItem` blocks, surface
+  `columns_modified` and `relationships_modified`, scope multi-model workspaces
+  by `<model_stem>/`, extract quoted spaced relationship table endpoints, and
+  keep `///` property comments bound to their enclosing block; updated
+  `diff_lakehouse` to diff newly added and removed `*.Lakehouse` directories
+  and qualify multi-lakehouse results with `<stem>/`.
 - **CD and drift pipeline template hardening (`.github/workflows/sigantry-cd.yml`, `templates/stages/sigantry-cd.yml`, `templates/steps/fabric-deploy.yml`, `templates/steps/sigantry-install.yml`, `templates/schedules/drift-check.yml`, `docs/runbooks/pipeline-orchestration/deploy-with-tests.md`).**
   Removed the `$(Build.RequestedForEmail)` self-approval default on ADO and the
   `${SIGANTRY_ACTOR}` fallback on GHA so `promote` fails closed on missing or

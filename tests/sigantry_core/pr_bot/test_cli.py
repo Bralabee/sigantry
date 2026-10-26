@@ -114,6 +114,7 @@ def _clear_ci_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
         "TF_BUILD",
         "GITHUB_TOKEN",
         "GITHUB_REPOSITORY",
+        "SYSTEM_ACCESSTOKEN",
         "SYSTEM_TEAMFOUNDATIONCOLLECTIONURI",
         "SYSTEM_TEAMPROJECT",
         "BUILD_REPOSITORY_ID",
@@ -455,3 +456,50 @@ def test_pr_bot_run_subcommand_listed_in_pr_bot_help() -> None:
 
 
 _ = LakehouseDiffSection  # kept for parity with future tests in this file.
+
+
+def test_pr_bot_ado_uses_system_accesstoken_or_token_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SIG-004 / pr-bot-ado-token-ignored: _build_ado_provider uses the CLI
+    token argument or SYSTEM_ACCESSTOKEN when present, and falls back to
+    get_token_provider(tenant_id=resolve_tenant_id(None))."""
+    import sigantry_core.pr_bot.cli as cli_mod
+
+    monkeypatch.setenv("SYSTEM_TEAMFOUNDATIONCOLLECTIONURI", "https://dev.azure.com/sigantry-test/")
+    monkeypatch.setenv("SYSTEM_TEAMPROJECT", "sigantry-starter-test")
+    monkeypatch.setenv("BUILD_REPOSITORY_ID", "00000000-0000-0000-0000-000000000aaa")
+
+    captured: list[Any] = []
+
+    def _fake_ado_provider(**kwargs: Any) -> Any:
+        captured.append(kwargs)
+        m = MagicMock()
+        return m
+
+    monkeypatch.setattr(cli_mod, "AdoProvider", _fake_ado_provider)
+
+    # 1. SYSTEM_ACCESSTOKEN env var
+    monkeypatch.setenv("SYSTEM_ACCESSTOKEN", "stub-1")
+    cli_mod._build_ado_provider(None)
+    tp_env = captured[-1]["token_provider"]
+    assert tp_env.get_token("scope") == "stub-1"
+
+    # 2. Explicit CLI argument overrides SYSTEM_ACCESSTOKEN
+    cli_mod._build_ado_provider("stub-2")
+    tp_flag = captured[-1]["token_provider"]
+    assert tp_flag.get_token("scope") == "stub-2"
+
+    # 3. Fallback to get_token_provider(tenant_id=resolve_tenant_id(None))
+    monkeypatch.delenv("SYSTEM_ACCESSTOKEN", raising=False)
+    expected_tid = "11111111-2222-3333-4444-555555555555"
+    monkeypatch.setattr(cli_mod, "resolve_tenant_id", lambda _v: expected_tid, raising=False)
+    seen_tenants: list[str | None] = []
+
+    def _fake_get_tp(*, tenant_id: str | None = None) -> Any:
+        seen_tenants.append(tenant_id)
+        return MagicMock()
+
+    monkeypatch.setattr(cli_mod, "get_token_provider", _fake_get_tp)
+    cli_mod._build_ado_provider(None)
+    assert seen_tenants == [expected_tid]

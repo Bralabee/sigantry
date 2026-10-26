@@ -206,10 +206,10 @@ def diff_lakehouse(base_dir: Path | str, head_dir: Path | str) -> LakehouseDiffS
     """Diff two trees of ``*.Lakehouse/`` metadata folders.
 
     Joins items by stem name (e.g. ``Sales`` for ``Sales.Lakehouse``) and
-    aggregates per-item diffs. Items present on only one side are not
-    surfaced at this layer; Plan 14-06's CLI dispatcher layers file-level
-    context. The returned ``warnings`` list ends with the short-form
-    column-warning so consumers cannot drop the caveat.
+    aggregates per-item diffs across ``base_dirs | head_dirs`` (qualifying
+    names with ``<stem>/`` when multiple Lakehouses exist). The returned
+    ``warnings`` list ends with the short-form column-warning so consumers
+    cannot drop the caveat.
     """
     base_dirs = _find_lakehouse_dirs(Path(base_dir))
     head_dirs = _find_lakehouse_dirs(Path(head_dir))
@@ -222,28 +222,55 @@ def diff_lakehouse(base_dir: Path | str, head_dir: Path | str) -> LakehouseDiffS
     shortcuts_modified: list[ShortcutChange] = []
     role_changes: list[RoleChange] = []
 
-    for stem in sorted(set(base_dirs) & set(head_dirs)):
-        base_meta = _load_lakehouse_metadata(base_dirs[stem])
-        head_meta = _load_lakehouse_metadata(head_dirs[stem])
-        identity_changes.extend(_diff_identity(base_meta["platform"], head_meta["platform"]))
+    all_stems = sorted(set(base_dirs) | set(head_dirs))
+    qualify_stems = len(all_stems) > 1
+    empty_meta: dict[str, dict[str, Any]] = {
+        "platform": {},
+        "lakehouse_metadata": {},
+        "shortcuts_metadata": {},
+        "data_access_roles": {},
+    }
+
+    for stem in all_stems:
+        base_meta = _load_lakehouse_metadata(base_dirs[stem]) if stem in base_dirs else empty_meta
+        head_meta = _load_lakehouse_metadata(head_dirs[stem]) if stem in head_dirs else empty_meta
+        prefix = f"{stem}/" if qualify_stems else ""
+        identity_changes.extend(
+            IdentityChange(
+                field=f"{prefix}{c.field}",
+                before=c.before,
+                after=c.after,
+            )
+            for c in _diff_identity(base_meta["platform"], head_meta["platform"])
+        )
         # First non-None schema_toggle wins (single-lakehouse renderer surface).
-        if schema_toggle is None:
+        if schema_toggle is None and stem in base_dirs and stem in head_dirs:
             schema_toggle = _diff_schema_toggle(
                 base_meta["lakehouse_metadata"], head_meta["lakehouse_metadata"]
             )
         added_t, removed_t = _diff_tracked_tables(
             base_meta["lakehouse_metadata"], head_meta["lakehouse_metadata"]
         )
-        tracked_tables_added.extend(added_t)
-        tracked_tables_removed.extend(removed_t)
+        tracked_tables_added.extend(f"{prefix}{t}" for t in added_t)
+        tracked_tables_removed.extend(f"{prefix}{t}" for t in removed_t)
         s_added, s_removed, s_modified = _diff_shortcuts(
             base_meta["shortcuts_metadata"], head_meta["shortcuts_metadata"]
         )
-        shortcuts_added.extend(s_added)
-        shortcuts_removed.extend(s_removed)
-        shortcuts_modified.extend(s_modified)
+        shortcuts_added.extend(
+            ShortcutChange(name=f"{prefix}{s.name}", path=s.path, target_path=s.target_path)
+            for s in s_added
+        )
+        shortcuts_removed.extend(
+            ShortcutChange(name=f"{prefix}{s.name}", path=s.path, target_path=s.target_path)
+            for s in s_removed
+        )
+        shortcuts_modified.extend(
+            ShortcutChange(name=f"{prefix}{s.name}", path=s.path, target_path=s.target_path)
+            for s in s_modified
+        )
         role_changes.extend(
-            _diff_roles(base_meta["data_access_roles"], head_meta["data_access_roles"])
+            RoleChange(role=f"{prefix}{r.role}", change=r.change)
+            for r in _diff_roles(base_meta["data_access_roles"], head_meta["data_access_roles"])
         )
 
     return LakehouseDiffSection(

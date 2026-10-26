@@ -327,3 +327,135 @@ def test_keyword_inside_an_m_step_is_not_a_declaration() -> None:
         ("column", "C", "T"),
     ]
     assert 'column #"x" = 1' in blocks[1].body
+
+
+# ---------------------------------------------------------------------------
+# Wave 2 TMDL completeness & multi-model / quoted-endpoint / desc-binding fixes
+# ---------------------------------------------------------------------------
+
+
+def test_tmdl_diff_scopes_blocks_by_semantic_model_when_multiple_models_exist(
+    tmp_path: Path,
+) -> None:
+    """tmdl-walk-blocks-cross-model-collision: two *.SemanticModel directories with same-named
+    tables/measures must not overwrite each other in _walk_blocks."""
+    for side, alpha_expr in (
+        ("base", "SUM(Sales[Amount])"),
+        ("head", "SUMX(Sales, Sales[Amount])"),
+    ):
+        alpha = tmp_path / side / "Alpha.SemanticModel" / "definition" / "tables"
+        beta = tmp_path / side / "Beta.SemanticModel" / "definition" / "tables"
+        alpha.mkdir(parents=True)
+        beta.mkdir(parents=True)
+        (alpha / "Sales.tmdl").write_text(
+            f"table Sales\n\tmeasure 'Total Sales' = {alpha_expr}\n\tpartition Sales = m\n\t\tsource = \"{alpha_expr}\"\n",
+            encoding="utf-8",
+        )
+        (beta / "Sales.tmdl").write_text(
+            "table Sales\n\tmeasure 'Total Sales' = SUM(Sales[BetaAmount])\n\tpartition Sales = m\n\t\tsource = \"beta\"\n",
+            encoding="utf-8",
+        )
+
+    result = diff_tmdl(tmp_path / "base", tmp_path / "head")
+    assert result.tables_modified == ["Alpha/Sales"]
+    assert result.measures_modified == [MeasureChange(table="Alpha/Sales", name="'Total Sales'")]
+
+
+def test_tmdl_relationship_endpoints_support_quoted_spaced_table_names(
+    tmp_path: Path,
+) -> None:
+    """tmdl-rel-regex-spaced-table-names: single-quoted table names with spaces and escaped
+    quotes in fromColumn / toColumn are extracted accurately."""
+    base = tmp_path / "base"
+    head = tmp_path / "head"
+    base.mkdir()
+    head.mkdir()
+    (head / "relationships.tmdl").write_text(
+        "relationship 8f3c0a2e-5b1d-4c7e-9a6f-2d4b8e1c3f70\n"
+        "\tfromColumn: 'Sales Fact'.'Order Date'\n"
+        "\ttoColumn: 'Dim''s Date Range'.'Date Key'\n",
+        encoding="utf-8",
+    )
+    result = diff_tmdl(base, head)
+    assert result.relationships_added == [
+        RelationshipChange(from_table="'Sales Fact'", to_table="'Dim''s Date Range'")
+    ]
+
+
+def test_tmdl_description_comment_before_property_does_not_leak_to_next_sibling() -> None:
+    """tmdl-desc-comment-misbinding: a /// line before a non-declaration property line
+    must not leak into the next block declaration."""
+    base_text = "table Sales\n\tmeasure M = 1\n\t\tformatString: 0\n\tmeasure N = 2\n"
+    head_text = (
+        "table Sales\n"
+        "\tmeasure M = 1\n"
+        "\t\t/// stray property comment\n"
+        "\t\tformatString: 0\n"
+        "\tmeasure N = 2\n"
+    )
+    base_blocks = {b.name: b for b in parse(base_text)}
+    head_blocks = {b.name: b for b in parse(head_text)}
+    assert base_blocks["N"].body == head_blocks["N"].body, (
+        "pending_desc leaked across non-declaration property line into sibling measure N"
+    )
+
+
+def test_tmdl_diff_surfaces_modified_columns_relationships_roles_perspectives_and_expressions(
+    tmp_path: Path,
+) -> None:
+    """SIG-001 / tmdl-diff-drops-modified-children: modified columns, modified relationships,
+    roles, perspectives, expressions, hierarchies, and calculationGroups surface in TmdlDiffSection."""
+    base = tmp_path / "base"
+    head = tmp_path / "head"
+    for root, col_type, cross_filter, role_filter in (
+        (base, "int64", "oneDirection", '[Region] = "EMEA"'),
+        (head, "decimal", "bothDirections", "TRUE()"),
+    ):
+        (root / "tables").mkdir(parents=True)
+        (root / "roles").mkdir(parents=True)
+        (root / "perspectives").mkdir(parents=True)
+        (root / "tables" / "Sales.tmdl").write_text(
+            f"table Sales\n"
+            f"\tcolumn Amount\n"
+            f"\t\tdataType: {col_type}\n"
+            f"\thierarchy 'Geo Hierarchy'\n"
+            f"\t\tlevel Country\n"
+            f"\t\t\tcolumn: Amount\n",
+            encoding="utf-8",
+        )
+        (root / "relationships.tmdl").write_text(
+            f"relationship rel-1\n"
+            f"\tcrossFilteringBehavior: {cross_filter}\n"
+            f"\tfromColumn: Sales.Amount\n"
+            f"\ttoColumn: Calendar.Date\n",
+            encoding="utf-8",
+        )
+        (root / "roles" / "RegionReader.tmdl").write_text(
+            f"role RegionReader\n"
+            f"\tmodelPermission: read\n"
+            f"\ttablePermission Sales = {role_filter}\n",
+            encoding="utf-8",
+        )
+    (base / "perspectives" / "LegacyView.tmdl").write_text(
+        "perspective LegacyView\n\tperspectiveTable Sales\n",
+        encoding="utf-8",
+    )
+    (head / "perspectives" / "ExecView.tmdl").write_text(
+        "perspective ExecView\n\tperspectiveTable Sales\n",
+        encoding="utf-8",
+    )
+    (head / "expressions.tmdl").write_text(
+        'expression ServerUrl = "https://example.com" meta [IsParameterQuery=true]\n',
+        encoding="utf-8",
+    )
+
+    result = diff_tmdl(base, head)
+    assert result.columns_modified == [TableChange(table="Sales", name="Amount")]
+    assert result.relationships_modified == [
+        RelationshipChange(from_table="Sales", to_table="Calendar")
+    ]
+    assert result.roles_modified == ["RegionReader"]
+    assert result.perspectives_added == ["ExecView"]
+    assert result.perspectives_removed == ["LegacyView"]
+    assert result.expressions_added == ["ServerUrl"]
+    assert not result.is_empty()

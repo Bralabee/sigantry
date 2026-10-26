@@ -50,7 +50,7 @@ import hashlib
 import json
 from typing import Any, Final, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_serializer
 
 _CANONICAL_KWARGS: Final[dict[str, Any]] = {
     "sort_keys": True,
@@ -195,11 +195,42 @@ class TmdlDiffSection(BaseModel):
     tables_modified: list[str] = Field(default_factory=list)
     columns_added: list[TableChange] = Field(default_factory=list)
     columns_removed: list[TableChange] = Field(default_factory=list)
+    columns_modified: list[TableChange] = Field(default_factory=list)
     measures_added: list[MeasureChange] = Field(default_factory=list)
     measures_removed: list[MeasureChange] = Field(default_factory=list)
     measures_modified: list[MeasureChange] = Field(default_factory=list)
     relationships_added: list[RelationshipChange] = Field(default_factory=list)
     relationships_removed: list[RelationshipChange] = Field(default_factory=list)
+    relationships_modified: list[RelationshipChange] = Field(default_factory=list)
+    roles_added: list[str] = Field(default_factory=list)
+    roles_removed: list[str] = Field(default_factory=list)
+    roles_modified: list[str] = Field(default_factory=list)
+    perspectives_added: list[str] = Field(default_factory=list)
+    perspectives_removed: list[str] = Field(default_factory=list)
+    perspectives_modified: list[str] = Field(default_factory=list)
+    expressions_added: list[str] = Field(default_factory=list)
+    expressions_removed: list[str] = Field(default_factory=list)
+    expressions_modified: list[str] = Field(default_factory=list)
+
+    @model_serializer(mode="wrap")
+    def _serialize_model(self, handler: Any) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        for ext_key in (
+            "columns_modified",
+            "relationships_modified",
+            "roles_added",
+            "roles_removed",
+            "roles_modified",
+            "perspectives_added",
+            "perspectives_removed",
+            "perspectives_modified",
+            "expressions_added",
+            "expressions_removed",
+            "expressions_modified",
+        ):
+            if not data.get(ext_key):
+                data.pop(ext_key, None)
+        return data
 
     def is_empty(self) -> bool:
         """True iff every collection is empty (no diff to render)."""
@@ -209,11 +240,22 @@ class TmdlDiffSection(BaseModel):
             or self.tables_modified
             or self.columns_added
             or self.columns_removed
+            or self.columns_modified
             or self.measures_added
             or self.measures_removed
             or self.measures_modified
             or self.relationships_added
             or self.relationships_removed
+            or self.relationships_modified
+            or self.roles_added
+            or self.roles_removed
+            or self.roles_modified
+            or self.perspectives_added
+            or self.perspectives_removed
+            or self.perspectives_modified
+            or self.expressions_added
+            or self.expressions_removed
+            or self.expressions_modified
         )
 
 

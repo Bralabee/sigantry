@@ -118,3 +118,52 @@ def test_lakehouse_diff_rejects_oversized_metadata(tmp_path: Path) -> None:
 
     with pytest.raises(LakehouseDiffError):
         diff_lakehouse(base, head)
+
+
+def test_lakehouse_diff_handles_added_and_removed_lakehouses_and_qualifies_multiple_stems(
+    tmp_path: Path,
+) -> None:
+    """lakehouse-diff-multi-lakehouse-gaps: added/removed *.Lakehouse directories are diffed
+    and multi-lakehouse results qualify names with <stem>/."""
+    import json
+
+    base = tmp_path / "base"
+    head = tmp_path / "head"
+
+    # Base has Bronze.Lakehouse and Legacy.Lakehouse (removed in head)
+    for stem, table_name in (("Bronze", "orders"), ("Legacy", "old_events")):
+        lh = base / f"{stem}.Lakehouse"
+        lh.mkdir(parents=True)
+        (lh / ".platform").write_text(
+            json.dumps({"metadata": {"type": "Lakehouse", "displayName": stem}}),
+            encoding="utf-8",
+        )
+        (lh / "lakehouse.metadata.json").write_text(
+            json.dumps({"defaultSchema": "dbo", "tables": [{"name": table_name}]}),
+            encoding="utf-8",
+        )
+
+    # Head has Bronze.Lakehouse (unchanged) and Gold.Lakehouse (newly added in head)
+    for stem, table_name in (("Bronze", "orders"), ("Gold", "orders")):
+        lh = head / f"{stem}.Lakehouse"
+        lh.mkdir(parents=True)
+        (lh / ".platform").write_text(
+            json.dumps({"metadata": {"type": "Lakehouse", "displayName": stem}}),
+            encoding="utf-8",
+        )
+        (lh / "lakehouse.metadata.json").write_text(
+            json.dumps({"defaultSchema": "dbo", "tables": [{"name": table_name}]}),
+            encoding="utf-8",
+        )
+
+    result = diff_lakehouse(base, head)
+    assert "Gold/orders" in result.tracked_tables_added
+    assert "Legacy/old_events" in result.tracked_tables_removed
+    assert any(
+        c.field == "Gold/displayName" and c.before == "" and c.after == "Gold"
+        for c in result.identity_changes
+    )
+    assert any(
+        c.field == "Legacy/displayName" and c.before == "Legacy" and c.after == ""
+        for c in result.identity_changes
+    )

@@ -61,9 +61,28 @@ _MAX_BLOCK_BYTES: Final[int] = 262_144
 """256 KB per-block body cap. Iterative parser raises before unbounded growth."""
 
 _BLOCK_KEYWORDS: Final[frozenset[str]] = frozenset(
-    {"model", "database", "table", "measure", "column", "relationship", "partition"}
+    {
+        "model",
+        "database",
+        "table",
+        "measure",
+        "column",
+        "relationship",
+        "partition",
+        "role",
+        "perspective",
+        "calculationGroup",
+        "calculationItem",
+        "hierarchy",
+        "expression",
+    }
 )
-"""Block-decl keywords (RESEARCH §Pattern 1; trimmed per plan to STARTER-05 surface)."""
+"""Block-decl keywords (RESEARCH §Pattern 1 + Wave 2 TMDL completeness surface)."""
+
+_TABLE_SUBBLOCK_KINDS: Final[frozenset[str]] = frozenset(
+    {"partition", "hierarchy", "calculationGroup", "calculationItem"}
+)
+"""Child block kinds nested under a ``table`` whose edits mark the parent table modified."""
 
 # Name token: single-quoted with `''` escape, OR bare and identifier- or
 # GUID-shaped: word characters and hyphens. Exports name relationships by bare
@@ -84,11 +103,11 @@ _BLOCK_DECL_RE: Final[re.Pattern[str]] = re.compile(
 # Falls back to "?" rather than raising; the diff still reports a
 # modification, just without precise endpoints.
 _REL_FROM_RE: Final[re.Pattern[str]] = re.compile(
-    r"\bfromColumn\s*:\s*'?(?P<table>[^'.\s]+(?:\.[^'.\s]+)*)'?\.",
+    r"\bfromColumn\s*:\s*(?P<table>'(?:[^']|'')*'|[^'.\s]+(?:\.[^'.\s]+)*)\.",
     re.IGNORECASE,
 )
 _REL_TO_RE: Final[re.Pattern[str]] = re.compile(
-    r"\btoColumn\s*:\s*'?(?P<table>[^'.\s]+(?:\.[^'.\s]+)*)'?\.",
+    r"\btoColumn\s*:\s*(?P<table>'(?:[^']|'')*'|[^'.\s]+(?:\.[^'.\s]+)*)\.",
     re.IGNORECASE,
 )
 
@@ -241,7 +260,12 @@ def parse(text: str, source: str = "<string>") -> list[TmdlBlock]:
                 table_stack.append(name)
         elif stack:
             # Non-decl line: append to innermost open block's body if any.
+            if pending_desc:
+                stack[-1][2].extend(pending_desc)
+                pending_desc = []
             stack[-1][2].append(raw)
+        else:
+            pending_desc = []
         if _opens_fence(stripped):
             in_fence = True
             fence_line = lineno
@@ -252,21 +276,67 @@ def parse(text: str, source: str = "<string>") -> list[TmdlBlock]:
     return blocks
 
 
-def _walk_blocks(root: Path) -> dict[tuple[str | None, str, str], str]:
+def _semantic_model_stem(file_path: Path, root: Path) -> str | None:
+    """Return the enclosing ``<stem>.SemanticModel`` stem for ``file_path`` under ``root``."""
+    try:
+        rel_parts = file_path.relative_to(root).parts
+    except ValueError:
+        rel_parts = file_path.parts
+    for part in rel_parts[:-1]:
+        if part.endswith(".SemanticModel") and len(part) > len(".SemanticModel"):
+            return part[: -len(".SemanticModel")]
+    return None
+
+
+def _discover_model_stems(root: Path) -> set[str]:
+    """Return all ``*.SemanticModel`` stems that contain ``*.tmdl`` files under ``root``."""
+    if not root.exists():
+        return set()
+    stems: set[str] = set()
+    for f in sorted(root.rglob("*.tmdl")):
+        if not f.is_file():
+            continue
+        stem = _semantic_model_stem(f, root)
+        if stem:
+            stems.add(stem)
+    return stems
+
+
+def _walk_blocks(
+    root: Path,
+    *,
+    qualify_models: bool | None = None,
+) -> dict[tuple[str | None, str, str], str]:
     """Parse every ``*.tmdl`` under ``root`` and key blocks by triple.
 
     Key: ``(parent_table, kind, name)``. Value: block body (str).
-    Files walked in sorted order for determinism.
+    When multiple ``*.SemanticModel`` directories exist (or ``qualify_models=True``),
+    top-level block names and ``parent_table`` values are prefixed with
+    ``<model_stem>/`` so identically named tables/measures across models do
+    not overwrite each other.
     """
     out: dict[tuple[str | None, str, str], str] = {}
     if not root.exists():
         return out
-    for f in sorted(root.rglob("*.tmdl")):
-        if not f.is_file():
-            continue
+    tmdl_files = [f for f in sorted(root.rglob("*.tmdl")) if f.is_file()]
+    if qualify_models is None:
+        stems = {stem for f in tmdl_files if (stem := _semantic_model_stem(f, root)) is not None}
+        qualify_models = len(stems) > 1
+    for f in tmdl_files:
+        stem = _semantic_model_stem(f, root) if qualify_models else None
         text = f.read_text(encoding="utf-8")
         for blk in parse(text, source=str(f)):
-            out[(blk.parent_table, blk.kind, blk.name)] = blk.body
+            if stem:
+                if blk.parent_table is not None:
+                    parent = f"{stem}/{blk.parent_table}"
+                    name = blk.name
+                else:
+                    parent = None
+                    name = f"{stem}/{blk.name}"
+            else:
+                parent = blk.parent_table
+                name = blk.name
+            out[(parent, blk.kind, name)] = blk.body
     return out
 
 
@@ -291,8 +361,10 @@ def diff_tmdl(base_dir: Path, head_dir: Path) -> TmdlDiffSection:
     """
     base_dir = Path(base_dir)
     head_dir = Path(head_dir)
-    base = _walk_blocks(base_dir)
-    head = _walk_blocks(head_dir)
+    all_models = _discover_model_stems(base_dir) | _discover_model_stems(head_dir)
+    qualify_models = len(all_models) > 1
+    base = _walk_blocks(base_dir, qualify_models=qualify_models)
+    head = _walk_blocks(head_dir, qualify_models=qualify_models)
 
     base_keys = set(base.keys())
     head_keys = set(head.keys())
@@ -303,7 +375,14 @@ def diff_tmdl(base_dir: Path, head_dir: Path) -> TmdlDiffSection:
 
     tables_added = sorted(n for (p, k, n) in added_keys if k == "table" and p is None)
     tables_removed = sorted(n for (p, k, n) in removed_keys if k == "table" and p is None)
-    tables_modified = sorted(n for (p, k, n) in modified_keys if k == "table" and p is None)
+    subblock_modified_tables = {
+        p
+        for (p, k, _n) in (added_keys | removed_keys | modified_keys)
+        if p is not None and k in _TABLE_SUBBLOCK_KINDS and (None, "table", p) in common_keys
+    }
+    tables_modified = sorted(
+        {n for (p, k, n) in modified_keys if k == "table" and p is None} | subblock_modified_tables
+    )
 
     def _cols(keys: set[tuple[str | None, str, str]]) -> list[TableChange]:
         return sorted(
@@ -317,8 +396,12 @@ def diff_tmdl(base_dir: Path, head_dir: Path) -> TmdlDiffSection:
             key=lambda m: (m.table, m.name),
         )
 
+    def _top_names(keys: set[tuple[str | None, str, str]], kind: str) -> list[str]:
+        return sorted(n for (p, k, n) in keys if k == kind and p is None)
+
     columns_added = _cols(added_keys)
     columns_removed = _cols(removed_keys)
+    columns_modified = _cols(modified_keys)
     measures_added = _meas(added_keys)
     measures_removed = _meas(removed_keys)
     measures_modified = _meas(modified_keys)
@@ -331,6 +414,10 @@ def diff_tmdl(base_dir: Path, head_dir: Path) -> TmdlDiffSection:
     for key in sorted(k for k in removed_keys if k[1] == "relationship"):
         ft, tt = _parse_relationship_endpoints(base[key])
         relationships_removed.append(RelationshipChange(from_table=ft, to_table=tt))
+    relationships_modified: list[RelationshipChange] = []
+    for key in sorted(k for k in modified_keys if k[1] == "relationship"):
+        ft, tt = _parse_relationship_endpoints(head[key])
+        relationships_modified.append(RelationshipChange(from_table=ft, to_table=tt))
 
     return TmdlDiffSection(
         tables_added=tables_added,
@@ -338,11 +425,22 @@ def diff_tmdl(base_dir: Path, head_dir: Path) -> TmdlDiffSection:
         tables_modified=tables_modified,
         columns_added=columns_added,
         columns_removed=columns_removed,
+        columns_modified=columns_modified,
         measures_added=measures_added,
         measures_removed=measures_removed,
         measures_modified=measures_modified,
         relationships_added=relationships_added,
         relationships_removed=relationships_removed,
+        relationships_modified=relationships_modified,
+        roles_added=_top_names(added_keys, "role"),
+        roles_removed=_top_names(removed_keys, "role"),
+        roles_modified=_top_names(modified_keys, "role"),
+        perspectives_added=_top_names(added_keys, "perspective"),
+        perspectives_removed=_top_names(removed_keys, "perspective"),
+        perspectives_modified=_top_names(modified_keys, "perspective"),
+        expressions_added=_top_names(added_keys, "expression"),
+        expressions_removed=_top_names(removed_keys, "expression"),
+        expressions_modified=_top_names(modified_keys, "expression"),
     )
 
 
