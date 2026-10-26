@@ -134,13 +134,19 @@ def _build_provider(
     invalid combination of flags.
     """
     release_cfg: Any = None
+    github_auth_supplied = github_pat is not None or bool(
+        github_app_id and github_private_key_pem and github_installation_id
+    )
     if (
         provider_kind is None
         or (
             provider_kind == "ado"
             and (not ado_organization or not ado_project or not ado_tenant_id)
         )
-        or (provider_kind == "github" and (not github_owner or not github_repo))
+        or (
+            provider_kind == "github"
+            and (not github_owner or not github_repo or not github_auth_supplied)
+        )
     ):
         try:
             release_cfg = load_settings_for_cli().release
@@ -737,10 +743,10 @@ def verify_cmd(
         "--audit-dir",
         help="Override ~/.sigantry/audit/ (used in tests + CI).",
     ),
-    ledger_file: str = typer.Option(
-        "deploys.jsonl",
+    ledger_file: str | None = typer.Option(
+        None,
         "--ledger-file",
-        help="Ledger filename in --audit-dir (or path) to verify.",
+        help="Ledger filename in --audit-dir (or path) to verify (default: deploys.jsonl).",
     ),
     all_ledgers: bool = typer.Option(
         False,
@@ -779,6 +785,9 @@ def verify_cmd(
     1
         Chain invalid, a line failed to parse, or the ledger is unreadable.
     """
+    if all_ledgers and ledger_file is not None:
+        raise typer.BadParameter("Pass either --all or --ledger-file, not both.")
+
     audit_dir_path = resolve_audit_dir(audit_dir, default_dir=_DEFAULT_AUDIT_DIR)
 
     if all_ledgers:
@@ -800,11 +809,12 @@ def verify_cmd(
                 _render_single_verdict(v)
         raise typer.Exit(0 if overall_valid else 1)
 
-    candidate = Path(ledger_file)
+    target_ledger = ledger_file if ledger_file is not None else "deploys.jsonl"
+    candidate = Path(target_ledger)
     path = (
         candidate
-        if candidate.is_absolute() or "/" in ledger_file or "\\" in ledger_file
-        else audit_dir_path / ledger_file
+        if candidate.is_absolute() or "/" in target_ledger or "\\" in target_ledger
+        else audit_dir_path / target_ledger
     )
     verdict = _evaluate_ledger(path)
     if json_output:

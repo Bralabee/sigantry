@@ -100,9 +100,13 @@ def resolve_secret(
 
         credential = get_default_credential(tenant_id=tenant_id)
 
+    from sigantry_core.auth.tenant import TenantMismatchError
+
     try:
         client = SecretClient(vault_url=vault_url, credential=credential)
         kv_secret = client.get_secret(secret_name)
+    except TenantMismatchError:
+        raise
     except Exception as exc:  # we re-wrap with remediation
         raise KeyVaultResolutionError(
             f"failed to resolve {ref!r}: {exc}",
