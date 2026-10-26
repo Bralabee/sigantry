@@ -50,7 +50,8 @@ from typing import Literal
 import typer
 
 from sigantry_core._ado_organization import AdoOrganizationError, ado_organization_name
-from sigantry_core.auth import get_token_provider
+from sigantry_core._cli_tenant import resolve_tenant_id
+from sigantry_core.auth import TokenProviderProtocol, get_token_provider
 from sigantry_core.client.errors import (
     AuthError,
     HttpError,
@@ -181,14 +182,30 @@ def _build_github_provider(token: str | None) -> GithubProvider:
     return GithubProvider(owner=owner, repo=repo, pat=resolved_token)
 
 
-def _build_ado_provider() -> AdoProvider:
-    """Construct an AdoProvider from ADO Pipelines env vars + TokenProvider.
+class _StaticBearerTokenProvider:
+    """Wrap an explicit ADO bearer token (``--token`` or ``SYSTEM_ACCESSTOKEN``)."""
+
+    def __init__(self, token: str) -> None:
+        self._token = token
+
+    def last_credential_class(self, scope: str) -> str | None:
+        return "StaticBearerToken"
+
+    def get_token(self, scope: str, *, force_refresh: bool = False) -> str:
+        return self._token
+
+
+def _build_ado_provider(token: str | None = None) -> AdoProvider:
+    """Construct an AdoProvider from ADO Pipelines env vars + token / TokenProvider.
 
     Reads ``SYSTEM_TEAMFOUNDATIONCOLLECTIONURI`` (e.g.
     ``https://dev.azure.com/sigantry-test/``) -> org name, plus
     ``SYSTEM_TEAMPROJECT`` -> project, and ``BUILD_REPOSITORY_ID`` ->
     repository id (all set on every ADO Pipelines job per
     learn.microsoft.com/azure/devops/pipelines/build/variables).
+    Uses explicit ``--token`` or ``SYSTEM_ACCESSTOKEN`` when present, and
+    falls back to :func:`get_token_provider` pinned with
+    :func:`resolve_tenant_id`.
     """
     org_uri = os.environ.get("SYSTEM_TEAMFOUNDATIONCOLLECTIONURI", "").rstrip("/")
     if not org_uri or "/" not in org_uri:
@@ -205,11 +222,17 @@ def _build_ado_provider() -> AdoProvider:
     repo_id = os.environ.get("BUILD_REPOSITORY_ID", "")
     if not repo_id:
         raise typer.BadParameter("ADO provider requires BUILD_REPOSITORY_ID env var; empty.")
+    resolved_token = (token or os.environ.get("SYSTEM_ACCESSTOKEN", "") or "").strip()
+    token_provider: TokenProviderProtocol
+    if resolved_token:
+        token_provider = _StaticBearerTokenProvider(resolved_token)
+    else:
+        token_provider = get_token_provider(tenant_id=resolve_tenant_id(None))
     return AdoProvider(
         org=org,
         project=project,
         repository_id=repo_id,
-        token_provider=get_token_provider(),
+        token_provider=token_provider,
     )
 
 
@@ -233,7 +256,7 @@ def run(
     token: str | None = typer.Option(
         None,
         "--token",
-        help="GitHub PAT or installation token. Falls back to GITHUB_TOKEN env var.",
+        help="GitHub PAT/installation token or ADO bearer token (falls back to GITHUB_TOKEN / SYSTEM_ACCESSTOKEN).",
     ),
     base_dir: Path = typer.Option(  # noqa: B008 -- typer convention: Option() lives in the default
         ...,
@@ -291,7 +314,7 @@ def run(
         if provider_kind == "github":
             provider_obj = _build_github_provider(token)
         else:
-            provider_obj = _build_ado_provider()
+            provider_obj = _build_ado_provider(token)
     except typer.BadParameter as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
