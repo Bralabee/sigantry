@@ -103,7 +103,7 @@ This is the load-bearing boundary the scheduled drift-check templates enforce --
        secrets: inherit
    ```
 
-2. Add a federated credential to the app registration for the caller (subject = `repo:org/repo:ref:refs/heads/main` for a scheduled run). The reusable workflow signs in with `azure/login` (SHA-pinned) through OIDC; no client secret is stored anywhere.
+2. Add a federated credential to the app registration for the caller (subject = `repo:org/repo:ref:refs/heads/main` for a scheduled run, or `repo:org@<owner_id>/repo@<repo_id>:ref:refs/heads/main` on newer GitHub repositories that emit numeric ID-pinned OIDC subjects — if `azure/login` fails with `AADSTS700213`, set the federated credential's `subject` to the exact `repo:Owner@<id>/repo@<id>:...` string shown in the Entra error message). The reusable workflow signs in with `azure/login` (SHA-pinned) through OIDC; no client secret is stored anywhere.
 
 3. Configure Teams / Slack / SMTP secrets as repo secrets (see section 4).
 

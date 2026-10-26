@@ -108,6 +108,7 @@ class TokenProvider:
             kwargs: dict[str, Any] = {
                 "exclude_interactive_browser_credential": True,
                 "exclude_visual_studio_code_credential": True,
+                "exclude_broker_credential": True,
             }
             if pinned is not None:
                 # A credential configured for one tenant (AZURE_TENANT_ID)
@@ -204,7 +205,13 @@ class TokenProvider:
         """Class name of the credential that produced the currently-cached token."""
         with self._lock:
             cached = self._cache.get(scope)
-            return cached.credential_class if cached else None
+            if cached is not None:
+                return cached.credential_class
+            if scope == "probe":
+                if self._cache:
+                    return next(reversed(self._cache.values())).credential_class
+                return self._credential_class
+            return None
 
 
 # ---- Module-level process-wide tenant-keyed pool ------------------------

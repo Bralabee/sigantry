@@ -299,13 +299,28 @@ def test_apply_emits_deploy_record_on_success(
     )
 
     from sigantry_core.sync import apply as apply_mod
-    from sigantry_core.workspace.reconciler import ReconcilePlan, ReconcileReport
+    from sigantry_core.workspace.reconciler import (
+        PlannedItemMove,
+        ReconcilePlan,
+        ReconcileReport,
+    )
 
     monkeypatch.setattr(
         apply_mod,
         "reconcile_folders_from_repo",
         lambda *a, **k: ReconcileReport(
-            plan=ReconcilePlan(workspace_id=k.get("workspace_id", "ws-x"))
+            plan=ReconcilePlan(
+                workspace_id=k.get("workspace_id", "ws-x"),
+                move_items=[
+                    PlannedItemMove(
+                        item_id="i-1",
+                        display_name="Nb1",
+                        item_type="Notebook",
+                        from_folder_id=None,
+                        to_folder_path=("raw",),
+                    )
+                ],
+            )
         ),
     )
 

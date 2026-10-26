@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 BreakingKind = Literal[
     "table_removed",
     "column_removed",
+    "column_type_changed",
     "measure_removed",
     "relationship_removed",
 ]
@@ -62,6 +63,22 @@ def analyze_tmdl_breaking_changes(
                 impact="Column dropped; visuals and calculations referencing it will fail.",
             )
         )
+
+    # 2b. Modified column dataType (HIGH)
+    for col in tmdl_diff.columns_modified:
+        if col.old_type and col.new_type and col.old_type.lower() != col.new_type.lower():
+            target_str = f"'{col.table}'.[{col.name}]" if col.table else col.name
+            changes.append(
+                BreakingChange(
+                    kind="column_type_changed",
+                    severity="HIGH",
+                    target=target_str,
+                    impact=(
+                        f"Column dataType changed from '{col.old_type}' to '{col.new_type}'; "
+                        f"downstream visuals and DAX calculations expecting '{col.old_type}' may fail."
+                    ),
+                )
+            )
 
     # 3. Dropped measures (HIGH)
     for meas in tmdl_diff.measures_removed:

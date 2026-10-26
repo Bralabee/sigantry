@@ -414,6 +414,8 @@ federation. No static credentials live in the repo:
     subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 ```
 
+> **Note on GitHub OIDC subject format (`AADSTS700213`):** Newer GitHub repositories emit OIDC `sub` claims with numeric owner and repository IDs in the form `repo:Owner@<owner_id>/repo@<repo_id>:environment:<env>` (or `:ref:refs/heads/<branch>`) rather than the classic `repo:Owner/repo:...` form. If `azure/login` fails with `AADSTS700213`, configure the Entra App Registration's Federated Credential `subject` with the exact `repo:Owner@<id>/repo@<id>:...` value printed in the `AADSTS700213` error message.
+
 **For service principal with secret** (legacy; avoid where possible):
 
 ```bash

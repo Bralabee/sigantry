@@ -177,6 +177,8 @@ def decode_token_claims(token: str) -> dict[str, Any]:
             "tid",
             "oid",
             "appid",
+            "upn",
+            "preferred_username",
             "exp",
             "iat",
             "scp",

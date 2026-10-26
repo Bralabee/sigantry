@@ -85,7 +85,7 @@ def _raise_missing_or_tampered(release_id: str, *, audit_dir: Path | None) -> No
     )
 
 
-@destructive_op("deploy", "rollback")
+@destructive_op("deploy", "rollback", resource_arg="release_id")
 def rollback_to_release(
     release_id: str,
     workspace: str,

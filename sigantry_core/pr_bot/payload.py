@@ -106,12 +106,23 @@ class PrSummary(BaseModel):
 
 
 class TableChange(BaseModel):
-    """A column add/remove keyed by the (table, column-name) pair."""
+    """A column add/remove/modify keyed by the (table, column-name) pair."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     table: str
     name: str
+    old_type: str | None = None
+    new_type: str | None = None
+
+    @model_serializer(mode="wrap")
+    def _serialize_table_change(self, handler: Any) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if data.get("old_type") is None:
+            data.pop("old_type", None)
+        if data.get("new_type") is None:
+            data.pop("new_type", None)
+        return data
 
 
 class MeasureChange(BaseModel):

@@ -350,6 +350,7 @@ def deploy_cmd(
             allow_raw_guids=resolve_allow_raw_guids(
                 opt_in_from_flags(allow_raw_guids, no_allow_raw_guids)
             ),
+            audit_dir=audit_dir,
         )
     except Exception as exc:  # CLI boundary: surface anything to the user.
         exit_on_tenant_error(exc, exit_code=1)

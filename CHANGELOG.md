@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **CA certificate bundle floor (`pyproject.toml`).**
+  Added an explicit `certifi>=2026.10.19,<2027.0` runtime dependency floor in
+  response to the PyPI CA certificate incident advisory.
+
 ### Changed
 - **`fabric-cicd` 1.4.0 delta-audit docs and version parser (`sigantry_core/deploy/`, `docs/LANDSCAPE-2026-06.md`, `tests/sigantry_core/deploy/test_fabric_cicd_contract.py`).**
   Updated `sigantry_core.deploy` module docstrings and `docs/LANDSCAPE-2026-06.md` §9.4
@@ -22,6 +27,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in 2.0 (ADR-0011)"`.
 
 ### Fixed
+- **Live-Fabric verification remediation (`.github/workflows/sigantry-cd.yml`, `templates/stages/sigantry-cd.yml`, `templates/demo/`, `sigantry_core/preflight/`, `sigantry_core/capacity/core.py`, `sigantry_core/governance/destructive.py`, `sigantry_core/workspace/`, `sigantry_core/sync/apply.py`, `sigantry_core/deploy/`, `sigantry_core/auth/`, `sigantry_core/pr_bot/`, `docs/`).**
+  1. Moved the CD self-approval gate into the `approval` job/stage (`sigantry-cd.yml` on both GHA and ADO) so self-approval is rejected **before** `deploy` runs rather than in `promote` after changes are already live.
+  2. Added an M partition block to `templates/demo/fabric_items/OrdersAnalytics.SemanticModel/definition/tables/Orders.tmdl` so live Fabric semantic-model publish succeeds, and extended `SchemaSyntaxProbe` to reject table `.tmdl` files that lack a `partition` declaration.
+  3. Threaded `audit_dir` and `client.token_provider` through `apply_sync` -> `reconcile_folders_from_repo` -> `apply_reconcile` -> `delete_item` / `delete_folder` (and `deploy_workspace` -> `_unpublish_orphans_gated`), formatted orphan-delete `resource_id` entries as `<workspace_id>/<path_or_item>.<type> (<guid>)`, and updated `_infer_principal` to extract `upn` / `preferred_username` / `appid` / `oid` from cached tokens before falling back to the credential class name.
+  4. Updated `sync apply` (`_emit_default_record_phase` and `_emit_failure_record_phase`) to record only actually moved or unpublished items in `DeployRecord.fabric_items_changed` (and `[]` on failure or no-op runs) instead of listing every manifest item unconditionally.
+  5. Documented the newer GitHub numeric-ID OIDC subject format (`repo:Owner@<id>/repo@<id>:...`) and `AADSTS700213` remediation across `deploy-with-tests.md`, `scheduled-drift.md`, and `USER-GUIDE.md`.
+  6. Filtered `deploy_workspace` `itemsPublished` counts and bulk candidate discovery by `item_type_in_scope`; excluded `BrokerCredential` (`exclude_broker_credential=True`) in `TokenProvider` and surfaced `TenantMismatchError` cleanly when `DefaultAzureCredential` fails on a mismatched tenant pin; changed `sigantry preflight` default `--environment` from `dev` to `DEV`; updated `Capacity.from_api` to accept string `sku` payloads (`"PP3"`) and `CapacityStateProbe` to reject Fabric-only item types on Power BI-only SKUs (`PP*`, `EM*`, `A*`); updated `diff_tmdl` and `analyze_tmdl_breaking_changes` to flag column `dataType` changes as `HIGH` breaking changes (`column_type_changed`); and restored prior `deploys.jsonl` artefacts before `sigantry release record` in CD and demo CI workflows so `sigantry release verify` validates a multi-record chain.
 - **Documentation and starter/demo CLI alignment (`templates/starter/docs/`, `templates/demo/docs/`, `docs/tutorials/`, `docs/runbooks/`, `docs/reference/`, `docs/CAPABILITIES.md`).**
   Updated `templates/starter/docs/QUICKSTART.md` to use `sigantry config validate parameters.yml --environment DEV`, `sigantry deploy validate`, `sigantry preflight`, and `sigantry deploy run --source ./fabric_items ... --environment DEV` (removing non-existent `--env` and `deploy run --dry-run` flags) and documented `sync.yml` / `fabric_items/` prerequisites; added the forward `sigantry deploy run --source ./fabric_items` example to `templates/starter/docs/BRANCHING.md` and `templates/demo/docs/BRANCHING.md`; added `--tenant-id` / `AZURE_TENANT_ID` and `sigantry release verify` to `docs/tutorials/07-rollback.md`; updated `docs/runbooks/pr-bot-operator.md`, `docs/tutorials/09-pr-review-bot.md`, and `docs/CAPABILITIES.md` for expanded TMDL diff kinds, `.SemanticModel` / `.Lakehouse` deep diff vs non-Lakehouse `.platform` path triggers, `pull_request` vs `pull_request_target` fork security trade-offs, and `sigantry release verify --ledger-file` / `--all`; documented case-sensitive environment keys in `docs/reference/parameters-yml.md`; and cross-referenced `test_pipeline_auth_and_pins.py` and partial-governance `--fail-on-drift` behavior in `docs/reference/dual-ci-strategy.md` and `docs/runbooks/drift-detection/scheduled-drift.md`.
 - **Tenant pinning and audit ledger hardening (`sigantry_core/release/cli.py`, `sigantry_core/auth/token_provider.py`, `sigantry_core/auth/keyvault.py`, `sigantry_core/workspace/records.py`, `sigantry_core/governance/audit_io.py`).**
