@@ -16,8 +16,11 @@ from dataclasses import dataclass
 from sigantry_core.auth import POWERBI_SCOPE, TenantMismatchError, TokenProvider
 from sigantry_core.auth.tenant import require_tenant_guid, same_guid
 from sigantry_core.client import FabricRestClient
-from sigantry_core.client.errors import HttpError
+from sigantry_core.client.errors import HttpError, NotFoundError
+from sigantry_core.client.fabric import FABRIC_DEFAULT_BASE_URL
+from sigantry_core.client.logging import get_correlation_id
 from sigantry_core.governance.audit import destructive_op
+from sigantry_core.governance.audit import logger as audit_logger
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,27 +112,56 @@ def delete_workspace(
     With ``pbi_fallback=True``, when the Fabric DELETE raises an ``HttpError``
     whose body carries ``UnknownError`` (the status code is not checked), the
     delete is tried again once through
-    ``DELETE https://api.powerbi.com/v1.0/myorg/groups/{id}``, whatever base
-    URL the Fabric client uses. That retry authenticates with the caller's
-    token provider: ``token_provider`` when given, else the Fabric client's
-    own, so it runs as the same principal under the same tenant pin.
-    ``tenant_id``, when given, must agree with that pin: a provider pinned to
-    another tenant is refused with ``TenantMismatchError`` before the retry,
-    and an unpinned provider's credential is pinned to ``tenant_id`` for the
-    retry. The audit record does not show that the retry ran. Default
-    ``False`` preserves the strict single-API behaviour.
+    ``DELETE https://api.powerbi.com/v1.0/myorg/groups/{id}``. Because the
+    Power BI retry is pinned to ``https://api.powerbi.com``, a Fabric client
+    whose ``base_url`` is anything other than
+    ``https://api.fabric.microsoft.com`` is refused with ``ValueError`` before
+    the retry. That retry authenticates with the caller's token provider:
+    ``token_provider`` when given, else the Fabric client's own, so it runs as
+    the same principal under the same tenant pin. ``tenant_id``, when given,
+    must agree with that pin: a provider pinned to another tenant is refused
+    with ``TenantMismatchError`` before the retry, and an unpinned provider's
+    credential is pinned to ``tenant_id`` for the retry. When the retry runs,
+    a ``workspace_delete_fallback`` record is logged at ``INFO`` on the
+    ``sigantry_core.governance.audit`` logger with ``workspace_id``,
+    ``endpoint`` and ``correlation_id`` (the ``destructive_ops.jsonl`` ledger
+    schema is unchanged). If the Power BI retry fails with HTTP ``404``
+    (:class:`~sigantry_core.client.errors.NotFoundError`, e.g. for a
+    Fabric-native workspace with no Power BI group), the original Fabric
+    ``HttpError`` is re-raised (with the ``NotFoundError`` as ``__cause__``)
+    so the caller and the ``destructive_ops.jsonl`` audit record see the
+    Fabric error class. Default ``False`` preserves the strict single-API
+    behaviour.
     """
     try:
         client.send("DELETE", f"/v1/workspaces/{workspace_id}")
     except HttpError as exc:
         if not pbi_fallback or not _is_unknown_error(exc):
             raise
+        if client.base_url != FABRIC_DEFAULT_BASE_URL:
+            raise ValueError(
+                f"refused the Power BI retry of the workspace delete: pbi_fallback is only "
+                f"supported against {FABRIC_DEFAULT_BASE_URL} (got {client.base_url!r})"
+            ) from exc
         provider = _fallback_token_provider(client, token_provider, tenant_id)
         # Lazy import: only pay for the Power BI client on the rare fallback path.
-        from sigantry_core.client.powerbi import PowerBIRestClient
+        from sigantry_core.client.powerbi import POWERBI_DEFAULT_BASE_URL, PowerBIRestClient
 
+        pbi_path = f"/v1.0/myorg/groups/{workspace_id}"
+        audit_logger.info(
+            "workspace_delete_fallback",
+            extra={
+                "event": "workspace_delete_fallback",
+                "workspace_id": workspace_id,
+                "endpoint": f"{POWERBI_DEFAULT_BASE_URL}{pbi_path}",
+                "correlation_id": get_correlation_id(),
+            },
+        )
         with PowerBIRestClient(token_provider=provider) as pbi:
-            pbi.send("DELETE", f"/v1.0/myorg/groups/{workspace_id}")
+            try:
+                pbi.send("DELETE", pbi_path)
+            except NotFoundError as pbi_exc:
+                raise exc from pbi_exc
 
 
 def _fallback_token_provider(

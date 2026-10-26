@@ -89,6 +89,11 @@ class BaseRestClient:
 
     # ---- public API ---------------------------------------------------
 
+    @property
+    def base_url(self) -> str:
+        """The normalized base URL (with any trailing ``/`` stripped)."""
+        return self._base_url
+
     def send(
         self,
         method: str,

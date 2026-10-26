@@ -9,6 +9,7 @@ import pytest
 
 from sigantry_core.auth import TokenProvider
 from sigantry_core.client import FabricRestClient, HttpResponse
+from sigantry_core.client.fabric import FABRIC_DEFAULT_BASE_URL
 
 
 @pytest.fixture
@@ -24,6 +25,7 @@ def mock_token_provider() -> MagicMock:
 def mock_fabric_client() -> MagicMock:
     """MagicMock spec'd to FabricRestClient - supports .send, .send_lro, .list_paginated."""
     c = MagicMock(spec=FabricRestClient)
+    c.base_url = FABRIC_DEFAULT_BASE_URL
     # Default: send returns a 2xx HttpResponse with empty body
     c.send.return_value = HttpResponse(
         status_code=200,

@@ -21,7 +21,15 @@ class TestFabricRestClient:
     def test_defaults_base_url_and_scope(self, mock_token_provider):
         client = FabricRestClient(token_provider=mock_token_provider)
         assert client._base_url == FABRIC_AUDIENCE
+        assert client.base_url == FABRIC_AUDIENCE
         assert client._default_scope == FABRIC_SCOPE
+
+    def test_base_url_property_strips_trailing_slash(self, mock_token_provider):
+        client = FabricRestClient(
+            token_provider=mock_token_provider,
+            base_url="https://api.fabric.microsoft.us/",
+        )
+        assert client.base_url == "https://api.fabric.microsoft.us"
 
     def test_is_subclass_of_base(self):
         assert issubclass(FabricRestClient, BaseRestClient)
