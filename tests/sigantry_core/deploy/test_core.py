@@ -524,7 +524,7 @@ def test_deploy_workspace_bulk_parallel_failure_raises(
     fake_ws_class = MagicMock(name="FabricWorkspace", return_value=fake_instance)
 
     def _pub_side_effect(ws, items_to_include=None, **kwargs):
-        if items_to_include and "Notebook.nb2" in items_to_include:
+        if items_to_include and "nb2.Notebook" in items_to_include:
             raise RuntimeError("upstream error")
         return None
 

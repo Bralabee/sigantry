@@ -21,6 +21,7 @@ from typing import Any
 
 from fabric_cicd import (
     FabricWorkspace,
+    append_feature_flag,
     publish_all_items,
     unpublish_all_orphan_items,
 )
@@ -188,6 +189,12 @@ def deploy_workspace(
         _params_tmpdir.cleanup()
 
 
+def _enable_items_to_include_flags() -> None:
+    """Append both fabric-cicd feature flags required for ``items_to_include``."""
+    append_feature_flag("enable_experimental_features")
+    append_feature_flag("enable_items_to_include")
+
+
 def _publish_and_optionally_unpublish(
     *,
     target_workspace: FabricWorkspace,
@@ -216,6 +223,9 @@ def _publish_and_optionally_unpublish(
     fabric-cicd reads ``parameter_file_path`` lazily during ``publish_all_items``,
     so the tempfile must outlive the publish call.
     """
+    if items_to_include or bulk:
+        _enable_items_to_include_flags()
+
     if bulk:
         candidate_items: list[str] = []
         if items_to_include:
@@ -226,11 +236,11 @@ def _publish_and_optionally_unpublish(
             for it_type, bucket in target_workspace.repository_items.items():
                 if isinstance(bucket, dict):
                     for it_name in bucket:
-                        candidate_items.append(f"{it_type}.{it_name}")
+                        candidate_items.append(f"{it_name}.{it_type}")
                 elif isinstance(bucket, list):
                     for it in bucket:
                         name = getattr(it, "name", str(it))
-                        candidate_items.append(f"{it_type}.{name}")
+                        candidate_items.append(f"{name}.{it_type}")
                 else:
                     candidate_items.append(str(it_type))
 
@@ -250,6 +260,7 @@ def _publish_and_optionally_unpublish(
                     publish_all_items(ws, items_to_include=[spec])
                     return True
                 except Exception:
+                    logger.error("bulk_publish_item_failed spec=%s", spec, exc_info=True)
                     return False
 
             workers = min(max_workers, len(candidate_items))

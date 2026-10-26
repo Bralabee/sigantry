@@ -24,11 +24,20 @@ logger = logging.getLogger("sigantry_core.deploy.dependency")
 
 _DEFAULT_DOT_DIR = Path("./deploy-artefacts")
 
-# Only these four item types get body-file reference extraction. Others are
-# recorded as nodes (so the DOT is complete) but get no outgoing edges —
-# extending to Warehouse / SemanticModel / Report is a post-Phase-4 task.
+# Canonical Fabric item types that undergo body-file reference extraction.
+# Other item types are recorded as nodes (so the DOT is complete) but get no
+# outgoing edges.
 _CANONICAL_TYPES: frozenset[str] = frozenset(
-    {"Lakehouse", "Environment", "Notebook", "DataPipeline"}
+    {
+        "Lakehouse",
+        "Environment",
+        "Notebook",
+        "DataPipeline",
+        "SemanticModel",
+        "Report",
+        "Warehouse",
+        "SparkJobDefinition",
+    }
 )
 
 # Matches both $items.<Type>.<Name> and $items.<Type>.<Name>.$id forms.
@@ -37,7 +46,9 @@ _ITEM_REF_RE = re.compile(
     r"\.(?P<name>[A-Za-z0-9_\-]+)(?:\.\$id)?"
 )
 
-_BODY_SUFFIXES: frozenset[str] = frozenset({".py", ".json", ".yml", ".yaml", ".pbism"})
+_BODY_SUFFIXES: frozenset[str] = frozenset(
+    {".py", ".ipynb", ".json", ".yml", ".yaml", ".pbism", ".tmdl"}
+)
 
 _Node = tuple[str, str]
 _Edge = tuple[_Node, _Node]
@@ -109,8 +120,6 @@ def _scan_tree(repo: Path) -> tuple[set[_Node], set[_Edge]]:
         nodes.add(this_node)
 
         # Non-canonical types get a node but no body scan.
-        # TODO(phase-4-plus): extend reference extraction to Warehouse /
-        # SemanticModel / Report once their body schemas are pinned.
         if item_type not in _CANONICAL_TYPES:
             continue
         item_dir = platform_path.parent

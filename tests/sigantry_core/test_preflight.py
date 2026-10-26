@@ -288,7 +288,7 @@ def test_schema_validates_parameters_when_given(sync_tree: Path, tmp_path: Path)
         'find_replace:\n  - find_value: x\n    replace_value:\n      DEV: "11111111-2222-3333-4444-555555555555"\n',
         encoding="utf-8",
     )
-    result = SchemaSyntaxProbe().run(manifest_path=sync_tree, environment="dev", params_path=params)
+    result = SchemaSyntaxProbe().run(manifest_path=sync_tree, environment="DEV", params_path=params)
     assert result.status == ProbeStatus.FAIL
     assert "parameters:" in result.message
     assert "hard-coded GUID" in result.message
@@ -297,7 +297,7 @@ def test_schema_validates_parameters_when_given(sync_tree: Path, tmp_path: Path)
         'find_replace:\n  - find_value: x\n    replace_value:\n      DEV: "$workspace.$id"\n',
         encoding="utf-8",
     )
-    ok = SchemaSyntaxProbe().run(manifest_path=sync_tree, environment="dev", params_path=params)
+    ok = SchemaSyntaxProbe().run(manifest_path=sync_tree, environment="DEV", params_path=params)
     assert ok.status == ProbeStatus.PASS
     assert ok.details["params_checked"] is True
     assert "parameters.yml valid" in ok.message
@@ -655,8 +655,10 @@ def test_cli_message_with_markup_brackets_is_rendered_verbatim(
 # ---------------------------------------------------------------------------
 
 
-def _schema(manifest: Path, params: Path | None = None) -> Any:
-    return SchemaSyntaxProbe().run(manifest_path=manifest, environment="prod", params_path=params)
+def _schema(manifest: Path, params: Path | None = None, *, environment: str = "prod") -> Any:
+    return SchemaSyntaxProbe().run(
+        manifest_path=manifest, environment=environment, params_path=params
+    )
 
 
 def test_schema_malformed_parameters_yaml_is_a_fail_not_a_crash(
@@ -787,9 +789,9 @@ def test_schema_parameters_check_honours_the_settings_opt_in(
     toml = tmp_path / ".sigantry.toml"
     toml.write_text("[deploy]\nallow_raw_guids = true\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
-    allowed = _schema(workspace_yml, params)
+    allowed = _schema(workspace_yml, params, environment="DEV")
     assert allowed.status == ProbeStatus.PASS, allowed.message
     assert allowed.details["params_checked"] is True
     toml.write_text("[deploy]\nallow_raw_guids = false\n", encoding="utf-8")
-    refused = _schema(workspace_yml, params)
+    refused = _schema(workspace_yml, params, environment="DEV")
     assert refused.status == ProbeStatus.FAIL and "hard-coded GUID" in refused.message

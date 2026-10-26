@@ -137,7 +137,7 @@ class SchemaSyntaxProbe(BaseProbe):
         params_checked = False
         if params_path is not None:
             params_checked = True
-            problem = _parameters_problem(params_path)
+            problem = _parameters_problem(params_path, environment=environment)
             if problem:
                 errors.append(problem)
 
@@ -238,14 +238,14 @@ def _artifact_problem(artifact: Path) -> str | None:
     return None
 
 
-def _parameters_problem(params_path: Path) -> str | None:
+def _parameters_problem(params_path: Path, *, environment: str | None = None) -> str | None:
     """Run ``parameters.yml`` through the deploy validator; return its error."""
     import yaml
 
     from sigantry_core.deploy.parameters import load_and_validate
 
     try:
-        load_and_validate(params_path)
+        load_and_validate(params_path, environment=environment)
     except (OSError, ValueError, KeyError, RuntimeError, yaml.YAMLError) as exc:
         # HardcodedGuidError subclasses ValueError; FileNotFoundError and a
         # directory given as the path are OSErrors; a parse error is a YAMLError.
