@@ -281,7 +281,7 @@ def publish_absent_items(
         )
 
     # 3. Append both fabric-cicd feature flags (D-17-09).
-    # Without BOTH flags, fabric-cicd 1.x (verified through 1.3.0)
+    # Without BOTH flags, fabric-cicd 1.x (verified through 1.4.0)
     # silently ignores the ``items_to_include`` kwarg and publishes the
     # entire staging tree. Flag-name canary:
     # tests/sigantry_core/deploy/test_fabric_cicd_contract.py.

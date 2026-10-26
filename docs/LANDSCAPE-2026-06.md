@@ -343,7 +343,11 @@ Recommendation 2 (the version-drift chores) was executed 2026-08-24: fabric-cicd
 `tests/sigantry_core/deploy/test_fabric_cicd_contract.py`: `$ENV:` substitution stays
 toolkit-side (upstream's flag-gated path still reads only env vars literally named
 `$ENV:VAR`), the D-17-09 double-flag gate is unchanged, and `enable_hard_delete` remains
-opt-in with `sigantry_core` never setting it. Recommendation 3 (bulk export/import spike) got
+opt-in with `sigantry_core` never setting it. Re-audited 2026-10-07 against **1.4.0** (PR #89):
+upstream's flag-gated path now reads the plain variable name (`$ENV:FOO` → `os.environ["FOO"]`),
+but the flag remains off by default and an unset variable leaves the `$ENV:` token in the file
+silently, so toolkit-side substitution and reachability validation stay required; the D-17-09
+double-flag gate and `enable_hard_delete` opt-in are unchanged. Recommendation 3 (bulk export/import spike) got
 cheaper: 1.2.0's `enable_bulk_publish` is now a shipped, flag-gated backend candidate for the
 sync-publish path rather than a raw-API wrap. Recommendations 1, 4–7 unchanged.
 

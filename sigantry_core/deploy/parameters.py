@@ -8,10 +8,11 @@ fabric-cicd-native schema: ``find_replace``, ``key_value_replace``, ``spark_pool
     1.x rejects this form in ``replace_value`` slots by default, so
     ``deploy/core.py`` substitutes ``$ENV:VAR`` -> ``os.environ[VAR]`` into a
     tempfile copy of ``parameters.yml`` before handing it to
-    ``FabricWorkspace``. Upstream 1.1.0 adds a flag-gated
-    ``enable_environment_variable_replacement`` path, but it only reads env
-    vars literally NAMED ``$ENV:VAR`` -- unusable for the plain-named
-    operator contract; pinned by
+    ``FabricWorkspace``. Upstream 1.1.0-1.3.0 added a flag-gated
+    ``enable_environment_variable_replacement`` path that only read env
+    vars literally NAMED ``$ENV:VAR``; 1.4.0 reads the plain variable name
+    behind the flag, but the flag remains off by default and an unset
+    variable is left in the file silently; pinned by
     ``tests/sigantry_core/deploy/test_fabric_cicd_contract.py``)
   - ``_ALL_`` environment wildcard (matched in any case, as fabric-cicd does)
 
@@ -39,7 +40,7 @@ The toolkit adds TWO validators on top of upstream's shape check:
      DEV deploy does not demand PROD's secrets.
 
 Substitution is the toolkit's responsibility because fabric-cicd 1.x
-(verified through 1.1.0) emits ``Invalid replace_value variable format``
+(verified through 1.4.0) emits ``Invalid replace_value variable format``
 for ``$ENV:`` refs outside its flag-gated path. See
 ``substitute_env_references`` + ``write_substituted_parameters``.
 
@@ -382,9 +383,10 @@ def substitute_env_references(
 
     fabric-cicd 1.x does NOT recognise ``$ENV:`` references in
     ``replace_value`` slots by default -- it raises ``Invalid replace_value
-    variable format``. (1.1.0's flag-gated alternative reads env vars
-    literally named ``$ENV:VAR`` and so cannot serve the plain-named
-    contract.) The toolkit performs the substitution itself so operators
+    variable format``. (1.1.0-1.3.0's flag-gated alternative read env vars
+    literally named ``$ENV:VAR``; 1.4.0 reads the plain name behind the
+    flag, but the flag is off by default and an unset variable's token is
+    kept silently.) The toolkit performs the substitution itself so operators
     may use env-var refs in ``parameters.yml`` per the documented contract.
 
     Multiple ``$ENV:VAR`` tokens may appear inside a single string and each
