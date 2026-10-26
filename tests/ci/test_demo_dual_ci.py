@@ -30,6 +30,7 @@ bodies after the workflow YAML pair lands.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -105,9 +106,14 @@ def test_export_demo_dry_run_clean_with_demo_ci_yamls_committed() -> None:
     this test ratifies that the parity gate still exits 0 with the
     new files in place.
     """
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(REPO), *[p for p in env.get("PYTHONPATH", "").split(os.pathsep) if p]]
+    )
     result = subprocess.run(
         [sys.executable, str(REPO / "scripts" / "export-demo.py"), "--dry-run"],
         cwd=REPO,
+        env=env,
         capture_output=True,
         text=True,
     )
@@ -132,3 +138,372 @@ def test_ado_file_carries_ci_mechanics_exception_annotation() -> None:
     assert "sigantry-dual-ci-exception: ci-mechanics" in head_blob, (
         f"annotation missing in first 5 lines of {ADO}; got:\n{head_blob}"
     )
+
+
+def _gha_step_by_name(doc: dict, name: str) -> dict:
+    steps = doc["jobs"]["deploy_record_diff"]["steps"]
+    for step in steps:
+        if isinstance(step, dict) and step.get("name") == name:
+            return step
+    raise AssertionError(f"GHA missing step {name!r}")
+
+
+def _ado_step_by_display_name(doc: dict, display_name: str) -> dict:
+    for step in doc["steps"]:
+        if isinstance(step, dict) and step.get("displayName") == display_name:
+            return step
+    raise AssertionError(f"ADO missing step {display_name!r}")
+
+
+def test_neither_workflow_references_dead_sigantry_fabric_token_env_var() -> None:
+    """Issue #70 (3): neither workflow maps a dead SIGANTRY_FABRIC_TOKEN env var."""
+    assert "SIGANTRY_FABRIC_TOKEN:" not in GHA.read_text(), (
+        "GHA still sets dead SIGANTRY_FABRIC_TOKEN env var"
+    )
+    assert "SIGANTRY_FABRIC_TOKEN:" not in ADO.read_text(), (
+        "ADO still sets dead SIGANTRY_FABRIC_TOKEN env var"
+    )
+
+
+def test_deploy_and_diff_steps_set_azure_credential_env_and_tenant_id() -> None:
+    """Issue #70 (3): Deploy and Diff steps set AZURE_TENANT_ID/CLIENT_ID/CLIENT_SECRET and pass --tenant-id."""
+    gha_doc = yaml.safe_load(GHA.read_text())
+    ado_doc = yaml.safe_load(ADO.read_text())
+
+    for label, step in (
+        ("GHA Deploy", _gha_step_by_name(gha_doc, "Deploy")),
+        ("ADO Deploy", _ado_step_by_display_name(ado_doc, "Deploy")),
+    ):
+        env = step.get("env", {})
+        for key in (
+            "AZURE_TENANT_ID",
+            "AZURE_CLIENT_ID",
+            "AZURE_CLIENT_SECRET",
+            "SIGANTRY_DEMO_WORKSPACE_ID",
+            "SIGANTRY_DEMO_CAPACITY_ID",
+        ):
+            assert key in env, f"{label} missing env key {key!r}"
+        script = step.get("run") or step.get("script") or ""
+        assert "--tenant-id" in script, f"{label} missing --tenant-id"
+        assert "--item-types" in script, f"{label} missing --item-types"
+
+    for label, step, extra_keys in (
+        (
+            "GHA Diff",
+            _gha_step_by_name(gha_doc, "Diff (fail on drift)"),
+            ("SIGANTRY_DEMO_WORKSPACE_ID",),
+        ),
+        (
+            "ADO Diff",
+            _ado_step_by_display_name(ado_doc, "Diff (fail on drift)"),
+            (),
+        ),
+    ):
+        env = step.get("env", {})
+        for key in ("AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET", *extra_keys):
+            assert key in env, f"{label} missing env key {key!r}"
+        script = step.get("run") or step.get("script") or ""
+        assert "--tenant-id" in script, f"{label} missing --tenant-id"
+
+
+def test_record_release_step_passes_required_flags_and_runs_verify() -> None:
+    """Issue #70 (4): Record release uses --workspace (not --workspace-id), required flags, and release verify."""
+    gha_doc = yaml.safe_load(GHA.read_text())
+    ado_doc = yaml.safe_load(ADO.read_text())
+
+    for label, step, expected_provider, expected_env_keys in (
+        (
+            "GHA Record release",
+            _gha_step_by_name(gha_doc, "Record release"),
+            "github",
+            (
+                "GITHUB_TOKEN",
+                "SIGANTRY_DEMO_WORKSPACE_ID",
+                "SIGANTRY_DEMO_WORK_ITEM_ID",
+                "SIGANTRY_DEMO_RELEASE_ID",
+            ),
+        ),
+        (
+            "ADO Record release",
+            _ado_step_by_display_name(ado_doc, "Record release"),
+            "ado",
+            ("AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET"),
+        ),
+    ):
+        env = step.get("env", {})
+        for env_key in expected_env_keys:
+            assert env_key in env, f"{label} missing env key {env_key!r}"
+        script = step.get("run") or step.get("script") or ""
+        assert "--workspace-id" not in script, f"{label} still uses dead --workspace-id flag"
+        for required_flag in (
+            "--release-id",
+            "--workspace",
+            f"--provider {expected_provider}",
+            "--work-items",
+            "--approver",
+            "--fabric-items",
+            "--audit-dir",
+            "sigantry release verify",
+        ):
+            assert required_flag in script, f"{label} missing {required_flag!r}"
+
+
+def _extract_cli_commands(script: str, env_map: dict[str, str]) -> list[list[str]]:
+    """Expand shell/pipeline variables in a multi-line step script and split into sigantry argv lists."""
+    import re
+    import shlex
+
+    joined = script.replace("\\\n", " ")
+    commands: list[list[str]] = []
+    for raw_line in joined.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+
+        # Expand ADO $(VAR) syntax first.
+        line = re.sub(
+            r"\$\(([^)]+)\)",
+            lambda m: env_map.get(m.group(1), ""),
+            line,
+        )
+        # Expand bash ${VAR:-default} and ${VAR#*/} and ${VAR}.
+        line = re.sub(
+            r"\$\{([A-Za-z0-9_]+):-([^}]*)\}",
+            lambda m: env_map.get(m.group(1)) or m.group(2),
+            line,
+        )
+        line = re.sub(
+            r"\$\{([A-Za-z0-9_]+)#\*/\}",
+            lambda m: env_map.get(m.group(1), "").split("/", 1)[-1],
+            line,
+        )
+        line = re.sub(
+            r"\$\{([A-Za-z0-9_]+)\}",
+            lambda m: env_map.get(m.group(1), ""),
+            line,
+        )
+        argv = shlex.split(line)
+        assert argv and argv[0] == "sigantry", f"Expected sigantry command, got {argv!r}"
+        commands.append(argv[1:])
+    return commands
+
+
+def test_demo_ci_workflows_execute_cleanly_in_hermetic_runner(
+    tmp_path: Path,
+    monkeypatch: object,
+) -> None:
+    """Issue #70 (3 & 4): Execute parsed GHA and ADO Deploy, Record release, and Diff steps via CliRunner."""
+    import re
+    import shutil
+    from unittest.mock import MagicMock
+
+    import httpx
+    import pytest
+    import respx
+    from typer.testing import CliRunner
+
+    import sigantry_core.deploy.core as deploy_core_mod
+    from sigantry_core.cli import app
+
+    mp = pytest.MonkeyPatch() if not hasattr(monkeypatch, "setenv") else monkeypatch  # type: ignore[assignment]
+
+    demo_src = REPO / "templates" / "demo"
+    runner = CliRunner()
+
+    tenant_id = "11111111-1111-1111-1111-111111111111"
+    client_id = "22222222-2222-2222-2222-222222222222"
+    workspace_id = "33333333-3333-3333-3333-333333333333"
+    capacity_id = "44444444-4444-4444-4444-444444444444"
+
+    def _assert_azure_env() -> None:
+        for cred_key in ("AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET"):
+            assert os.environ.get(cred_key), f"TokenProvider invoked without {cred_key} in step env"
+
+    def _fake_get_token(self: object, scope: str | None = None) -> str:
+        _assert_azure_env()
+        return "fake-bearer-token"
+
+    def _fake_get_credential(self: object) -> object:
+        _assert_azure_env()
+        return MagicMock()
+
+    mp.setattr("sigantry_core.auth.token_provider.TokenProvider.get_token", _fake_get_token)
+    mp.setattr(
+        "sigantry_core.auth.token_provider.TokenProvider.get_credential",
+        _fake_get_credential,
+    )
+    mp.setattr(deploy_core_mod, "FabricWorkspace", MagicMock(return_value=MagicMock()))
+    mp.setattr(deploy_core_mod, "publish_all_items", MagicMock())
+
+    gha_doc = yaml.safe_load(GHA.read_text())
+    ado_doc = yaml.safe_load(ADO.read_text())
+
+    for wf_kind, steps in (
+        (
+            "gha",
+            [
+                _gha_step_by_name(gha_doc, "Deploy"),
+                _gha_step_by_name(gha_doc, "Record release"),
+                _gha_step_by_name(gha_doc, "Diff (fail on drift)"),
+            ],
+        ),
+        (
+            "ado",
+            [
+                _ado_step_by_display_name(ado_doc, "Deploy"),
+                _ado_step_by_display_name(ado_doc, "Record release"),
+                _ado_step_by_display_name(ado_doc, "Diff (fail on drift)"),
+            ],
+        ),
+    ):
+        wf_dir = tmp_path / wf_kind
+        work_dir = wf_dir / "demo"
+        shutil.copytree(demo_src, work_dir)
+        mp.chdir(work_dir)
+
+        secrets_store = {
+            "SIGANTRY_DEMO_TENANT_ID": tenant_id,
+            "SIGANTRY_DEMO_CLIENT_ID": client_id,
+            "SIGANTRY_DEMO_FABRIC_TOKEN": "fake-secret",
+            "SIGANTRY_DEMO_WORKSPACE_ID": workspace_id,
+            "SIGANTRY_DEMO_CAPACITY_ID": capacity_id,
+            "SIGANTRY_DEMO_WORK_ITEM_ID": "1",
+            "GITHUB_TOKEN": "ghp_fake_token_for_test",
+        }
+        gha_runner_builtins = {
+            "GITHUB_ACTOR": "demo-operator",
+            "GITHUB_REPOSITORY_OWNER": "demo-org",
+            "GITHUB_REPOSITORY": "demo-org/demo-repo",
+            "RUNNER_TEMP": str(wf_dir / "runner-temp"),
+        }
+        ado_pipeline_macros = {
+            **secrets_store,
+            "Build.SourceVersion": f"deadbeef-{wf_kind}",
+            "Build.RequestedForEmail": "demo-operator@example.com",
+            "System.CollectionUri": "https://dev.azure.com/demo-org/",
+            "System.TeamProject": "demo-proj",
+            "Agent.TempDirectory": str(wf_dir / "agent-temp"),
+        }
+        clear_env_keys = (
+            "AZURE_TENANT_ID",
+            "AZURE_CLIENT_ID",
+            "AZURE_CLIENT_SECRET",
+            "GITHUB_TOKEN",
+            "SIGANTRY_DEMO_TENANT_ID",
+            "SIGANTRY_DEMO_CLIENT_ID",
+            "SIGANTRY_DEMO_FABRIC_TOKEN",
+            "SIGANTRY_DEMO_WORKSPACE_ID",
+            "SIGANTRY_DEMO_CAPACITY_ID",
+            "SIGANTRY_DEMO_WORK_ITEM_ID",
+            "SIGANTRY_DEMO_RELEASE_ID",
+            "SIGANTRY_FABRIC_WORKSPACE_ID_PREPROD",
+            "SIGANTRY_FABRIC_WORKSPACE_ID_PROD",
+        )
+
+        with respx.mock(assert_all_called=False) as router:
+            # GitHub issue comment endpoint for --provider github
+            router.post("https://api.github.com/repos/demo-org/demo-repo/issues/1/comments").mock(
+                return_value=httpx.Response(
+                    201,
+                    json={"id": 101, "html_url": "https://github.com/demo-org/demo-repo/issues/1"},
+                )
+            )
+            # ADO work-item comment endpoint for --provider ado
+            router.post(
+                "https://dev.azure.com/demo-org/demo-proj/_apis/wit/workItems/1/comments"
+            ).mock(
+                return_value=httpx.Response(
+                    200,
+                    json={"id": 202, "text": "linked"},
+                )
+            )
+            # Fabric workspace + folders + items endpoints for sigantry diff --fail-on-drift
+            router.get(f"https://api.fabric.microsoft.com/v1/workspaces/{workspace_id}").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={"id": workspace_id, "displayName": "demo-sigantry"},
+                )
+            )
+            router.get(
+                f"https://api.fabric.microsoft.com/v1/workspaces/{workspace_id}/folders"
+            ).mock(
+                return_value=httpx.Response(
+                    200,
+                    json={"value": []},
+                )
+            )
+            router.get(f"https://api.fabric.microsoft.com/v1/workspaces/{workspace_id}/items").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={
+                        "value": [
+                            {
+                                "id": "00000000-0000-0000-0000-00000000d002",
+                                "displayName": "LoadOrders",
+                                "type": "Notebook",
+                                "folderId": None,
+                                "workspaceId": workspace_id,
+                            },
+                            {
+                                "id": "00000000-0000-0000-0000-00000000d003",
+                                "displayName": "RefreshOrdersDaily",
+                                "type": "DataPipeline",
+                                "folderId": None,
+                                "workspaceId": workspace_id,
+                            },
+                            {
+                                "id": "00000000-0000-0000-0000-00000000d004",
+                                "displayName": "OrdersAnalytics",
+                                "type": "SemanticModel",
+                                "folderId": None,
+                                "workspaceId": workspace_id,
+                            },
+                        ]
+                    },
+                )
+            )
+
+            executed_subcommands: list[str] = []
+            for step in steps:
+                # Clear all credential and demo env vars before each step; only what this step's
+                # `env:` block declares is exported to os.environ (and to GHA ${VAR} expansion).
+                for env_var in clear_env_keys:
+                    mp.delenv(env_var, raising=False)
+
+                step_env = step.get("env", {})
+                step_env_map = (
+                    dict(gha_runner_builtins) if wf_kind == "gha" else dict(ado_pipeline_macros)
+                )
+                for env_k, env_expr in step_env.items():
+                    expr_str = str(env_expr)
+                    m_gha_sec = re.search(r"secrets\.([A-Za-z0-9_]+)", expr_str)
+                    m_gha_sha = re.search(r"github\.sha", expr_str)
+                    m_ado_var = re.search(r"\$\(([^)]+)\)", expr_str)
+                    if m_gha_sec:
+                        resolved_val = secrets_store[m_gha_sec.group(1)]
+                    elif m_gha_sha:
+                        resolved_val = f"deadbeef-{wf_kind}"
+                    elif m_ado_var:
+                        resolved_val = ado_pipeline_macros[m_ado_var.group(1)]
+                    else:
+                        resolved_val = expr_str
+                    mp.setenv(env_k, resolved_val)
+                    step_env_map[env_k] = resolved_val
+
+                script = step.get("run") or step.get("script") or ""
+                for argv in _extract_cli_commands(script, step_env_map):
+                    res = runner.invoke(app, argv)
+                    assert res.exit_code == 0, (
+                        f"{wf_kind} command {argv!r} failed (exit {res.exit_code}):\n{res.output}"
+                    )
+                    executed_subcommands.append(" ".join(argv[:2]))
+                    if argv[:2] == ["release", "verify"]:
+                        assert "CHAIN VALID" in res.output
+                        assert "1 record(s) verified" in res.output
+
+            assert executed_subcommands == [
+                "deploy run",
+                "release record",
+                "release verify",
+                "diff --workspace-id",
+            ]

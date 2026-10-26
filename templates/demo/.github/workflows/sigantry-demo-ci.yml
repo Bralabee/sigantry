@@ -18,7 +18,7 @@
 # exposed). A step `if:` cannot read `secrets`, so the job-level env
 # carries only whether the token is set.
 #
-# All four SIGANTRY_DEMO_* secrets are referenced ONLY via
+# All SIGANTRY_DEMO_* secrets are referenced ONLY via
 # `${{ secrets.SIGANTRY_DEMO_* }}` -- no literals (RESEARCH Pitfall 8).
 # `--environment DEV` selects the DEV slot of parameters.yml, the only
 # slot the demo uses (RESEARCH Pitfall 9).
@@ -44,6 +44,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      issues: write
     env:
       SIGANTRY_DEMO_HAS_TOKEN: ${{ secrets.SIGANTRY_DEMO_FABRIC_TOKEN != '' }}
     steps:
@@ -58,33 +59,50 @@ jobs:
       - name: Deploy
         if: ${{ env.SIGANTRY_DEMO_HAS_TOKEN == 'true' }}
         env:
-          SIGANTRY_FABRIC_TENANT_ID: ${{ secrets.SIGANTRY_DEMO_TENANT_ID }}
-          SIGANTRY_FABRIC_CAPACITY_ID: ${{ secrets.SIGANTRY_DEMO_CAPACITY_ID }}
-          SIGANTRY_FABRIC_TOKEN: ${{ secrets.SIGANTRY_DEMO_FABRIC_TOKEN }}
+          AZURE_TENANT_ID: ${{ secrets.SIGANTRY_DEMO_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.SIGANTRY_DEMO_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.SIGANTRY_DEMO_FABRIC_TOKEN }}
+          SIGANTRY_DEMO_TENANT_ID: ${{ secrets.SIGANTRY_DEMO_TENANT_ID }}
+          SIGANTRY_DEMO_CAPACITY_ID: ${{ secrets.SIGANTRY_DEMO_CAPACITY_ID }}
           SIGANTRY_DEMO_WORKSPACE_ID: ${{ secrets.SIGANTRY_DEMO_WORKSPACE_ID }}
         run: |
           sigantry deploy run \
             --params parameters.yml \
             --workspace-id "${SIGANTRY_DEMO_WORKSPACE_ID}" \
+            --tenant-id "${AZURE_TENANT_ID}" \
             --environment DEV \
+            --item-types "Notebook,DataPipeline,SemanticModel" \
             --source fabric_items
       - name: Record release
         if: ${{ env.SIGANTRY_DEMO_HAS_TOKEN == 'true' }}
         env:
-          SIGANTRY_FABRIC_TOKEN: ${{ secrets.SIGANTRY_DEMO_FABRIC_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SIGANTRY_DEMO_WORKSPACE_ID: ${{ secrets.SIGANTRY_DEMO_WORKSPACE_ID }}
+          SIGANTRY_DEMO_WORK_ITEM_ID: ${{ secrets.SIGANTRY_DEMO_WORK_ITEM_ID }}
           SIGANTRY_DEMO_RELEASE_ID: ${{ github.sha }}
         run: |
           sigantry release record \
             --release-id "${SIGANTRY_DEMO_RELEASE_ID}" \
-            --workspace-id "${SIGANTRY_DEMO_WORKSPACE_ID}"
+            --workspace "${SIGANTRY_DEMO_WORKSPACE_ID}" \
+            --provider github \
+            --work-items "${SIGANTRY_DEMO_WORK_ITEM_ID:-1}" \
+            --approver "${GITHUB_ACTOR}" \
+            --fabric-items "LoadOrders.Notebook,RefreshOrdersDaily.DataPipeline,OrdersAnalytics.SemanticModel" \
+            --github-owner "${GITHUB_REPOSITORY_OWNER}" \
+            --github-repo "${GITHUB_REPOSITORY#*/}" \
+            --audit-dir "${RUNNER_TEMP}/sigantry-audit"
+          sigantry release verify \
+            --audit-dir "${RUNNER_TEMP}/sigantry-audit"
       - name: Diff (fail on drift)
         if: ${{ env.SIGANTRY_DEMO_HAS_TOKEN == 'true' }}
         env:
-          SIGANTRY_FABRIC_TOKEN: ${{ secrets.SIGANTRY_DEMO_FABRIC_TOKEN }}
+          AZURE_TENANT_ID: ${{ secrets.SIGANTRY_DEMO_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.SIGANTRY_DEMO_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.SIGANTRY_DEMO_FABRIC_TOKEN }}
           SIGANTRY_DEMO_WORKSPACE_ID: ${{ secrets.SIGANTRY_DEMO_WORKSPACE_ID }}
         run: |
           sigantry diff \
             --workspace-id "${SIGANTRY_DEMO_WORKSPACE_ID}" \
+            --tenant-id "${AZURE_TENANT_ID}" \
             --manifest sync.yml \
             --fail-on-drift
