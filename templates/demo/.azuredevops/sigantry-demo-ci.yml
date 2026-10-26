@@ -56,6 +56,12 @@ steps:
       SIGANTRY_DEMO_WORKSPACE_ID: $(SIGANTRY_DEMO_WORKSPACE_ID)
     displayName: 'Deploy'
   - script: |
+      mkdir -p "$(Agent.TempDirectory)/sigantry-audit"
+      if [ ! -s "$(Agent.TempDirectory)/sigantry-audit/deploys.jsonl" ] && [ -s "$(Pipeline.Workspace)/sigantry-audit-ledger/deploys.jsonl" ]; then
+        cp "$(Pipeline.Workspace)/sigantry-audit-ledger/deploys.jsonl" "$(Agent.TempDirectory)/sigantry-audit/deploys.jsonl"
+      fi
+    displayName: 'Restore prior audit ledger (deploys.jsonl) if available'
+  - script: |
       sigantry release record \
         --release-id "$(Build.SourceVersion)" \
         --workspace "$(SIGANTRY_DEMO_WORKSPACE_ID)" \

@@ -30,6 +30,7 @@ without regard to case or surrounding whitespace (:func:`same_guid`).
 
 from __future__ import annotations
 
+import os
 import re
 from typing import TYPE_CHECKING, Any
 
@@ -151,6 +152,29 @@ class _TenantPinnedCredential:
                 remediation=_remediation(self._tenant_id),
             )
 
+    def _raise_if_tenant_mismatch(self, exc: Exception, scopes: tuple[str, ...]) -> None:
+        """Surface TenantMismatchError when the wrapped credential refuses the pinned tenant."""
+        scope = " ".join(scopes)
+        env_tid = os.environ.get("AZURE_TENANT_ID", "").strip()
+        if env_tid and _GUID.fullmatch(env_tid) and not same_guid(env_tid, self._tenant_id):
+            raise TenantMismatchError(
+                f"refused a token for {scope}: credential ({self._credential_name()}) is "
+                f"configured for tenant {env_tid}, not the pinned tenant {self._tenant_id}",
+                expected_tenant=self._tenant_id,
+                token_tenant=env_tid,
+                credential_used=self._credential_name(),
+                scope=scope,
+                remediation=_remediation(self._tenant_id),
+            ) from exc
+        try:
+            probe_tok = self._inner.get_token(*scopes)
+        except Exception:
+            return
+        try:
+            self._check_tid(probe_tok.token, scopes)
+        except TenantMismatchError as mismatch:
+            raise mismatch from exc
+
     def get_token(
         self,
         *scopes: str,
@@ -165,7 +189,13 @@ class _TenantPinnedCredential:
             kwargs["claims"] = claims
         if enable_cae:
             kwargs["enable_cae"] = enable_cae
-        token = self._inner.get_token(*scopes, tenant_id=self._tenant_id, **kwargs)
+        try:
+            token = self._inner.get_token(*scopes, tenant_id=self._tenant_id, **kwargs)
+        except TenantMismatchError:
+            raise
+        except Exception as exc:
+            self._raise_if_tenant_mismatch(exc, scopes)
+            raise
         self._check_tid(token.token, scopes)
         return token
 

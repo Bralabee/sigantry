@@ -49,7 +49,7 @@ def main(
     environment: Annotated[
         str,
         typer.Option("--environment", "-e", help="Target deployment environment"),
-    ] = "dev",
+    ] = "DEV",
     workspace_id: Annotated[
         str | None,
         typer.Option(

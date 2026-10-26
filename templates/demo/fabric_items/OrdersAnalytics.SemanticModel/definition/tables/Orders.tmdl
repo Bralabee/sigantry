@@ -11,3 +11,11 @@ table Orders
 
     measure 'Total Sales' = SUM('Orders'[Amount])
         formatString: $ #,##0
+
+    partition 'Orders' = m
+        mode: import
+        source =
+            let
+                Source = #table({"OrderId", "Amount"}, {{1, 100.0}, {2, 250.0}})
+            in
+                Source

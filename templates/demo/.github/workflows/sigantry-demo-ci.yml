@@ -73,6 +73,19 @@ jobs:
             --environment DEV \
             --item-types "Notebook,DataPipeline,SemanticModel" \
             --source fabric_items
+      - name: Restore prior audit ledger (deploys.jsonl) if available
+        if: ${{ env.SIGANTRY_DEMO_HAS_TOKEN == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SIGANTRY_REPO: ${{ github.repository }}
+        run: |
+          mkdir -p "${RUNNER_TEMP}/sigantry-audit"
+          if [ ! -s "${RUNNER_TEMP}/sigantry-audit/deploys.jsonl" ] && command -v gh >/dev/null 2>&1 && [ -n "${GH_TOKEN:-}" ] && [ -n "${SIGANTRY_REPO:-}" ]; then
+            prev_run=$(gh run list --repo "${SIGANTRY_REPO}" --status success --limit 5 --json databaseId --jq '.[0].databaseId // empty' 2>/dev/null || true)
+            if [ -n "$prev_run" ]; then
+              gh run download "$prev_run" --repo "${SIGANTRY_REPO}" --name sigantry-audit-ledger --dir "${RUNNER_TEMP}/sigantry-audit" 2>/dev/null || true
+            fi
+          fi
       - name: Record release
         if: ${{ env.SIGANTRY_DEMO_HAS_TOKEN == 'true' }}
         env:

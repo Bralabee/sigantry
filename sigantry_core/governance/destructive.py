@@ -118,8 +118,6 @@ def destructive_op(
                     audit_dir = bound.arguments.get("audit_dir")
                 except TypeError:
                     pass
-            principal = kwargs.get("principal") or _infer_principal(kwargs)
-
             if force is not True:
                 raise DestructiveOpError(
                     f"{resource_kind}.{action} requires force=True "
@@ -144,6 +142,7 @@ def destructive_op(
             try:
                 result = fn(*args, **kwargs)
             except BaseException as exc:
+                principal = kwargs.get("principal") or _infer_principal(args, kwargs)
                 logger.warning(
                     "destructive_op",
                     extra={
@@ -186,6 +185,7 @@ def destructive_op(
                     )
                 raise
 
+            principal = kwargs.get("principal") or _infer_principal(args, kwargs)
             logger.info(
                 "destructive_op",
                 extra={
@@ -238,15 +238,36 @@ def destructive_op(
     return decorator
 
 
-def _infer_principal(kwargs: dict[str, Any]) -> str:
-    """Read credential class name from an optional TokenProvider kwarg.
+def _infer_principal(args: tuple[Any, ...], kwargs: dict[str, Any]) -> str:
+    """Resolve principal identity or credential class name from an optional TokenProvider.
 
-    Never reads the token itself -- ``last_credential_class(scope)`` returns
-    only the class name (e.g. 'ManagedIdentityCredential').
+    Inspects ``kwargs["token_provider"]`` or ``getattr(arg, "token_provider", None)``
+    on any positional/keyword argument (e.g. ``FabricRestClient``). Reads only
+    whitelisted identity claims (``upn``, ``preferred_username``, ``appid``, ``oid``)
+    from a cached token if present, falling back to ``last_credential_class("probe")``.
+    Never logs or returns the raw token.
     """
+    from sigantry_core.auth.diagnose import decode_token_claims
+
     tp = kwargs.get("token_provider")
     if not isinstance(tp, TokenProvider):
+        for candidate in (*args, *kwargs.values()):
+            inner_tp = getattr(candidate, "token_provider", None)
+            if isinstance(inner_tp, TokenProvider):
+                tp = inner_tp
+                break
+    if not isinstance(tp, TokenProvider):
         return "unknown"
+    cache = getattr(tp, "_cache", None)
+    if isinstance(cache, dict) and cache:
+        latest = next(reversed(cache.values()))
+        raw_tok = getattr(latest, "access_token", None)
+        if isinstance(raw_tok, str):
+            claims = decode_token_claims(raw_tok)
+            for claim_key in ("upn", "preferred_username", "appid", "oid"):
+                val = claims.get(claim_key)
+                if isinstance(val, str) and val.strip():
+                    return val.strip()
     cred = tp.last_credential_class("probe") or "unknown"
     return cred
 

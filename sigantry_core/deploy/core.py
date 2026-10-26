@@ -73,6 +73,7 @@ def deploy_workspace(
     bulk: bool = False,
     max_workers: int = 4,
     allow_raw_guids: bool | None = None,
+    audit_dir: Path | str | None = None,
 ) -> DeployResult:
     """Deploy a Fabric item tree via fabric-cicd 1.0.0.
 
@@ -184,6 +185,7 @@ def deploy_workspace(
             shortcut_exclude_regex=shortcut_exclude_regex,
             bulk=bulk,
             max_workers=max_workers,
+            audit_dir=audit_dir,
         )
     finally:
         _params_tmpdir.cleanup()
@@ -215,6 +217,7 @@ def _publish_and_optionally_unpublish(
     shortcut_exclude_regex: str | None,
     bulk: bool = False,
     max_workers: int = 4,
+    audit_dir: Path | str | None = None,
 ) -> DeployResult:
     """Internal helper: publish + (optionally) orphan-unpublish + assemble result.
 
@@ -233,11 +236,16 @@ def _publish_and_optionally_unpublish(
         elif hasattr(target_workspace, "repository_items") and isinstance(
             target_workspace.repository_items, dict
         ):
+            scope_set = set(item_type_in_scope) if item_type_in_scope else None
             for it_type, bucket in target_workspace.repository_items.items():
                 if isinstance(bucket, dict):
+                    if scope_set is not None and it_type not in scope_set:
+                        continue
                     for it_name in bucket:
                         candidate_items.append(f"{it_name}.{it_type}")
                 elif isinstance(bucket, list):
+                    if scope_set is not None and it_type not in scope_set:
+                        continue
                     for it in bucket:
                         name = getattr(it, "name", str(it))
                         candidate_items.append(f"{name}.{it_type}")
@@ -279,6 +287,7 @@ def _publish_and_optionally_unpublish(
                     token_provider=tp,
                     item_name_exclude_regex=item_name_exclude_regex,
                     items_to_include=items_to_include,
+                    audit_dir=audit_dir,
                 )
 
             if failed > 0:
@@ -306,7 +315,12 @@ def _publish_and_optionally_unpublish(
         shortcut_exclude_regex=shortcut_exclude_regex,
     )
     failed = _count_failed(publish_result)
-    published = _count_succeeded(publish_result, target_workspace, failed)
+    published = _count_succeeded(
+        publish_result,
+        target_workspace,
+        failed,
+        item_type_in_scope=item_type_in_scope,
+    )
 
     # 5) Conditional orphan cleanup — gated destructive. Only the two
     # filters upstream accepts on unpublish are forwarded; folder filters
@@ -321,6 +335,7 @@ def _publish_and_optionally_unpublish(
             token_provider=tp,
             item_name_exclude_regex=item_name_exclude_regex,
             items_to_include=items_to_include,
+            audit_dir=audit_dir,
         )
 
     if failed > 0:
@@ -350,6 +365,7 @@ def _unpublish_orphans_gated(
     token_provider: TokenProvider | None = None,
     item_name_exclude_regex: str | None = None,
     items_to_include: list[str] | None = None,
+    audit_dir: Path | str | None = None,
 ) -> int:
     """Destructive — requires ``force=True`` per Phase 3 decorator contract.
 
@@ -411,7 +427,13 @@ def _count_failed(result: Any) -> int:
     return 0
 
 
-def _count_succeeded(result: Any, target_workspace: FabricWorkspace, failed: int) -> int:
+def _count_succeeded(
+    result: Any,
+    target_workspace: FabricWorkspace,
+    failed: int,
+    *,
+    item_type_in_scope: list[str] | None = None,
+) -> int:
     """Return the number of successfully-published items.
 
     Fallback order matches ``_count_failed``: explicit list/dict/attribute, then
@@ -432,10 +454,17 @@ def _count_succeeded(result: Any, target_workspace: FabricWorkspace, failed: int
         return succeeded
     # Fallback: fabric-cicd raises on failure; a non-exception return means
     # every item in scope was published.
-    return max(_count_items(target_workspace) - failed, 0)
+    return max(
+        _count_items(target_workspace, item_type_in_scope=item_type_in_scope) - failed,
+        0,
+    )
 
 
-def _count_items(target_workspace: FabricWorkspace) -> int:
+def _count_items(
+    target_workspace: FabricWorkspace,
+    *,
+    item_type_in_scope: list[str] | None = None,
+) -> int:
     """Best-effort item count.
 
     fabric-cicd 1.0.0 populates ``repository_items`` (probed); fallbacks cover
@@ -445,18 +474,36 @@ def _count_items(target_workspace: FabricWorkspace) -> int:
     ``{item_type: {item_name: Item}}`` -- a bare ``len()`` on that returns the
     count of item-TYPE buckets, not the count of items, so a 14-item / 2-type
     publish would report 2. Walk one level deeper when a value is itself a dict
-    (mirrors the sibling fix in ``sync_publish._count_succeeded``); the
-    ``isinstance(v, dict)`` guard tolerates the older flat ``{name: Item}`` shape.
+    (mirrors the sibling fix in ``sync_publish._count_succeeded``) and filter
+    by ``item_type_in_scope`` when provided so out-of-scope repository buckets
+    are not counted as published; the ``isinstance(v, dict)`` guard tolerates
+    the older flat ``{name: Item}`` shape.
     """
+    raw_scope = item_type_in_scope
+    if raw_scope is None:
+        ws_scope = getattr(target_workspace, "item_type_in_scope", None)
+        if isinstance(ws_scope, list | tuple | set):
+            raw_scope = list(ws_scope)
+    scope_set = set(raw_scope) if raw_scope else None
+
     for attr in ("repository_items", "_items_to_publish", "_items", "items"):
         items = getattr(target_workspace, attr, None)
         if items is None:
             continue
         if isinstance(items, dict):
             try:
-                return sum(
-                    len(bucket) if isinstance(bucket, dict) else 1 for bucket in items.values()
-                )
+                is_nested = any(isinstance(b, dict | list) for b in items.values())
+                if is_nested:
+                    total = 0
+                    for it_type, bucket in items.items():
+                        if scope_set is not None and it_type not in scope_set:
+                            continue
+                        if isinstance(bucket, dict | list):
+                            total += len(bucket)
+                        else:
+                            total += 1
+                    return total
+                return len(items)
             except TypeError:
                 continue
         try:

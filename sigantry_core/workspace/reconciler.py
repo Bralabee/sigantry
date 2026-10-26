@@ -428,6 +428,7 @@ def apply_reconcile(
     force: bool = False,
     runbook_id: str | None = None,
     token_provider: TokenProvider | None = None,
+    audit_dir: Path | str | None = None,
 ) -> ReconcileReport:
     """Execute a plan. Creates folders leaf-first-safe (breadth-first), then moves items.
 
@@ -498,30 +499,47 @@ def apply_reconcile(
                 "No audit record emitted."
             )
         else:
+            effective_tp = token_provider or getattr(client, "token_provider", None)
             # Items first — a folder delete will fail while it still has
             # items. Each call flows through the @destructive_op gate on
             # delete_item, which emits the per-resource audit record.
             for orphan_item in plan.unpublish_items:
+                folder_prefix = (
+                    "/".join(orphan_item.current_folder_path) + "/"
+                    if orphan_item.current_folder_path
+                    else ""
+                )
+                item_resource_id = (
+                    f"{plan.workspace_id}/{folder_prefix}"
+                    f"{orphan_item.display_name}.{orphan_item.item_type} "
+                    f"({orphan_item.item_id})"
+                )
                 delete_item(
                     client,
                     plan.workspace_id,
                     orphan_item.item_id,
                     force=True,
                     runbook_id=runbook_id,
-                    token_provider=token_provider,
-                    resource_id=orphan_item.item_id,
+                    token_provider=effective_tp,
+                    resource_id=item_resource_id,
+                    audit_dir=audit_dir,
                 )
                 unpublished.append(orphan_item)
             # Then folders, leaf-first (plan is pre-sorted longest-first).
             for orphan_folder in plan.delete_folders:
+                folder_path_str = "/".join(orphan_folder.path)
+                folder_resource_id = (
+                    f"{plan.workspace_id}/{folder_path_str} ({orphan_folder.folder_id})"
+                )
                 delete_folder(
                     client,
                     plan.workspace_id,
                     orphan_folder.folder_id,
                     force=True,
                     runbook_id=runbook_id,
-                    token_provider=token_provider,
-                    resource_id=orphan_folder.folder_id,
+                    token_provider=effective_tp,
+                    resource_id=folder_resource_id,
+                    audit_dir=audit_dir,
                 )
                 deleted.append(orphan_folder)
 
@@ -546,6 +564,7 @@ def reconcile_folders_from_repo(
     token_provider: TokenProvider | None = None,
     preserve_paths: Iterable[str] | None = None,
     managed_item_types: Collection[str] = (),
+    audit_dir: Path | str | None = None,
 ) -> ReconcileReport:
     """Top-level entry: plan + optionally apply.
 
@@ -584,4 +603,5 @@ def reconcile_folders_from_repo(
         force=force,
         runbook_id=runbook_id,
         token_provider=token_provider,
+        audit_dir=audit_dir,
     )

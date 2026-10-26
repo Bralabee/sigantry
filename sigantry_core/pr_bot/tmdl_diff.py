@@ -110,6 +110,10 @@ _REL_TO_RE: Final[re.Pattern[str]] = re.compile(
     r"\btoColumn\s*:\s*(?P<table>'(?:[^']|'')*'|[^'.\s]+(?:\.[^'.\s]+)*)\.",
     re.IGNORECASE,
 )
+_COL_DATATYPE_RE: Final[re.Pattern[str]] = re.compile(
+    r"^\s*dataType\s*:\s*(?P<dtype>\S+)",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 
 class TmdlParseError(ValueError):
@@ -399,9 +403,25 @@ def diff_tmdl(base_dir: Path, head_dir: Path) -> TmdlDiffSection:
     def _top_names(keys: set[tuple[str | None, str, str]], kind: str) -> list[str]:
         return sorted(n for (p, k, n) in keys if k == kind and p is None)
 
+    def _col_dtype(body: str) -> str | None:
+        m = _COL_DATATYPE_RE.search(body)
+        return m.group("dtype").strip() if m else None
+
     columns_added = _cols(added_keys)
     columns_removed = _cols(removed_keys)
-    columns_modified = _cols(modified_keys)
+    columns_modified: list[TableChange] = []
+    for p, k, n in sorted(
+        (k_tup for k_tup in modified_keys if k_tup[1] == "column"),
+        key=lambda item: (item[0] or "", item[2]),
+    ):
+        old_dt = _col_dtype(base[(p, k, n)])
+        new_dt = _col_dtype(head[(p, k, n)])
+        if old_dt and new_dt and old_dt.lower() != new_dt.lower():
+            columns_modified.append(
+                TableChange(table=p or "", name=n, old_type=old_dt, new_type=new_dt)
+            )
+        else:
+            columns_modified.append(TableChange(table=p or "", name=n))
     measures_added = _meas(added_keys)
     measures_removed = _meas(removed_keys)
     measures_modified = _meas(modified_keys)

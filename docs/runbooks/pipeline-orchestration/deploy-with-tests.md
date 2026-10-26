@@ -94,12 +94,22 @@ This is the boundary the five-stage pipeline enforces -- ADR-0012 formalises the
 
 2. The Sigantry GHA workflow declares the protected environment
    (`ghApprovalEnvironment`) on the **`approval` job only**. This is
-   intentional: a single approval prompt covers the workflow. The `deploy`,
+   intentional: a single approval prompt covers the workflow, and the
+   `approval` job resolves and verifies that the approver is not the
+   triggering actor (`github.actor`) **before** `deploy` runs so a
+   self-approved run never mutates the target workspace. The `deploy`,
    `integration` and `promote` jobs declare `environment: <environment>`
    (the `environment` input, the parameters.yml key) so their OIDC token
-   subject is `repo:<org>/<repo>:environment:<environment>`; create that
-   GitHub environment too, **without required reviewers**, or your
-   reviewers will be prompted three more times. `promote` reads the
+   subject is `repo:<org>/<repo>:environment:<environment>` (or, on newer
+   GitHub repositories with numeric ID-pinned OIDC subjects enabled,
+   `repo:<org>@<owner_id>/<repo>@<repo_id>:environment:<environment>`);
+   create that GitHub environment too, **without required reviewers**, or
+   your reviewers will be prompted three more times. If `azure/login` fails
+   with `AADSTS700213`, copy the exact `subject` claim reported in the
+   Entra error message (which includes the `@<owner_id>` / `@<repo_id>`
+   suffixes on new repos) into the App Registration's Federated Credential
+   `subject` field (Configure -> Custom / Other issuer, or update the
+   subject via `az ad app federated-credential update`). `promote` reads the
    approver from the run's approval record for `ghApprovalEnvironment`;
    a reviewer on the deploy environment would not be the one recorded.
 

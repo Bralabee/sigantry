@@ -220,13 +220,31 @@ def _load_manifest(
 
 def _artifact_files(item_dir: Path) -> list[Path]:
     if item_dir.is_file():
-        return [item_dir] if item_dir.name == ".platform" or item_dir.suffix == ".ipynb" else []
+        return (
+            [item_dir]
+            if item_dir.name == ".platform" or item_dir.suffix in (".ipynb", ".tmdl")
+            else []
+        )
     found = list(item_dir.rglob(".platform"))
     found.extend(p for p in item_dir.rglob("*.ipynb") if "checkpoint" not in p.name)
+    found.extend(item_dir.glob("definition/tables/*.tmdl"))
     return sorted(found)
 
 
 def _artifact_problem(artifact: Path) -> str | None:
+    if artifact.suffix == ".tmdl":
+        from sigantry_core.pr_bot.tmdl_diff import parse
+
+        try:
+            text = artifact.read_text(encoding="utf-8")
+            blocks = parse(text, source=str(artifact))
+        except Exception as ex:
+            return f"{artifact}: invalid TMDL ({ex})"
+        if any(b.kind == "table" for b in blocks) and not any(
+            b.kind == "partition" for b in blocks
+        ):
+            return f"{artifact}: table TMDL must declare at least one partition"
+        return None
     try:
         content = json.loads(artifact.read_text(encoding="utf-8"))
     except Exception as ex:
@@ -628,6 +646,19 @@ class CapacityStateProbe(BaseProbe):
         state = (capacity.state or "").lower()
         label = f"capacity {capacity.display_name!r} ({capacity.sku_name or 'sku unknown'})"
         if state == "active":
+            unsupported = _unsupported_item_types_for_sku(capacity.sku_name, manifest_path)
+            if unsupported:
+                details["unsupported_item_types"] = unsupported
+                return ProbeResult(
+                    name=self.name,
+                    status=ProbeStatus.FAIL,
+                    message=(
+                        f"{label} cannot host item type(s) {', '.join(unsupported)}: "
+                        f"SKU {capacity.sku_name} only supports Power BI item types"
+                    ),
+                    details=details,
+                    duration_ms=_elapsed_ms(start_time),
+                )
             return ProbeResult(
                 name=self.name,
                 status=ProbeStatus.PASS,
@@ -650,3 +681,29 @@ class CapacityStateProbe(BaseProbe):
             details=details,
             duration_ms=_elapsed_ms(start_time),
         )
+
+
+_POWERBI_ONLY_ITEM_TYPES: frozenset[str] = frozenset(
+    {"SemanticModel", "Report", "PaginatedReport", "Dashboard", "Datamart"}
+)
+
+
+def _is_powerbi_only_sku(sku_name: str | None) -> bool:
+    if not sku_name:
+        return False
+    sku = sku_name.strip().upper()
+    if sku.startswith(("PP", "EM")):
+        return True
+    return len(sku) >= 2 and sku[0] == "A" and sku[1:].isdigit()
+
+
+def _unsupported_item_types_for_sku(sku_name: str | None, manifest_path: Path) -> list[str]:
+    if not _is_powerbi_only_sku(sku_name) or not manifest_path.is_file():
+        return []
+    from sigantry_core.sync.manifest import load_manifest
+
+    try:
+        manifest = load_manifest(manifest_path)
+    except Exception:
+        return []
+    return sorted({it.type for it in manifest.items if it.type not in _POWERBI_ONLY_ITEM_TYPES})

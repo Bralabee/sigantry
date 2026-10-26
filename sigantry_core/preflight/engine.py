@@ -64,7 +64,7 @@ class PreflightEngine:
         self,
         *,
         manifest_path: Path,
-        environment: str = "dev",
+        environment: str = "DEV",
         params_path: Path | None = None,
         client: Any = None,
         token_provider: Any = None,

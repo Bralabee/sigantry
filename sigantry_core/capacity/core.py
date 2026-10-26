@@ -8,11 +8,14 @@ for the toolkit's use case. ARM is reserved for the pause/resume LRO in
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 
 from sigantry_core.client import FabricRestClient
+
+_SKU_CODE_RE = re.compile(r"^[A-Za-z]{1,4}\d+$|^PPU$", re.IGNORECASE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,12 +36,20 @@ class Capacity:
     @classmethod
     def from_api(cls, payload: dict[str, Any]) -> Capacity:
         sku_raw = payload.get("sku")
-        sku: dict[str, Any] = sku_raw if isinstance(sku_raw, dict) else {}
+        if isinstance(sku_raw, str) and _SKU_CODE_RE.match(sku_raw.strip()):
+            sku_name: str | None = sku_raw.strip()
+            sku_tier: str | None = None
+        elif isinstance(sku_raw, dict):
+            sku_name = sku_raw.get("name")
+            sku_tier = sku_raw.get("tier")
+        else:
+            sku_name = None
+            sku_tier = None
         return cls(
             id=payload["id"],
             display_name=payload["displayName"],
-            sku_name=sku.get("name"),
-            sku_tier=sku.get("tier"),
+            sku_name=sku_name,
+            sku_tier=sku_tier,
             region=payload.get("region"),
             state=payload.get("state"),
         )

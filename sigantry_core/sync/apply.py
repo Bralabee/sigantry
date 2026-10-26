@@ -285,6 +285,7 @@ def _reconcile_phase(
     token_provider: TokenProvider | None,
     manifest,
     reconcile_fn,
+    audit_dir: Path | None = None,
 ) -> ReconcileReport:
     """W4.2 phase: drive the reconciler, wrap its raw exception type.
 
@@ -292,23 +293,26 @@ def _reconcile_phase(
     Step 6. Extracted to keep the outer orchestrator on one
     abstraction level.
     """
+    effective_tp = token_provider or getattr(client_obj, "token_provider", None)
+    kwargs = {
+        "repository_directory": staging_dir,
+        "apply": apply,
+        "unpublish_orphans": unpublish_orphans,
+        "force": force,
+        "token_provider": effective_tp,
+        "preserve_paths": manifest.folders if manifest else None,
+        # Only a type sync can package can be in the staging tree, so
+        # only such a type can be an orphan of it (issue #102).
+        "managed_item_types": frozenset(PACKAGER_REGISTRY),
+    }
     try:
-        return cast(
-            ReconcileReport,
-            reconcile_fn(
-                client_obj,
-                workspace_id,
-                repository_directory=staging_dir,
-                apply=apply,
-                unpublish_orphans=unpublish_orphans,
-                force=force,
-                token_provider=token_provider,
-                preserve_paths=manifest.folders if manifest else None,
-                # Only a type sync can package can be in the staging tree, so
-                # only such a type can be an orphan of it (issue #102).
-                managed_item_types=frozenset(PACKAGER_REGISTRY),
-            ),
-        )
+        try:
+            res = reconcile_fn(client_obj, workspace_id, **kwargs, audit_dir=audit_dir)
+        except TypeError as type_exc:
+            if "audit_dir" not in str(type_exc):
+                raise
+            res = reconcile_fn(client_obj, workspace_id, **kwargs)
+        return cast(ReconcileReport, res)
     except Exception as exc:
         raise ReconcilerWrapError(f"Reconciler failed for workspace {workspace_id}: {exc}") from exc
 
@@ -432,16 +436,25 @@ def _emit_default_record_phase(
 ) -> SyncApplyReport:
     """W4.2 phase: emit the v3.0 default-path DeployRecord (with_publish=False).
 
-    Byte-identical to the pre-Phase-17 behaviour (PUBLISH-01 SemVer
-    invariant). Builds a ``release_id = "sync-<TS>"`` record and
-    returns the success ``SyncApplyReport``.
+    Records only the items actually mutated by the reconcile run (moved or
+    unpublished) in ``fabric_items_changed``, matching the #79 truth-source
+    invariant used by ``_emit_combined_publish_record_phase``.
     """
+    changed_items = sorted(
+        {f"{m.display_name}.{m.item_type}" for m in report.plan.move_items}
+        | (
+            {f"{u.display_name}.{u.item_type}" for u in report.plan.unpublish_items}
+            if report.items_unpublished
+            else set()
+        )
+    )
     record = _build_record(
         workspace_id=workspace_id,
         manifest=manifest,
         outcome="succeeded",
         items_packaged=items_packaged,
         failure_reason=None,
+        fabric_items_changed=changed_items,
     )
     emit_deploy_record(record, audit_dir=audit_dir)
     return SyncApplyReport(
@@ -490,6 +503,7 @@ def _emit_failure_record_phase(
             outcome="failed",
             items_packaged=items_packaged,
             failure_reason=failure_reason,
+            fabric_items_changed=[],
         )
         emit_deploy_record(record, audit_dir=audit_dir)
     except Exception as inner:
@@ -572,6 +586,7 @@ def _build_record(
     outcome: str,
     items_packaged: int,
     failure_reason: str | None,
+    fabric_items_changed: list[str] | None = None,
 ) -> DeployRecord:
     """Build a hashed :class:`DeployRecord` for one apply invocation.
 
@@ -590,11 +605,16 @@ def _build_record(
     }
     if failure_reason:
         evidence["sync_engine_failure"] = failure_reason
+    changed = (
+        fabric_items_changed
+        if fabric_items_changed is not None
+        else [f"{item.display_name}.{item.type}" for item in manifest.items]
+    )
     return DeployRecord(
         workspace=workspace_id,
         release_id=f"sync-{utc_iso}",
         work_items=[],
-        fabric_items_changed=[f"{item.display_name}.{item.type}" for item in manifest.items],
+        fabric_items_changed=changed,
         test_evidence=evidence,
         approver="sync-engine",
         audit_hash="",
@@ -949,6 +969,7 @@ def apply_sync(
             token_provider=token_provider,
             manifest=manifest,
             reconcile_fn=reconcile_fn,
+            audit_dir=audit_dir,
         )
 
         # W1: Use ONE consistent ReconcileReport access pattern across

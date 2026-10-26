@@ -197,7 +197,10 @@ def test_gha_promote_records_the_reviewer_from_the_approval_record() -> None:
     perms = _permissions(doc, "promote")
     assert perms.get("actions") == "read", "the approval record needs it"
     assert perms.get("issues") == "write", "sigantry release record posts to GitHub issues"
-    for job in ("approval", "deploy", "smoke", "integration"):
+    assert _permissions(doc, "approval").get("actions") == "read", (
+        "approval job resolves and verifies approver before deploy runs"
+    )
+    for job in ("deploy", "smoke", "integration"):
         assert "actions" not in _permissions(doc, job), f"{job} needs no actions: read"
     steps = _steps(doc, "promote")
     resolve = next(s for s in steps if s.get("id") == "approver")

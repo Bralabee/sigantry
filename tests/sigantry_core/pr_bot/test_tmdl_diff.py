@@ -450,7 +450,9 @@ def test_tmdl_diff_surfaces_modified_columns_relationships_roles_perspectives_an
     )
 
     result = diff_tmdl(base, head)
-    assert result.columns_modified == [TableChange(table="Sales", name="Amount")]
+    assert result.columns_modified == [
+        TableChange(table="Sales", name="Amount", old_type="int64", new_type="decimal")
+    ]
     assert result.relationships_modified == [
         RelationshipChange(from_table="Sales", to_table="Calendar")
     ]

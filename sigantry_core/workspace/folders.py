@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 
 from sigantry_core.auth import TokenProvider
 from sigantry_core.client import FabricRestClient
@@ -84,6 +85,7 @@ def delete_folder(
     principal: str | None = None,
     token_provider: TokenProvider | None = None,
     resource_id: str | None = None,
+    audit_dir: Path | str | None = None,
 ) -> None:
     """DELETE /v1/workspaces/{id}/folders/{folderId} — 200 sync.
 
