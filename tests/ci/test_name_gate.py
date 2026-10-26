@@ -1963,3 +1963,39 @@ def test_the_release_path_runs_the_gate() -> None:
         "the scan must read the downloaded distributions and be the last step before the upload"
     )
     assert _without_action_refs(job) == _EXPECTED_PUBLISH_JOB
+
+
+CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+
+
+def test_ci_workflow_installs_poppler_on_windows_before_pytest() -> None:
+    """Windows CI installs Poppler and prepends it to GITHUB_PATH ahead of Git for Windows xpdf (#115)."""
+    wf = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+    steps = wf["jobs"]["test"]["steps"]
+    names = [s.get("name") for s in steps]
+    step_name = "Install the PDF text extractor (Windows)"
+    assert step_name in names, "ci.yml test job must install Poppler on Windows (#115)"
+    assert names.index(step_name) < names.index("Run pytest"), (
+        "Poppler must be installed and added to GITHUB_PATH before Run pytest"
+    )
+    step = steps[names.index(step_name)]
+    assert step.get("if") == "runner.os == 'Windows'"
+    run = str(step.get("run", ""))
+    for required in ("poppler", "pdftotext.exe", "pdfinfo.exe", "GITHUB_PATH"):
+        assert required in run, f"Windows Poppler step missing {required!r}"
+
+
+@pytest.mark.skipif(
+    not (sys.platform == "win32" and os.environ.get("GITHUB_ACTIONS") == "true"),
+    reason="verifies Windows GitHub Actions runner PATH resolution",
+)
+def test_windows_ci_resolves_poppler_instead_of_xpdf() -> None:
+    """On Windows CI runners, pdftotext and pdfinfo resolve to Poppler rather than Git's xpdf 4.06 (#115)."""
+    pdftotext = shutil.which("pdftotext")
+    pdfinfo = shutil.which("pdfinfo")
+    assert pdftotext is not None, "pdftotext missing on Windows CI PATH"
+    assert pdfinfo is not None, "pdfinfo missing on Windows CI PATH"
+    proc = subprocess.run([pdftotext, "-v"], capture_output=True, text=True, check=False)
+    banner = (proc.stdout + proc.stderr).lower()
+    assert "xpdfreader" not in banner, f"pdftotext still resolves to xpdf ({pdftotext}): {banner}"
+    assert "poppler" in banner, f"pdftotext is not Poppler ({pdftotext}): {banner}"
