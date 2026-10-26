@@ -35,7 +35,10 @@ for why.
    ID. Grant it Workspace Admin on the demo workspace ONLY (see
    Section 6). Generate a client secret -- this becomes
    `SIGANTRY_DEMO_FABRIC_TOKEN`. Note the app registration's
-   application (client) ID as `DEMO_SPN_APP_ID` for the check below.
+   application (client) ID as `SIGANTRY_DEMO_CLIENT_ID` (used as
+   `DEMO_SPN_APP_ID` in the check below). Also create a seed work item
+   or issue (for example `#1`) in the demo repository/project and note
+   its ID as `SIGANTRY_DEMO_WORK_ITEM_ID` for `sigantry release record`.
 
 Check that the SPN can call Fabric REST. The Fabric API takes a
 Microsoft Entra access token, not the client secret, so sign in as the
@@ -83,17 +86,20 @@ suspicion of leakage. Procedure:
    `SIGANTRY_DEMO_FABRIC_TOKEN` set to the new secret.
 5. Revoke the old secret in Entra ID once that check succeeds.
 
-The other three env vars
-(`SIGANTRY_DEMO_TENANT_ID`, `_WORKSPACE_ID`, `_CAPACITY_ID`) are
+The other demo secrets/variables
+(`SIGANTRY_DEMO_TENANT_ID`, `SIGANTRY_DEMO_CLIENT_ID`, `_WORKSPACE_ID`,
+`_CAPACITY_ID`, and `SIGANTRY_DEMO_WORK_ITEM_ID`) are
 durable across the demo tenant's lifetime; rotate only on tenant
 re-provisioning.
 
 ## 3. Lakehouse Git limitation (RESEARCH §Pitfall 1)
 
 Microsoft Fabric does NOT track Lakehouse table data + column types
-in Git. Only the container shell (`Sales.Lakehouse/.platform` +
+in Git. Only the container shell (`<Name>.Lakehouse/.platform` +
 `lakehouse.metadata.json` + `shortcuts.metadata.json`) is
-version-controlled. Tables, files, columns, and OneLake data live
+version-controlled, and `sigantry sync apply` does not register a
+`Lakehouse` packager (so `templates/demo/fabric_items/` omits a
+`.Lakehouse` directory). Tables, files, columns, and OneLake data live
 OUTSIDE the Git source-of-truth.
 
 Implications for the demo:
@@ -128,8 +134,11 @@ python scripts/export-demo.py --dry-run \
   && git push -u origin main
 ```
 
-Wire the four `SIGANTRY_DEMO_*` GitHub Actions secrets and the
-`sigantry-demo-secrets` ADO variable group per Section 2.
+Wire the `SIGANTRY_DEMO_*` GitHub Actions secrets
+(`SIGANTRY_DEMO_TENANT_ID`, `SIGANTRY_DEMO_CLIENT_ID`,
+`SIGANTRY_DEMO_FABRIC_TOKEN`, `SIGANTRY_DEMO_WORKSPACE_ID`,
+`SIGANTRY_DEMO_CAPACITY_ID`, and optional `SIGANTRY_DEMO_WORK_ITEM_ID`)
+and the `sigantry-demo-secrets` ADO variable group per Section 2.
 
 ## 5. Demo CI notes
 

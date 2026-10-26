@@ -13,7 +13,7 @@
 # demo tenant, with the SIGANTRY_DEMO_* secrets from the operator-managed
 # `sigantry-demo-secrets` variable group.
 #
-# All four SIGANTRY_DEMO_* references appear ONLY via $(SIGANTRY_DEMO_*);
+# All SIGANTRY_DEMO_* references appear ONLY via $(SIGANTRY_DEMO_*);
 # no literals (RESEARCH Pitfall 8). --environment DEV selects the DEV slot
 # of parameters.yml, the only slot the demo uses (RESEARCH Pitfall 9).
 trigger:
@@ -43,25 +43,45 @@ steps:
       sigantry deploy run \
         --params parameters.yml \
         --workspace-id "$(SIGANTRY_DEMO_WORKSPACE_ID)" \
+        --tenant-id "$(SIGANTRY_DEMO_TENANT_ID)" \
         --environment DEV \
+        --item-types "Notebook,DataPipeline,SemanticModel" \
         --source fabric_items
     env:
-      SIGANTRY_FABRIC_TENANT_ID: $(SIGANTRY_DEMO_TENANT_ID)
-      SIGANTRY_FABRIC_CAPACITY_ID: $(SIGANTRY_DEMO_CAPACITY_ID)
-      SIGANTRY_FABRIC_TOKEN: $(SIGANTRY_DEMO_FABRIC_TOKEN)
+      AZURE_TENANT_ID: $(SIGANTRY_DEMO_TENANT_ID)
+      AZURE_CLIENT_ID: $(SIGANTRY_DEMO_CLIENT_ID)
+      AZURE_CLIENT_SECRET: $(SIGANTRY_DEMO_FABRIC_TOKEN)
+      SIGANTRY_DEMO_TENANT_ID: $(SIGANTRY_DEMO_TENANT_ID)
+      SIGANTRY_DEMO_CAPACITY_ID: $(SIGANTRY_DEMO_CAPACITY_ID)
+      SIGANTRY_DEMO_WORKSPACE_ID: $(SIGANTRY_DEMO_WORKSPACE_ID)
     displayName: 'Deploy'
   - script: |
       sigantry release record \
         --release-id "$(Build.SourceVersion)" \
-        --workspace-id "$(SIGANTRY_DEMO_WORKSPACE_ID)"
+        --workspace "$(SIGANTRY_DEMO_WORKSPACE_ID)" \
+        --provider ado \
+        --work-items "$(SIGANTRY_DEMO_WORK_ITEM_ID)" \
+        --approver "$(Build.RequestedForEmail)" \
+        --fabric-items "LoadOrders.Notebook,RefreshOrdersDaily.DataPipeline,OrdersAnalytics.SemanticModel" \
+        --ado-organization "$(System.CollectionUri)" \
+        --ado-project "$(System.TeamProject)" \
+        --ado-tenant-id "$(SIGANTRY_DEMO_TENANT_ID)" \
+        --audit-dir "$(Agent.TempDirectory)/sigantry-audit"
+      sigantry release verify \
+        --audit-dir "$(Agent.TempDirectory)/sigantry-audit"
     env:
-      SIGANTRY_FABRIC_TOKEN: $(SIGANTRY_DEMO_FABRIC_TOKEN)
+      AZURE_TENANT_ID: $(SIGANTRY_DEMO_TENANT_ID)
+      AZURE_CLIENT_ID: $(SIGANTRY_DEMO_CLIENT_ID)
+      AZURE_CLIENT_SECRET: $(SIGANTRY_DEMO_FABRIC_TOKEN)
     displayName: 'Record release'
   - script: |
       sigantry diff \
         --workspace-id "$(SIGANTRY_DEMO_WORKSPACE_ID)" \
+        --tenant-id "$(SIGANTRY_DEMO_TENANT_ID)" \
         --manifest sync.yml \
         --fail-on-drift
     env:
-      SIGANTRY_FABRIC_TOKEN: $(SIGANTRY_DEMO_FABRIC_TOKEN)
+      AZURE_TENANT_ID: $(SIGANTRY_DEMO_TENANT_ID)
+      AZURE_CLIENT_ID: $(SIGANTRY_DEMO_CLIENT_ID)
+      AZURE_CLIENT_SECRET: $(SIGANTRY_DEMO_FABRIC_TOKEN)
     displayName: 'Diff (fail on drift)'

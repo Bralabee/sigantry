@@ -22,6 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in 2.0 (ADR-0011)"`.
 
 ### Fixed
+- **Demo CI workflow pair (`templates/demo/.github/workflows/sigantry-demo-ci.yml`, `templates/demo/.azuredevops/sigantry-demo-ci.yml`, `docs/runbooks/demo-tenant-operator.md`).**
+  Mapped `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, and `AZURE_CLIENT_SECRET` (replacing
+  the unused `SIGANTRY_FABRIC_TOKEN` env var) and passed `--tenant-id` and
+  `--item-types "Notebook,DataPipeline,SemanticModel"` in the `Deploy` and `Diff`
+  steps, and updated `Record release` to pass `--workspace`, `--provider`,
+  `--work-items`, `--approver`, `--fabric-items`, and `--audit-dir` followed by
+  `sigantry release verify` (#70).
 - **Demo walkthrough and sample item tree (`templates/demo/`, `docs/demo/QUICKSTART.md`, `scripts/export-demo.py`).**
   Removed `Sales.Lakehouse` from `templates/demo/fabric_items/`, `templates/demo/sync.yml`,
   and `templates/demo/parameters.yml` (`sync apply` has no `Lakehouse` packager),

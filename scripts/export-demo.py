@@ -229,7 +229,7 @@ def assert_parameters_yml_validates(demo_dir: Path) -> None:
     Imports ``sigantry_core.deploy.parameters.load_and_validate`` and
     runs it against ``templates/demo/parameters.yml``. The validator
     requires every ``$ENV:<VAR>`` reference to resolve to a SET
-    environment variable, so we set the 6 demo + starter env vars to
+    environment variable, so we set the 3 demo + starter env vars to
     dummy GUIDs at the start of this function (only if not already
     set). This proves the file is structurally clean without
     requiring operator credentials.
@@ -262,7 +262,7 @@ def assert_parameters_yml_validates(demo_dir: Path) -> None:
 def assert_fabric_items_locked_logical_ids(demo_dir: Path) -> None:
     """Invariant 4: each fabric_items/<*>/.platform carries the locked logicalId.
 
-    Walks the 4 expected directories (per ``EXPECTED_LOGICAL_IDS``); for
+    Walks the 3 expected directories (per ``EXPECTED_LOGICAL_IDS``); for
     each, parses the ``.platform`` JSON, asserts the ``config.logicalId``
     matches the locked d00X placeholder, and asserts ``metadata.type``
     matches the directory suffix.
