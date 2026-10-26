@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **`fabric-cicd` 1.4.0 delta-audit docs and version parser (`sigantry_core/deploy/`, `docs/LANDSCAPE-2026-06.md`, `tests/sigantry_core/deploy/test_fabric_cicd_contract.py`).**
+  Updated `sigantry_core.deploy` module docstrings and `docs/LANDSCAPE-2026-06.md` §9.4
+  to record the `fabric-cicd` 1.4.0 plain-name `$ENV:` audit from #89, and hardened
+  `_upstream_version()` in `test_fabric_cicd_contract.py` to parse PEP 440 pre/post/dev
+  version strings via regex.
 - **Config deprecation window wording (`sigantry_core.config`, `docs/migration/2.x-to-3.0.md`, `README.md`, `docs/CAPABILITIES.md`).**
   Replaced the relative `"one more minor release"` / `"through 1.0.x"` wording in
   the legacy config-filename and `FDT_` environment-prefix deprecation warnings

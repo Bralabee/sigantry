@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import inspect
 import os
+import re
 from pathlib import Path
 
 import fabric_cicd
@@ -55,12 +56,17 @@ from fabric_cicd._parameter._utils import replace_variables_in_parameter_file
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _ENV_FLAG = "enable_environment_variable_replacement"
+_VERSION_RE = re.compile(r"^(?:\d+!)?(\d+)\.(\d+)")
 
 
-def _upstream_version() -> tuple[int, ...]:
+def _upstream_version() -> tuple[int, int]:
     from importlib.metadata import version
 
-    return tuple(int(part) for part in version("fabric-cicd").split(".")[:2])
+    raw = version("fabric-cicd").strip()
+    match = _VERSION_RE.match(raw)
+    if match is None:
+        raise ValueError(f"Unparseable fabric-cicd version: {raw!r}")
+    return int(match.group(1)), int(match.group(2))
 
 
 #: fabric-cicd 1.4.0 reads the plain variable name behind the flag; 1.1.0
@@ -249,3 +255,48 @@ def test_hard_delete_flag_exists_upstream_and_sigantry_never_opts_in() -> None:
         f"sigantry_core must not opt into fabric-cicd hard delete: {offenders}. "
         "Orphan unpublish is contractually a soft (recycle-bin) delete."
     )
+
+
+@pytest.mark.parametrize(
+    ("raw_version", "expected"),
+    [
+        ("1.4.0", (1, 4)),
+        ("1.4.0rc1", (1, 4)),
+        ("1.4rc1", (1, 4)),
+        ("1.4.0.post1", (1, 4)),
+        ("1.3.2.dev0", (1, 3)),
+        ("0!1.4.0", (1, 4)),
+    ],
+)
+def test_upstream_version_parses_pep440_prerelease_and_postrelease_tags(
+    monkeypatch: pytest.MonkeyPatch, raw_version: str, expected: tuple[int, int]
+) -> None:
+    """_upstream_version parses PEP 440 pre/post/dev tags without ValueError."""
+    import importlib.metadata
+
+    monkeypatch.setattr(importlib.metadata, "version", lambda _pkg: raw_version)
+    assert _upstream_version() == expected
+
+
+def test_upstream_version_rejects_unparseable_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_upstream_version raises ValueError when version string lacks major.minor."""
+    import importlib.metadata
+
+    monkeypatch.setattr(importlib.metadata, "version", lambda _pkg: "invalid")
+    with pytest.raises(ValueError, match="Unparseable fabric-cicd version"):
+        _upstream_version()
+
+
+def test_parameters_and_landscape_docs_reflect_1_4_0_plain_name_audit() -> None:
+    """parameters.py and LANDSCAPE-2026-06.md §9.4 state the 1.4.0 finding-1 update."""
+    params_text = (_REPO_ROOT / "sigantry_core" / "deploy" / "parameters.py").read_text(
+        encoding="utf-8"
+    )
+    assert "1.4.0" in params_text
+    assert "verified through 1.1.0" not in params_text
+
+    landscape_text = (_REPO_ROOT / "docs" / "LANDSCAPE-2026-06.md").read_text(encoding="utf-8")
+    sec_9_4 = landscape_text.split("### 9.4", 1)[1]
+    assert "1.4.0" in sec_9_4

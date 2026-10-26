@@ -1,7 +1,7 @@
 """sigantry_core.deploy.core - deploy_workspace wrapper (DEPLOY-01).
 
 Wraps ``fabric-cicd`` 1.x (``>=1.0,<2.0``; delta-audited against 1.1.0 on
-2026-06-11, re-audited against 1.3.0 on 2026-08-24) ``FabricWorkspace`` +
+2026-06-11, re-audited against 1.3.0 on 2026-08-24 and 1.4.0 on 2026-10-07) ``FabricWorkspace`` +
 ``publish_all_items``. Plumbs Phase 1
 ``TokenProvider`` into the 1.0.0+ mandatory ``token_credential`` kwarg
 (Pitfall 4A — breaking change from 0.3.x to 1.0.0). Upstream contract
