@@ -178,7 +178,7 @@ jobs:
       ghApprovalEnvironment: 'prod-approval'
       azureClientId: '<app-registration-client-id>'
       azureTenantId: '<tenant-id>'
-      sigantryVersion: '1.1.0'
+      sigantryVersion: '1.1.1'
       smokeCommand: 'sigantry doctor && curl -s https://my-app/health'
 ```
 

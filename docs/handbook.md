@@ -1,7 +1,7 @@
 # Usage Handbook
 
-**Last updated:** 2026-10-15 (1.1.0)
-**Toolkit version:** 1.1.0
+**Last updated:** 2026-10-26 (1.1.1)
+**Toolkit version:** 1.1.1
 
 This is the living, day-to-day usage reference for `sigantry`. It covers the scenarios the toolkit is designed for, the environment you work in, the complete CLI surface across all 18 subapps, configuration patterns, and common recipes.
 

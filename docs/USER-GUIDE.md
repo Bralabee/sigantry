@@ -1,4 +1,4 @@
-<!-- VERSION: 1.1.0 -->
+<!-- VERSION: 1.1.1 -->
 <!-- This markdown is the canonical guide: edit it here, never a
      rendered PDF.
 
@@ -68,12 +68,12 @@ Throughout the guide:
 
 ## Versioning
 
-This guide tracks Sigantry **1.1.0**. The public version line started at
+This guide tracks Sigantry **1.1.1**. The public version line started at
 1.0.0, published on PyPI on 2026-09-19; the internal 3.x line this guide
 was first written against is its ancestor, not a later version.
 `CHANGELOG.md` lists the changes in each release; before upgrading, read
-its "Upgrading from 1.0.1" section, and from 1.0.0 its "Upgrading from
-1.0.0" section as well.
+its "Upgrading from 1.1.0" section, and from earlier releases its
+"Upgrading from 1.0.1" and "Upgrading from 1.0.0" sections as well.
 
 ---
 
