@@ -471,6 +471,7 @@ def test_cd_promote_fabric_items_discovery_reads_platform_metadata_and_filters_i
     import json
     import os
     import subprocess
+    import sys
 
     # 1. Classic <Name>.<Type> directory in scope
     nb_dir = tmp_path / "etl_daily.Notebook"
@@ -512,10 +513,6 @@ def test_cd_promote_fabric_items_discovery_reads_platform_metadata_and_filters_i
         ("GHA", gha_record["run"]),
         ("ADO", ado_record["inputs"]["inlineScript"]),
     ):
-        # Extract the shell block up to `sigantry release record` and print SIGANTRY_FABRIC_ITEMS
-        before_cli = (
-            script.split("sigantry release record")[0] + '\nprintf "%s" "$SIGANTRY_FABRIC_ITEMS"\n'
-        )
         env = {
             **os.environ,
             "SIGANTRY_FABRIC_ITEMS": "",
@@ -524,14 +521,31 @@ def test_cd_promote_fabric_items_discovery_reads_platform_metadata_and_filters_i
             "SIGANTRY_APPROVER": "reviewer@example.com",
             "SIGANTRY_REQUESTED_FOR_EMAIL": "requester@example.com",
         }
-        res = subprocess.run(
-            ["bash", "-c", before_cli],
+        py_code = script.split("python -c '\n", 1)[1].split("\n'", 1)[0]
+        py_res = subprocess.run(
+            [sys.executable, "-c", py_code, str(tmp_path), "Notebook,Lakehouse"],
             env=env,
             capture_output=True,
             text=True,
             check=False,
         )
-        assert res.returncode == 0, f"{label} discovery failed: {res.stderr}"
-        assert res.stdout == "etl_daily.Notebook,sales_curated.Lakehouse", (
-            f"{label} discovery output mismatch: {res.stdout!r}"
+        assert py_res.returncode == 0, f"{label} python discovery failed: {py_res.stderr}"
+        assert py_res.stdout.strip() == "etl_daily.Notebook,sales_curated.Lakehouse", (
+            f"{label} python discovery output mismatch: {py_res.stdout!r}"
         )
+        if sys.platform != "win32":
+            before_cli = (
+                script.split("sigantry release record")[0]
+                + '\nprintf "%s" "$SIGANTRY_FABRIC_ITEMS"\n'
+            )
+            res = subprocess.run(
+                ["bash", "-c", before_cli],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            assert res.returncode == 0, f"{label} discovery failed: {res.stderr}"
+            assert res.stdout == "etl_daily.Notebook,sales_curated.Lakehouse", (
+                f"{label} discovery output mismatch: {res.stdout!r}"
+            )
