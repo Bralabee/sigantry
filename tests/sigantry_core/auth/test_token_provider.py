@@ -361,3 +361,35 @@ class TestTokenProviderProtocolContract:
             assert annotation == "TokenProviderProtocol"
         else:
             assert annotation is TokenProviderProtocol
+
+
+def test_module_level_token_helpers_pin_tenant_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SIG-017 / kv-token-helper-tenant-pin-drop: get_default_credential and module-level
+    get_*_token helpers accept tenant_id and fall back to resolve_tenant_id(None)."""
+    import sigantry_core.auth.token_provider as tp_mod
+
+    seen_tenants: list[str | None] = []
+
+    def _fake_get_tp(tenant_id: str | None = None) -> MagicMock:
+        seen_tenants.append(tenant_id)
+        m = MagicMock()
+        m.credential = "cred-obj"
+        m.get_token.return_value = "tok-val"
+        return m
+
+    monkeypatch.setattr(tp_mod, "get_token_provider", _fake_get_tp)
+    monkeypatch.setenv("SIGANTRY_CORE__TENANT_ID", TENANT_A)
+
+    assert tp_mod.get_default_credential() == "cred-obj"
+    assert tp_mod.get_token(FABRIC_SCOPE) == "tok-val"
+    assert tp_mod.get_fabric_token() == "tok-val"
+    assert tp_mod.get_powerbi_token() == "tok-val"
+    assert tp_mod.get_graph_token() == "tok-val"
+    assert tp_mod.get_purview_token() == "tok-val"
+    assert tp_mod.get_azure_rm_token() == "tok-val"
+    assert seen_tenants == [TENANT_A] * 7
+
+    seen_tenants.clear()
+    assert tp_mod.get_default_credential(tenant_id=TENANT_B) == "cred-obj"
+    assert tp_mod.get_fabric_token(tenant_id=TENANT_B) == "tok-val"
+    assert seen_tenants == [TENANT_B, TENANT_B]

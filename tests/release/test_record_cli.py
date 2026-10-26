@@ -375,3 +375,75 @@ def test_empty_work_items_exits_nonzero(
         ],
     )
     assert result.exit_code != 0
+
+
+def test_record_ado_provider_resolves_tenant_id_and_release_settings_defaults(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    patched_ado_provider: tuple[MagicMock, MagicMock],
+) -> None:
+    """SIG-016 / release-record-ado-tenant-pin-drop: release record --provider ado
+    falls back to core.tenant_id via resolve_tenant_id and [release] / [release.ado] settings."""
+    fake_factory, _fake_provider = patched_ado_provider
+    work = tmp_path / "work"
+    work.mkdir()
+    tid = "00000000-0000-0000-0000-00000000000a"
+    (work / ".sigantry.toml").write_text(
+        f'[core]\ntenant_id = "{tid}"\n\n[release]\nprovider = "ado"\n\n[release.ado]\norganization = "cfg-org"\nproject = "cfg-proj"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(work)
+    result = runner.invoke(
+        app,
+        [
+            "release",
+            "record",
+            "--audit-dir",
+            str(tmp_path / "audit"),
+            *_common_args(),
+        ],
+    )
+    assert result.exit_code == 0, f"stdout={result.stdout!r}, exception={result.exception!r}"
+    fake_factory.assert_called_once()
+    kwargs = fake_factory.call_args.kwargs
+    assert kwargs["organization"] == "cfg-org"
+    assert kwargs["project"] == "cfg-proj"
+    assert kwargs["tenant_id"] == tid
+
+
+def test_record_github_cli_owner_repo_with_toml_pat(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When --provider github --github-owner --github-repo are passed on the CLI,
+    [release.github] pat in .sigantry.toml is still resolved."""
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.chdir(work)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    (work / ".sigantry.toml").write_text(
+        '[release]\nprovider = "github"\n[release.github]\npat = "pat-from-toml"\n',
+        encoding="utf-8",
+    )
+
+    mock_gh = MagicMock()
+    monkeypatch.setattr("sigantry_core.workitems.github.GithubWorkItemProvider", mock_gh)
+
+    res = runner.invoke(
+        app,
+        [
+            "release",
+            "record",
+            "--provider",
+            "github",
+            "--github-owner",
+            "cli-owner",
+            "--github-repo",
+            "cli-repo",
+            "--audit-dir",
+            str(tmp_path / "audit"),
+            *_common_args(),
+        ],
+    )
+
+    assert res.exit_code == 0, f"stdout={res.stdout!r}, exception={res.exception!r}"
+    mock_gh.assert_called_once_with(owner="cli-owner", repo="cli-repo", pat="pat-from-toml")

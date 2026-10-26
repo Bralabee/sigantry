@@ -162,27 +162,20 @@ def emit_bootstrap_record(record: BootstrapRecord, *, audit_dir: Path | str | No
         The :class:`Path` to the JSONL file the record was appended to.
     """
     from sigantry_core.governance.audit_io import (
-        audit_chain_lock,
-        read_last_audit_hash,
         resolve_audit_dir,
+        write_audit_record,
     )
+    from sigantry_core.governance.destructive import logger
 
     resolved_dir = resolve_audit_dir(audit_dir, default_dir=DEFAULT_BOOTSTRAP_LEDGER.parent)
-    target = resolved_dir / "bootstraps.jsonl"
-    target.parent.mkdir(parents=True, exist_ok=True)
-    # Audit-2026-05-07 review follow-up (BL-02): serialise W3.1 chain
-    # linkage. The read+seal+append sequence below shares the audit-
-    # ledger race condition that was patched in
-    # ``write_audit_record``; using the same flock helper keeps the
-    # bootstrap ledger consistent with the deploy / approval / secret /
-    # destructive-op ledgers under multi-writer load.
-    with audit_chain_lock(target):
-        prev = read_last_audit_hash(target)
-        sealed = record.model_copy(update={"prev_hash": prev}).with_hash()
-        line = json.dumps(sealed.model_dump(mode="json"), **_CANONICAL_KWARGS) + "\n"
-        with target.open("a", encoding="utf-8") as fp:
-            fp.write(line)
-    return target
+    write_audit_record(
+        target_dir=resolved_dir,
+        filename="bootstraps.jsonl",
+        event_name="bootstrap_record",
+        record=record,
+        audit_logger=logger,
+    )
+    return resolved_dir / "bootstraps.jsonl"
 
 
 __all__ = [

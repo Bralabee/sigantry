@@ -27,6 +27,7 @@ import errno
 import json
 import logging
 import os
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 from typing import IO, Any, Final
@@ -80,8 +81,14 @@ def resolve_audit_dir(
         settings = load_settings_for_cli()
         if settings.release.audit_dir:
             return Path(settings.release.audit_dir).expanduser()
-    except Exception:
-        pass
+    except Exception as exc:
+        from sigantry_core._cli_tenant import _describe_settings_error
+
+        fallback = Path(default_dir).expanduser() if default_dir is not None else _DEFAULT_AUDIT_DIR
+        sys.stderr.write(
+            f"WARNING: failed to read release.audit_dir from settings "
+            f"({_describe_settings_error(exc)}); falling back to {fallback}\n"
+        )
     if default_dir is not None:
         return Path(default_dir).expanduser()
     return _DEFAULT_AUDIT_DIR

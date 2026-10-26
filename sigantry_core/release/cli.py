@@ -64,7 +64,8 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from sigantry_core._cli_tenant import stops_on_tenant_error
+from sigantry_core._cli_settings import load_settings_for_cli
+from sigantry_core._cli_tenant import resolve_tenant_id, stops_on_tenant_error
 from sigantry_core.governance.audit import emit_deploy_record
 from sigantry_core.governance.audit_io import (
     _DEFAULT_AUDIT_DIR,
@@ -113,7 +114,7 @@ def _parse_test_evidence(value: str | None) -> dict[str, str]:
 
 
 def _build_provider(
-    provider_kind: str,
+    provider_kind: str | None,
     *,
     ado_organization: str | None,
     ado_project: str | None,
@@ -125,59 +126,97 @@ def _build_provider(
     github_private_key_pem: str | None,
     github_installation_id: str | None,
 ) -> Any:
-    """Resolve a :class:`WorkItemProvider` from the CLI flag-set.
+    """Resolve a :class:`WorkItemProvider` from the CLI flag-set and `[release]` settings.
 
     Imports of provider modules are lazy so a ``--provider=github``
     invocation never imports ADO machinery (and vice-versa). Returns the
     constructed provider; raises :class:`typer.BadParameter` for any
     invalid combination of flags.
     """
-    if provider_kind == "ado":
+    release_cfg: Any = None
+    github_auth_supplied = github_pat is not None or bool(
+        github_app_id and github_private_key_pem and github_installation_id
+    )
+    if (
+        provider_kind is None
+        or (
+            provider_kind == "ado"
+            and (not ado_organization or not ado_project or not ado_tenant_id)
+        )
+        or (
+            provider_kind == "github"
+            and (not github_owner or not github_repo or not github_auth_supplied)
+        )
+    ):
+        try:
+            release_cfg = load_settings_for_cli().release
+        except Exception:
+            release_cfg = None
+
+    effective_kind = provider_kind or (release_cfg.provider if release_cfg is not None else None)
+    if not effective_kind:
+        raise typer.BadParameter(
+            "Missing option '--provider' (or configure [release] provider in .sigantry.toml).",
+            param_hint="'--provider'",
+        )
+
+    if effective_kind == "ado":
         from sigantry_core._ado_organization import AdoOrganizationError
         from sigantry_core.workitems.ado import AdoWorkItemProvider
 
-        if not ado_organization or not ado_project:
+        ado_cfg = (release_cfg.ado if release_cfg is not None else {}) or {}
+        eff_org = ado_organization or ado_cfg.get("organization")
+        eff_proj = ado_project or ado_cfg.get("project")
+        eff_tid = resolve_tenant_id(ado_tenant_id or ado_cfg.get("tenant_id"))
+        if not eff_org or not eff_proj:
             raise typer.BadParameter(
                 "--ado-organization and --ado-project are required when --provider=ado."
             )
         try:
             return AdoWorkItemProvider.from_defaults(
-                organization=ado_organization,
-                project=ado_project,
-                tenant_id=ado_tenant_id,
+                organization=str(eff_org),
+                project=str(eff_proj),
+                tenant_id=eff_tid,
             )
         except AdoOrganizationError as exc:
             raise typer.BadParameter(str(exc), param_hint="--ado-organization") from exc
-    if provider_kind == "github":
+    if effective_kind == "github":
         from sigantry_core.workitems.github import GithubWorkItemProvider
 
-        if not github_owner or not github_repo:
+        gh_cfg = (release_cfg.github if release_cfg is not None else {}) or {}
+        eff_owner = github_owner or gh_cfg.get("owner")
+        eff_repo = github_repo or gh_cfg.get("repo")
+        eff_pat = github_pat if github_pat is not None else gh_cfg.get("pat")
+        eff_app_id = github_app_id or gh_cfg.get("app_id")
+        eff_pem = github_private_key_pem or gh_cfg.get("private_key_pem")
+        eff_install_id = github_installation_id or gh_cfg.get("installation_id")
+        if not eff_owner or not eff_repo:
             raise typer.BadParameter(
                 "--github-owner and --github-repo are required when --provider=github."
             )
-        kwargs: dict[str, str] = {"owner": github_owner, "repo": github_repo}
-        if github_pat is not None:
-            kwargs["pat"] = github_pat
+        kwargs: dict[str, str] = {"owner": str(eff_owner), "repo": str(eff_repo)}
+        if eff_pat is not None:
+            kwargs["pat"] = str(eff_pat)
         else:
-            if not (github_app_id and github_private_key_pem and github_installation_id):
+            if not (eff_app_id and eff_pem and eff_install_id):
                 raise typer.BadParameter(
                     "Provide --github-pat OR all three of --github-app-id, "
                     "--github-private-key-pem, --github-installation-id."
                 )
-            kwargs["app_id"] = github_app_id
-            kwargs["private_key_pem"] = github_private_key_pem
-            kwargs["installation_id"] = github_installation_id
+            kwargs["app_id"] = str(eff_app_id)
+            kwargs["private_key_pem"] = str(eff_pem)
+            kwargs["installation_id"] = str(eff_install_id)
         return GithubWorkItemProvider(**kwargs)  # type: ignore[arg-type]
-    raise typer.BadParameter(f"--provider must be 'ado' or 'github'; got {provider_kind!r}.")
+    raise typer.BadParameter(f"--provider must be 'ado' or 'github'; got {effective_kind!r}.")
 
 
 @release_app.command("record")
 @stops_on_tenant_error(exit_code=1)
 def record_cmd(
-    provider: str = typer.Option(
-        ...,
+    provider: str | None = typer.Option(
+        None,
         "--provider",
-        help="Work-item provider kind: 'ado' or 'github'.",
+        help="Work-item provider kind: 'ado' or 'github' (falls back to [release] provider).",
     ),
     release_id: str = typer.Option(
         ..., "--release-id", help="Release identifier (any operator-meaningful string)."
@@ -283,7 +322,6 @@ def record_cmd(
         raise typer.BadParameter("--work-items must contain at least one id.")
     items_changed = _split_csv(fabric_items)
     evidence = _parse_test_evidence(test_evidence)
-    audit_dir_path = resolve_audit_dir(audit_dir)
 
     provider_obj = _build_provider(
         provider,
@@ -297,6 +335,7 @@ def record_cmd(
         github_private_key_pem=github_private_key_pem,
         github_installation_id=github_installation_id,
     )
+    audit_dir_path = resolve_audit_dir(audit_dir)
 
     record = DeployRecord(
         workspace=workspace,
@@ -561,7 +600,38 @@ def diff_cmd(
         _console.print(Text(f"  = {entry['fabric_item_id']}", style="dim"))
 
 
-def _read_ledger_lines_strict(path: Path) -> tuple[list[DeployRecord], list[str]]:
+def _resolve_record_class(filename: str) -> type[Any]:
+    """Return the Pydantic record class corresponding to a ledger filename."""
+    from sigantry_core.governance.records import (
+        ApprovalRecord,
+        DestructiveOpRecord,
+        SecretChangeRecord,
+    )
+    from sigantry_core.workspace.records import BootstrapRecord
+
+    mapping: dict[str, type[Any]] = {
+        "deploys.jsonl": DeployRecord,
+        "approvals.jsonl": ApprovalRecord,
+        "secret_changes.jsonl": SecretChangeRecord,
+        "destructive_ops.jsonl": DestructiveOpRecord,
+        "bootstraps.jsonl": BootstrapRecord,
+    }
+    return mapping.get(filename, DeployRecord)
+
+
+_STANDARD_LEDGERS: tuple[str, ...] = (
+    "deploys.jsonl",
+    "approvals.jsonl",
+    "secret_changes.jsonl",
+    "destructive_ops.jsonl",
+    "bootstraps.jsonl",
+)
+
+
+def _read_ledger_lines_strict(
+    path: Path,
+    record_cls: type[Any] = DeployRecord,
+) -> tuple[list[Any], list[str]]:
     """Parse every ledger line in FILE ORDER, reporting rather than skipping.
 
     This deliberately does NOT reuse :func:`sigantry_core.release.ledger.iter_records`.
@@ -575,13 +645,13 @@ def _read_ledger_lines_strict(path: Path) -> tuple[list[DeployRecord], list[str]
 
     Returns
     -------
-    tuple[list[DeployRecord], list[str]]
+    tuple[list[Any], list[str]]
         ``(records, problems)`` -- records in file (append) order, and a
         list of human-readable per-line problems. A non-empty ``problems``
         list means the ledger is NOT verifiable, independently of whether
         the parsed subset happens to chain.
     """
-    records: list[DeployRecord] = []
+    records: list[Any] = []
     problems: list[str] = []
     with path.open("r", encoding="utf-8") as fh:
         for lineno, raw in enumerate(fh, start=1):
@@ -594,12 +664,76 @@ def _read_ledger_lines_strict(path: Path) -> tuple[list[DeployRecord], list[str]
                 problems.append(f"line {lineno}: not valid JSON ({exc})")
                 continue
             try:
-                records.append(DeployRecord(**payload))
+                records.append(record_cls(**payload))
             except Exception as exc:
                 # Broad by intent: ANY schema breakage must be reported to the
                 # operator, not narrowed to the exception types we anticipated.
-                problems.append(f"line {lineno}: does not parse as DeployRecord ({exc})")
+                problems.append(f"line {lineno}: does not parse as {record_cls.__name__} ({exc})")
     return records, problems
+
+
+def _evaluate_ledger(path: Path) -> dict[str, Any]:
+    """Verify a single JSONL ledger file and return its structured verdict."""
+    if not path.exists():
+        return {
+            "valid": True,
+            "records": 0,
+            "vacuous": True,
+            "ledger": str(path),
+            "reason": "ledger file does not exist - nothing to verify",
+        }
+    record_cls = _resolve_record_class(path.name)
+    records, problems = _read_ledger_lines_strict(path, record_cls=record_cls)
+    if problems:
+        return {
+            "valid": False,
+            "records": len(records),
+            "vacuous": False,
+            "ledger": str(path),
+            "reason": "unparseable ledger lines",
+            "problems": problems,
+        }
+    is_valid, bad_index, reason = verify_audit_chain(records)
+    return {
+        "valid": is_valid,
+        "records": len(records),
+        "vacuous": len(records) == 0,
+        "ledger": str(path),
+        "first_bad_index": bad_index,
+        "reason": reason,
+    }
+
+
+def _render_single_verdict(verdict: dict[str, Any]) -> None:
+    """Print human-readable output for a single ledger verdict."""
+    path = verdict["ledger"]
+    if not verdict["valid"] and "problems" in verdict:
+        _console.print(Text.assemble(("CHAIN UNVERIFIABLE", "red"), f" {path}"))
+        for problem in verdict["problems"]:
+            _console.print(Text(f"  - {problem}", style="red"))
+        return
+    if not verdict["valid"]:
+        _console.print(Text.assemble(("CHAIN BROKEN", "red"), f" {path}"))
+        _console.print(Text(f"  first bad record index: {verdict['first_bad_index']}", style="red"))
+        _console.print(Text(f"  reason: {verdict['reason']}", style="red"))
+        return
+    if verdict["records"] == 0:
+        if verdict.get("reason") == "ledger file does not exist - nothing to verify":
+            _console.print(Text.assemble(("NOTHING TO VERIFY", "yellow"), f" no ledger at {path}"))
+        else:
+            _console.print(
+                Text.assemble(
+                    ("NOTHING TO VERIFY", "yellow"),
+                    f" {path} holds 0 records (chain is vacuously valid)",
+                )
+            )
+        return
+    _console.print(
+        Text.assemble(
+            ("CHAIN VALID", "green"),
+            f" {verdict['records']} record(s) verified in append order from {path}",
+        )
+    )
 
 
 @release_app.command("verify")
@@ -609,13 +743,23 @@ def verify_cmd(
         "--audit-dir",
         help="Override ~/.sigantry/audit/ (used in tests + CI).",
     ),
+    ledger_file: str | None = typer.Option(
+        None,
+        "--ledger-file",
+        help="Ledger filename in --audit-dir (or path) to verify (default: deploys.jsonl).",
+    ),
+    all_ledgers: bool = typer.Option(
+        False,
+        "--all",
+        help="Verify all five audit ledgers (deploys, approvals, secret_changes, destructive_ops, bootstraps).",
+    ),
     json_output: bool = typer.Option(
         False,
         "--json",
         help="Emit a JSON verdict instead of human-readable output.",
     ),
 ) -> None:
-    """Verify the deploy ledger forms an unbroken SHA-256 chain.
+    """Verify the deploy ledger (or all audit ledgers) forms an unbroken SHA-256 chain.
 
     Exposes :func:`sigantry_core.governance.audit_io.verify_audit_chain` as an
     operator command. Before this existed, ``sigantry release`` offered
@@ -641,77 +785,43 @@ def verify_cmd(
     1
         Chain invalid, a line failed to parse, or the ledger is unreadable.
     """
+    if all_ledgers and ledger_file is not None:
+        raise typer.BadParameter("Pass either --all or --ledger-file, not both.")
+
     audit_dir_path = resolve_audit_dir(audit_dir, default_dir=_DEFAULT_AUDIT_DIR)
-    path = audit_dir_path / "deploys.jsonl"
 
-    if not path.exists():
-        verdict = {
-            "valid": True,
-            "records": 0,
-            "vacuous": True,
-            "ledger": str(path),
-            "reason": "ledger file does not exist - nothing to verify",
+    if all_ledgers:
+        ledgers: dict[str, dict[str, Any]] = {}
+        for name in _STANDARD_LEDGERS:
+            ledgers[name] = _evaluate_ledger(audit_dir_path / name)
+        overall_valid = all(v["valid"] for v in ledgers.values())
+        total_records = sum(int(v["records"]) for v in ledgers.values())
+        all_verdict = {
+            "valid": overall_valid,
+            "records": total_records,
+            "vacuous": total_records == 0,
+            "ledgers": ledgers,
         }
         if json_output:
-            _console.print_json(data=verdict)
+            _console.print_json(data=all_verdict)
         else:
-            _console.print(Text.assemble(("NOTHING TO VERIFY", "yellow"), f" no ledger at {path}"))
-        raise typer.Exit(0)
+            for v in ledgers.values():
+                _render_single_verdict(v)
+        raise typer.Exit(0 if overall_valid else 1)
 
-    records, problems = _read_ledger_lines_strict(path)
-
-    if problems:
-        verdict = {
-            "valid": False,
-            "records": len(records),
-            "vacuous": False,
-            "ledger": str(path),
-            "reason": "unparseable ledger lines",
-            "problems": problems,
-        }
-        if json_output:
-            _console.print_json(data=verdict)
-        else:
-            _console.print(Text.assemble(("CHAIN UNVERIFIABLE", "red"), f" {path}"))
-            for problem in problems:
-                _console.print(Text(f"  - {problem}", style="red"))
-        raise typer.Exit(1)
-
-    is_valid, bad_index, reason = verify_audit_chain(records)
-    verdict = {
-        "valid": is_valid,
-        "records": len(records),
-        "vacuous": len(records) == 0,
-        "ledger": str(path),
-        "first_bad_index": bad_index,
-        "reason": reason,
-    }
-
+    target_ledger = ledger_file if ledger_file is not None else "deploys.jsonl"
+    candidate = Path(target_ledger)
+    path = (
+        candidate
+        if candidate.is_absolute() or "/" in target_ledger or "\\" in target_ledger
+        else audit_dir_path / target_ledger
+    )
+    verdict = _evaluate_ledger(path)
     if json_output:
         _console.print_json(data=verdict)
-        raise typer.Exit(0 if is_valid else 1)
-
-    if not is_valid:
-        _console.print(Text.assemble(("CHAIN BROKEN", "red"), f" {path}"))
-        _console.print(Text(f"  first bad record index: {bad_index}", style="red"))
-        _console.print(Text(f"  reason: {reason}", style="red"))
-        raise typer.Exit(1)
-
-    if not records:
-        _console.print(
-            Text.assemble(
-                ("NOTHING TO VERIFY", "yellow"),
-                f" {path} holds 0 records (chain is vacuously valid)",
-            )
-        )
-        raise typer.Exit(0)
-
-    _console.print(
-        Text.assemble(
-            ("CHAIN VALID", "green"),
-            f" {len(records)} record(s) verified in append order from {path}",
-        )
-    )
+    else:
+        _render_single_verdict(verdict)
+    raise typer.Exit(0 if verdict["valid"] else 1)
 
 
 __all__ = ("release_app",)
