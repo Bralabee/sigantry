@@ -227,7 +227,11 @@ class _TenantPinnedTokenInfoCredential(_TenantPinnedCredential):
         requested = (options or {}).get("tenant_id")
         self._refuse_other_tenant(requested, scopes)
         pinned_options: TokenRequestOptions = {**(options or {}), "tenant_id": self._tenant_id}
-        info = self._inner.get_token_info(*scopes, options=pinned_options)  # type: ignore[attr-defined]
+        try:
+            info = self._inner.get_token_info(*scopes, options=pinned_options)  # type: ignore[attr-defined]
+        except Exception as exc:
+            self._raise_if_tenant_mismatch(exc, scopes)
+            raise
         self._check_tid(info.token, scopes)
         return info  # type: ignore[no-any-return]
 

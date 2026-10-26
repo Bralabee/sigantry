@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import subprocess
+import sys
 import time
 import tomllib
 from pathlib import Path
@@ -60,24 +61,27 @@ def test_finding_1_gha_cd_approval_job_rejects_self_approval_before_deploy() -> 
     approver_steps = [s for s in steps if s.get("id") == "approver"]
     assert len(approver_steps) == 1, "approval job must resolve and validate approver before deploy"
     script = approver_steps[0]["run"]
+    assert '[ "$SIGANTRY_APPROVER_INPUT" = "$SIGANTRY_ACTOR" ]' in script
+    assert "cannot self-approve" in script
 
-    # Execute the approval job's approver script with actor == approver_input: must exit non-zero
-    proc = subprocess.run(
-        ["bash", "-e", "-c", script],
-        env={
-            "PATH": "/usr/bin:/bin",
-            "SIGANTRY_ACTOR": "alice",
-            "SIGANTRY_APPROVER_INPUT": "alice",
-            "SIGANTRY_ENV_NAME": "",
-            "SIGANTRY_REPOSITORY": "org/repo",
-            "SIGANTRY_RUN_ID": "123",
-        },
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert proc.returncode != 0
-    assert "cannot self-approve" in (proc.stdout + proc.stderr)
+    if sys.platform != "win32":
+        # Execute the approval job's approver script with actor == approver_input: must exit non-zero
+        proc = subprocess.run(
+            ["bash", "-e", "-c", script],
+            env={
+                "PATH": "/usr/bin:/bin",
+                "SIGANTRY_ACTOR": "alice",
+                "SIGANTRY_APPROVER_INPUT": "alice",
+                "SIGANTRY_GATE_ENVIRONMENT": "",
+                "SIGANTRY_REPOSITORY": "org/repo",
+                "SIGANTRY_RUN_ID": "123",
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert proc.returncode != 0
+        assert "cannot self-approve" in (proc.stdout + proc.stderr)
 
 
 def test_finding_1_ado_cd_approval_stage_rejects_self_approval_before_deploy() -> None:
@@ -92,21 +96,24 @@ def test_finding_1_ado_cd_approval_stage_rejects_self_approval_before_deploy() -
     env_map = steps[0].get("env", {})
     assert "SIGANTRY_APPROVER" in env_map
     assert "SIGANTRY_REQUESTED_FOR_EMAIL" in env_map
+    assert 'if [ "$SIGANTRY_APPROVER" = "$SIGANTRY_REQUESTED_FOR_EMAIL" ]' in script
+    assert "cannot self-approve" in script
 
-    proc = subprocess.run(
-        ["bash", "-e", "-c", script],
-        env={
-            "PATH": "/usr/bin:/bin",
-            "SIGANTRY_WORK_ITEMS": "AB#123",
-            "SIGANTRY_APPROVER": "alice@example.com",
-            "SIGANTRY_REQUESTED_FOR_EMAIL": "alice@example.com",
-        },
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert proc.returncode != 0
-    assert "cannot self-approve" in (proc.stdout + proc.stderr)
+    if sys.platform != "win32":
+        proc = subprocess.run(
+            ["bash", "-e", "-c", script],
+            env={
+                "PATH": "/usr/bin:/bin",
+                "SIGANTRY_WORK_ITEMS": "AB#123",
+                "SIGANTRY_APPROVER": "alice@example.com",
+                "SIGANTRY_REQUESTED_FOR_EMAIL": "alice@example.com",
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert proc.returncode != 0
+        assert "cannot self-approve" in (proc.stdout + proc.stderr)
 
 
 # ---------------------------------------------------------------------------

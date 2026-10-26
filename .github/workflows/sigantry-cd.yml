@@ -18,8 +18,8 @@
 # Authentication: every job that calls Fabric signs in with azure/login
 # through OIDC (`azureClientId` + `azureTenantId`, no secret), which
 # puts an `az` session in place for sigantry's DefaultAzureCredential
-# chain. Only those jobs hold `id-token: write`, and only promote holds
-# `actions: read` to read the run's approval record; a caller using
+# chain. Only those jobs hold `id-token: write`, and only approval and promote
+# hold `actions: read` to read the run's approval record; a caller using
 # `workflow_call:` must grant both in its own `permissions:` block, or
 # GitHub caps them. Those jobs also declare `environment: inputs.environment`
 # so their OIDC token subject is `repo:<org>/<repo>:environment:<environment>`,
