@@ -566,6 +566,146 @@ def test_finding_6f_ci_workflows_chain_multiple_records_before_verify() -> None:
         )
 
 
+_GHA_LEDGER_WORKFLOWS = (
+    (".github/workflows/sigantry-cd.yml", "promote"),
+    ("templates/demo/.github/workflows/sigantry-demo-ci.yml", "deploy_record_diff"),
+)
+
+
+def _gha_restore_step(rel: str, job: str) -> dict[str, Any]:
+    doc = yaml.safe_load((REPO_ROOT / rel).read_text(encoding="utf-8"))
+    steps = doc["jobs"][job]["steps"]
+    matches = [s for s in steps if str(s.get("name", "")).startswith("Restore prior audit ledger")]
+    assert len(matches) == 1, f"{rel}: expected one ledger-restore step in {job}"
+    return matches[0]
+
+
+@pytest.mark.parametrize(("rel", "job"), _GHA_LEDGER_WORKFLOWS)
+def test_issue_126_gha_restore_is_scoped_to_the_calling_workflow(rel: str, job: str) -> None:
+    doc = yaml.safe_load((REPO_ROOT / rel).read_text(encoding="utf-8"))
+    job_doc = doc["jobs"][job]
+    assert job_doc["permissions"].get("actions") == "read", f"{rel}: {job} must read prior runs"
+    step = _gha_restore_step(rel, job)
+    script = step["run"]
+    assert '--workflow "$workflow_file"' in script
+    assert step["env"]["SIGANTRY_WORKFLOW_REF"] == "${{ github.workflow_ref }}"
+    # The old form took run [0] of ANY workflow and discarded every error.
+    assert ".[0].databaseId" not in script
+    assert "2>/dev/null || true" not in script
+    names = [s.get("name", "") for s in job_doc["steps"]]
+    uploads = [
+        s for s in job_doc["steps"] if str(s.get("uses", "")).startswith("actions/upload-artifact")
+    ]
+    assert any(s.get("with", {}).get("name") == "sigantry-audit-ledger" for s in uploads), (
+        f"{rel}: nothing uploads the ledger, so the next run has nothing to restore"
+    )
+    assert names.index(step["name"]) < next(
+        i for i, s in enumerate(job_doc["steps"]) if "release record" in str(s.get("run", ""))
+    )
+
+
+_FAKE_GH = r"""#!/usr/bin/env bash
+echo "$*" >> "$FAKE_GH_LOG"
+case "$1 $2" in
+  "run list")
+    [ "$FAKE_GH_MODE" = list-fails ] && { echo "HTTP 403" >&2; exit 1; }
+    [ "$FAKE_GH_MODE" = none ] && exit 0
+    printf '300\n299\n298\n'
+    ;;
+  "run download")
+    run="$3"; dir=""
+    while [ $# -gt 0 ]; do [ "$1" = --dir ] && dir="$2"; shift; done
+    [ "$FAKE_GH_MODE" = none ] && exit 1
+    [ "$run" = 298 ] || { echo "no artifact matches" >&2; exit 1; }
+    mkdir -p "$dir"; printf '{"r":1}\n{"r":2}\n' > "$dir/deploys.jsonl"
+    ;;
+esac
+"""
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs the workflow's bash step")
+@pytest.mark.parametrize(("rel", "job"), _GHA_LEDGER_WORKFLOWS)
+@pytest.mark.parametrize("mode", ["restore", "list-fails", "none"])
+def test_issue_126_gha_restore_script_behaviour(
+    rel: str, job: str, mode: str, tmp_path: Path
+) -> None:
+    script = _gha_restore_step(rel, job)["run"]
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    gh = bindir / "gh"
+    gh.write_text(_FAKE_GH, encoding="utf-8")
+    gh.chmod(0o755)
+    log = tmp_path / "gh.log"
+    audit = tmp_path / "audit"
+    summary = tmp_path / "summary.md"
+    proc = subprocess.run(
+        ["bash", "-c", script],
+        env={
+            "PATH": f"{bindir}:/usr/bin:/bin",
+            "FAKE_GH_LOG": str(log),
+            "FAKE_GH_MODE": mode,
+            "SIGANTRY_REPOSITORY": "org/repo",
+            "SIGANTRY_WORKFLOW_REF": "org/repo/.github/workflows/cd.yml@refs/heads/main",
+            "SIGANTRY_RUN_ID": "300",
+            "SIGANTRY_AUDIT_DIR": str(audit),
+            "GITHUB_STEP_SUMMARY": str(summary),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    out = proc.stdout + proc.stderr
+    calls = log.read_text(encoding="utf-8").splitlines()
+    assert "--workflow cd.yml" in calls[0], calls
+    assert not any(c.startswith("run download 300 ") for c in calls), "must skip the current run"
+    ledger = audit / "deploys.jsonl"
+    if mode == "restore":
+        assert proc.returncode == 0, out
+        assert "restored audit ledger from run 298" in out
+        assert len(ledger.read_text(encoding="utf-8").splitlines()) == 2
+    elif mode == "list-fails":
+        assert proc.returncode != 0, out
+        assert "refusing to record into a new, unchained audit ledger" in out
+        assert not ledger.exists()
+    else:
+        assert proc.returncode == 0, out
+        assert "starts a NEW audit ledger chain" in out
+        assert "new chain" in summary.read_text(encoding="utf-8")
+        assert not ledger.exists()
+
+
+@pytest.mark.parametrize(
+    "rel", ["templates/stages/sigantry-cd.yml", "templates/demo/.azuredevops/sigantry-demo-ci.yml"]
+)
+def test_issue_127_ado_downloads_prior_runs_ledger_before_restore(rel: str) -> None:
+    text = (REPO_ROOT / rel).read_text(encoding="utf-8")
+
+    def _walk(node: Any) -> Any:
+        if isinstance(node, dict):
+            yield node
+            for v in node.values():
+                yield from _walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                yield from _walk(v)
+
+    nodes = list(_walk(yaml.safe_load(text)))
+    downloads = [n for n in nodes if n.get("task") == "DownloadPipelineArtifact@2"]
+    assert len(downloads) == 1, f"{rel}: no step fetches a previous run's ledger"
+    inputs = downloads[0]["inputs"]
+    assert inputs["source"] == "specific"
+    assert inputs["pipeline"] == "$(System.DefinitionId)"
+    assert inputs["artifact"] == "sigantry-audit-ledger"
+    # Its own folder: the current run's `download: current` owns sigantry-audit-ledger/.
+    assert inputs["path"].endswith("/sigantry-prior-ledger")
+    assert "sigantry-prior-ledger/deploys.jsonl" in text
+    assert "sigantry-audit-ledger/deploys.jsonl" not in text
+    assert any(n.get("artifact") == "sigantry-audit-ledger" and "publish" in n for n in nodes), (
+        f"{rel}: nothing publishes the ledger, so the next run has nothing to restore"
+    )
+    assert text.index("DownloadPipelineArtifact@2") < text.index("sigantry release record \\\n")
+
+
 # ---------------------------------------------------------------------------
 # PyPI Security Notice: certifi >= 2026.10.19 in pyproject.toml
 # ---------------------------------------------------------------------------

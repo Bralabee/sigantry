@@ -45,6 +45,7 @@ jobs:
     permissions:
       contents: read
       issues: write
+      actions: read   # list and download prior runs' audit ledger (#126)
     env:
       SIGANTRY_DEMO_HAS_TOKEN: ${{ secrets.SIGANTRY_DEMO_FABRIC_TOKEN != '' }}
     steps:
@@ -73,19 +74,39 @@ jobs:
             --environment DEV \
             --item-types "Notebook,DataPipeline,SemanticModel" \
             --source fabric_items
-      - name: Restore prior audit ledger (deploys.jsonl) if available
+      - name: Restore prior audit ledger (deploys.jsonl)
+        # Issue #126: only runs of THIS workflow carry the ledger artifact
+        # (uploaded below), so the lookup is filtered to it.
         if: ${{ env.SIGANTRY_DEMO_HAS_TOKEN == 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SIGANTRY_REPO: ${{ github.repository }}
+          SIGANTRY_REPOSITORY: ${{ github.repository }}
+          SIGANTRY_WORKFLOW_REF: ${{ github.workflow_ref }}
+          SIGANTRY_RUN_ID: ${{ github.run_id }}
+          SIGANTRY_AUDIT_DIR: ${{ runner.temp }}/sigantry-audit
         run: |
-          mkdir -p "${RUNNER_TEMP}/sigantry-audit"
-          if [ ! -s "${RUNNER_TEMP}/sigantry-audit/deploys.jsonl" ] && command -v gh >/dev/null 2>&1 && [ -n "${GH_TOKEN:-}" ] && [ -n "${SIGANTRY_REPO:-}" ]; then
-            prev_run=$(gh run list --repo "${SIGANTRY_REPO}" --status success --limit 5 --json databaseId --jq '.[0].databaseId // empty' 2>/dev/null || true)
-            if [ -n "$prev_run" ]; then
-              gh run download "$prev_run" --repo "${SIGANTRY_REPO}" --name sigantry-audit-ledger --dir "${RUNNER_TEMP}/sigantry-audit" 2>/dev/null || true
-            fi
+          set -euo pipefail
+          mkdir -p "$SIGANTRY_AUDIT_DIR"
+          if [ -s "$SIGANTRY_AUDIT_DIR/deploys.jsonl" ]; then
+            echo "audit ledger already present in $SIGANTRY_AUDIT_DIR; not restoring"
+            exit 0
           fi
+          workflow_path="${SIGANTRY_WORKFLOW_REF%@*}"
+          workflow_file="${workflow_path##*/}"
+          if ! runs=$(gh run list --repo "$SIGANTRY_REPOSITORY" --workflow "$workflow_file" --status completed --limit 50 --json databaseId --jq '.[].databaseId'); then
+            echo "::error::could not list prior runs of $workflow_file (the job needs actions: read); refusing to record into a new, unchained audit ledger"
+            exit 1
+          fi
+          for run in $runs; do
+            [ "$run" = "$SIGANTRY_RUN_ID" ] && continue
+            if gh run download "$run" --repo "$SIGANTRY_REPOSITORY" --name sigantry-audit-ledger --dir "$SIGANTRY_AUDIT_DIR" 2>/dev/null \
+              && [ -s "$SIGANTRY_AUDIT_DIR/deploys.jsonl" ]; then
+              echo "restored audit ledger from run $run of $workflow_file ($(wc -l < "$SIGANTRY_AUDIT_DIR/deploys.jsonl") record(s))"
+              exit 0
+            fi
+          done
+          echo "::warning::no sigantry-audit-ledger artifact in the last 50 completed runs of $workflow_file; this release starts a NEW audit ledger chain"
+          echo "**sigantry:** no prior audit ledger found for \`$workflow_file\`; this release starts a new chain." >> "$GITHUB_STEP_SUMMARY"
       - name: Record release
         if: ${{ env.SIGANTRY_DEMO_HAS_TOKEN == 'true' }}
         env:
@@ -106,6 +127,13 @@ jobs:
             --audit-dir "${RUNNER_TEMP}/sigantry-audit"
           sigantry release verify \
             --audit-dir "${RUNNER_TEMP}/sigantry-audit"
+      - name: Upload audit ledger artifact
+        # The next run restores this artifact before recording (#126).
+        if: ${{ always() && env.SIGANTRY_DEMO_HAS_TOKEN == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sigantry-audit-ledger
+          path: ${{ runner.temp }}/sigantry-audit
       - name: Diff (fail on drift)
         if: ${{ env.SIGANTRY_DEMO_HAS_TOKEN == 'true' }}
         env:

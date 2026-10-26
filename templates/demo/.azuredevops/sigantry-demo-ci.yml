@@ -55,12 +55,31 @@ steps:
       SIGANTRY_DEMO_CAPACITY_ID: $(SIGANTRY_DEMO_CAPACITY_ID)
       SIGANTRY_DEMO_WORKSPACE_ID: $(SIGANTRY_DEMO_WORKSPACE_ID)
     displayName: 'Deploy'
+  # Issue #127: fetch the ledger artifact of the latest earlier run of THIS
+  # pipeline. Nothing else puts a previous run's artifact on the agent. The
+  # first run has none, so the task may fail; the next step says so.
+  - task: DownloadPipelineArtifact@2
+    displayName: 'Download prior audit ledger'
+    continueOnError: true
+    inputs:
+      source: specific
+      project: $(System.TeamProjectId)
+      pipeline: $(System.DefinitionId)
+      runVersion: latest
+      allowPartiallySucceededBuilds: true
+      artifact: sigantry-audit-ledger
+      path: $(Pipeline.Workspace)/sigantry-prior-ledger
   - script: |
       mkdir -p "$(Agent.TempDirectory)/sigantry-audit"
-      if [ ! -s "$(Agent.TempDirectory)/sigantry-audit/deploys.jsonl" ] && [ -s "$(Pipeline.Workspace)/sigantry-audit-ledger/deploys.jsonl" ]; then
-        cp "$(Pipeline.Workspace)/sigantry-audit-ledger/deploys.jsonl" "$(Agent.TempDirectory)/sigantry-audit/deploys.jsonl"
+      if [ -s "$(Agent.TempDirectory)/sigantry-audit/deploys.jsonl" ]; then
+        echo "audit ledger already present; not restoring"
+      elif [ -s "$(Pipeline.Workspace)/sigantry-prior-ledger/deploys.jsonl" ]; then
+        cp "$(Pipeline.Workspace)/sigantry-prior-ledger/deploys.jsonl" "$(Agent.TempDirectory)/sigantry-audit/deploys.jsonl"
+        echo "restored audit ledger ($(wc -l < "$(Agent.TempDirectory)/sigantry-audit/deploys.jsonl") record(s))"
+      else
+        echo "##vso[task.logissue type=warning]no prior sigantry-audit-ledger artifact for this pipeline; this release starts a NEW audit ledger chain"
       fi
-    displayName: 'Restore prior audit ledger (deploys.jsonl) if available'
+    displayName: 'Restore prior audit ledger (deploys.jsonl)'
   - script: |
       sigantry release record \
         --release-id "$(Build.SourceVersion)" \
@@ -80,6 +99,10 @@ steps:
       AZURE_CLIENT_ID: $(SIGANTRY_DEMO_CLIENT_ID)
       AZURE_CLIENT_SECRET: $(SIGANTRY_DEMO_FABRIC_TOKEN)
     displayName: 'Record release'
+  - publish: $(Agent.TempDirectory)/sigantry-audit
+    artifact: sigantry-audit-ledger
+    displayName: 'Upload audit ledger artifact'
+    condition: always()
   - script: |
       sigantry diff \
         --workspace-id "$(SIGANTRY_DEMO_WORKSPACE_ID)" \
