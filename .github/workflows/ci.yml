@@ -82,6 +82,21 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
+      - name: Install the PDF text extractor (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          if choco install poppler -y --no-progress; then
+            poppler_root=/c/ProgramData/chocolatey/lib/poppler
+          else
+            "$CONDA/Scripts/conda.exe" create -y -q -p "$RUNNER_TEMP/poppler" -c conda-forge poppler
+            poppler_root="$RUNNER_TEMP/poppler"
+          fi
+          exe="$(find "$poppler_root" -name pdftotext.exe -print -quit)"
+          bin_dir="$(dirname "$exe")"
+          test -f "$bin_dir/pdftotext.exe"
+          test -f "$bin_dir/pdfinfo.exe"
+          cygpath -w "$bin_dir" >> "$GITHUB_PATH"
       - name: Install dependencies
         run: pip install -e '.[test]'
       - name: Run pytest

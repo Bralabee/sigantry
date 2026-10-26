@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in 2.0 (ADR-0011)"`.
 
 ### Fixed
+- **Windows CI PDF text extraction (`.github/workflows/ci.yml`).** Installed
+  Poppler on `windows-latest` in the `test` matrix job and prepended its `bin`
+  directory to `GITHUB_PATH` ahead of Git for Windows's Xpdf 4.06 `pdftotext.exe`
+  so `check-name-gate.py` tests resolve Poppler `pdftotext` and `pdfinfo`
+  without intermittent Xpdf heap-corruption crashes (#115).
 - When `resolve_tenant_id(None)` returns `None` from a directory that has
   neither `.sigantry.toml` nor the legacy config file while an ancestor
   directory (up to the enclosing `.git` boundary) holds one, `sigantry` prints
