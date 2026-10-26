@@ -22,6 +22,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in 2.0 (ADR-0011)"`.
 
 ### Fixed
+- **CD and drift pipeline template hardening (`.github/workflows/sigantry-cd.yml`, `templates/stages/sigantry-cd.yml`, `templates/steps/fabric-deploy.yml`, `templates/steps/sigantry-install.yml`, `templates/schedules/drift-check.yml`, `docs/runbooks/pipeline-orchestration/deploy-with-tests.md`).**
+  Removed the `$(Build.RequestedForEmail)` self-approval default on ADO and the
+  `${SIGANTRY_ACTOR}` fallback on GHA so `promote` fails closed on missing or
+  self-approved runs; validated `workItems` in the `approval` gate before
+  `deploy` runs; granted `issues: write` and `GITHUB_TOKEN` to the GHA `promote`
+  job; installed `pytest` and guarded `pip install '.[dev,test]'` in the GHA
+  `integration` job; threaded all inputs/parameters through `env:` blocks
+  without `${{ ... }}` shell interpolation; unified `artifactsFeed` across
+  `sigantry-install.yml`, `fabric-deploy.yml`, `sigantry-cd.yml`, and
+  `drift-check.yml`; added workflow-level concurrency to GHA `sigantry-cd.yml`;
+  and updated `promote` item discovery to parse `.platform` metadata (including
+  `sync pull` trees) and filter to `itemTypes`.
 - **Demo CI workflow pair (`templates/demo/.github/workflows/sigantry-demo-ci.yml`, `templates/demo/.azuredevops/sigantry-demo-ci.yml`, `docs/runbooks/demo-tenant-operator.md`).**
   Mapped `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, and `AZURE_CLIENT_SECRET` (replacing
   the unused `SIGANTRY_FABRIC_TOKEN` env var) and passed `--tenant-id` and

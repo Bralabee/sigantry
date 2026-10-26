@@ -27,8 +27,9 @@ approval gates. The approval gate runs first, so the environment's
 reviewers clear the deploy before anything is published; the smoke and
 integration tests then gate the `promote` stage, which records the release
 with the approver read from the platform's own approval record (GitHub: the
-run's review history; ADO: the pipeline's requester, overridable by the
-`approver` parameter):
+run's review history for `ghApprovalEnvironment`, or an explicit `approver`
+override that differs from the triggering actor; ADO: the explicit `approver`
+parameter, verified not to match `$(Build.RequestedForEmail)`):
 
 - ADO: `templates/stages/sigantry-cd.yml` -- a stage-list
   template that consumer pipelines compose via
@@ -104,8 +105,10 @@ This is the boundary the five-stage pipeline enforces -- ADR-0012 formalises the
 
 3. The GHA equivalent of the exclusive lock: the workflow already carries
    `concurrency: { group: deploy-${{ inputs.environment }}, cancel-in-progress: false }`
-   on the `promote` job. Two near-simultaneous releases queue rather
-   than reorder. No additional configuration required.
+   at the workflow level (and on the `promote` job). Two near-simultaneous
+   releases queue across `deploy`, `integration`, and `promote` rather
+   than reorder or mutate the same workspace concurrently. No additional
+   configuration required.
 
 ## 4. Pipeline parameter reference
 
@@ -124,6 +127,7 @@ ADO uses the workload-identity service connection.
 | `azureClientId` (GHA only) | yes | -- | App registration (client) id for the OIDC login |
 | `azureTenantId` (GHA only) | yes | -- | Entra tenant id for the OIDC login |
 | `sigantryVersion` | no | `''` (latest) | Pins `pip install sigantry==<version>` in every stage |
+| `artifactsFeed` (ADO only) | no | `''` (PyPI) | Optional Azure Artifacts feed name for `PipAuthenticate@1` across all stages |
 | `environment` | yes | -- | Deploy env (parameters.yml key) |
 | `sourceDir` | no | `fabric_items/` | Repo path to .platform items |
 | `parametersPath` | no | `parameters.yml` | Override path |
@@ -133,8 +137,8 @@ ADO uses the workload-identity service connection.
 | `adoApprovalEnvironment` (ADO) | yes | -- | ADO env with required reviewers |
 | `ghApprovalEnvironment` (GHA) | yes | -- | GitHub env with required_reviewers |
 | `releaseId` | no | `$(Build.BuildId)` (ADO) / `${{ github.run_id }}` (GHA) | See section 7 (collision guidance) |
-| `workItems` | no | `''` | Comma-separated WI ids |
-| `approver` | no | `$(Build.RequestedForEmail)` (ADO) / the run's approval record for `ghApprovalEnvironment` (GHA) | Recorded on the DeployRecord. GHA: the record wins; this input is the fallback when no record is found, then the run actor, each with a warning |
+| `workItems` | yes | -- | Comma-separated work-item IDs (validated non-empty in the `approval` stage before `deploy` runs) |
+| `approver` | no | `''` (ADO requires an explicit reviewer distinct from `$(Build.RequestedForEmail)`; GHA reads the run's approval record for `ghApprovalEnvironment`) | Recorded on the DeployRecord. Self-approval or an empty approver fails closed before `sigantry release record` runs |
 
 Override per-env in `parameters.yml` (consumer-repo-owned) or per-run
 via the platform's pipeline/workflow inputs.
@@ -169,6 +173,7 @@ permissions:
   contents: read
   id-token: write   # the reusable workflow's azure/login needs it from the caller too
   actions: read     # and the approval-record lookup
+  issues: write     # sigantry release record posts comments on linked GitHub issues
 jobs:
   deploy:
     uses: org/sigantry-templates/.github/workflows/sigantry-cd.yml@<tag>
@@ -178,6 +183,7 @@ jobs:
       ghApprovalEnvironment: 'prod-approval'
       azureClientId: '<app-registration-client-id>'
       azureTenantId: '<tenant-id>'
+      workItems: '123'
       sigantryVersion: '1.1.1'
       smokeCommand: 'sigantry doctor && curl -s https://my-app/health'
 ```

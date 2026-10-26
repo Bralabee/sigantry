@@ -13,6 +13,7 @@
 # sees them as `shared_ignores`):
 # sigantry-dual-ci-ignore: gha-uses-oidc-not-service-connection
 # sigantry-dual-ci-ignore: ado-gh-env-naming
+# sigantry-dual-ci-ignore: ado-uses-artifacts-feed
 #
 # Every stage runs on a fresh agent, so each installs sigantry through
 # steps/sigantry-install.yml, pinned to `sigantryVersion` when given.
@@ -47,6 +48,9 @@ parameters:
   - name: sigantryVersion
     type: string
     default: ''
+  - name: artifactsFeed
+    type: string
+    default: ''
 
 schedules:
   - cron: ${{ parameters.cron }}
@@ -66,6 +70,7 @@ stages:
           - template: ../steps/sigantry-install.yml
             parameters:
               sigantryVersion: ${{ parameters.sigantryVersion }}
+              artifactsFeed: ${{ parameters.artifactsFeed }}
           - task: AzureCLI@2
             displayName: 'sigantry diff (json + fail-on-drift)'
             # WR-05 / Pitfall 8 inheritance (D-28): operator inputs are
@@ -105,6 +110,7 @@ stages:
           - template: ../steps/sigantry-install.yml
             parameters:
               sigantryVersion: ${{ parameters.sigantryVersion }}
+              artifactsFeed: ${{ parameters.artifactsFeed }}
           # #34: when the drift job failed before publishing anything
           # (checkout, install, sign-in), there is no artifact. The
           # dispatcher must still run: it announces a missing drift.json as

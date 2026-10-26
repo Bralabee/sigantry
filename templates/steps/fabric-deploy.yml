@@ -32,7 +32,7 @@ parameters:
     default: 'Lakehouse,Environment,Notebook,DataPipeline'
   - name: artifactsFeed
     type: string
-    default: 'fabric-dataops-toolkits'
+    default: ''
   # The sigantry version to install; empty installs the latest.
   - name: sigantryVersion
     type: string
@@ -52,11 +52,12 @@ steps:
       versionSpec: ${{ parameters.pythonVersion }}
       addToPath: true
 
-  - task: PipAuthenticate@1
-    displayName: 'Authenticate pip to ADO Artifacts (${{ parameters.artifactsFeed }})'
-    inputs:
-      artifactFeeds: ${{ parameters.artifactsFeed }}
-      onlyAddExtraIndex: true
+  - ${{ if ne(parameters.artifactsFeed, '') }}:
+      - task: PipAuthenticate@1
+        displayName: 'Authenticate pip to ADO Artifacts (${{ parameters.artifactsFeed }})'
+        inputs:
+          artifactFeeds: ${{ parameters.artifactsFeed }}
+          onlyAddExtraIndex: true
 
   - ${{ if ne(parameters.fabricDataopsVersion, '') }}:
       - bash: echo "##vso[task.logissue type=warning]fabricDataopsVersion is deprecated and planned for removal in sigantry 2.0; set sigantryVersion instead. When both are set, sigantryVersion is used."
@@ -81,8 +82,14 @@ steps:
       inlineScript: |
         set -e
         sigantry deploy run \
-          --source '${{ parameters.sourceDir }}' \
-          --workspace-id '${{ parameters.workspaceId }}' \
-          --environment '${{ parameters.environment }}' \
-          --params '${{ parameters.parametersPath }}' \
-          --item-types '${{ parameters.itemTypes }}'
+          --source "$SIGANTRY_SOURCE_DIR" \
+          --workspace-id "$SIGANTRY_WORKSPACE_ID" \
+          --environment "$SIGANTRY_ENVIRONMENT" \
+          --params "$SIGANTRY_PARAMETERS_PATH" \
+          --item-types "$SIGANTRY_ITEM_TYPES"
+    env:
+      SIGANTRY_SOURCE_DIR: ${{ parameters.sourceDir }}
+      SIGANTRY_WORKSPACE_ID: ${{ parameters.workspaceId }}
+      SIGANTRY_ENVIRONMENT: ${{ parameters.environment }}
+      SIGANTRY_PARAMETERS_PATH: ${{ parameters.parametersPath }}
+      SIGANTRY_ITEM_TYPES: ${{ parameters.itemTypes }}

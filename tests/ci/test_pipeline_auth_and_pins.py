@@ -194,17 +194,23 @@ def test_approval_gates_the_deploy_on_both_platforms() -> None:
 
 def test_gha_promote_records_the_reviewer_from_the_approval_record() -> None:
     doc = _load(GHA_CD)
-    assert _permissions(doc, "promote").get("actions") == "read", "the approval record needs it"
+    perms = _permissions(doc, "promote")
+    assert perms.get("actions") == "read", "the approval record needs it"
+    assert perms.get("issues") == "write", "sigantry release record posts to GitHub issues"
     for job in ("approval", "deploy", "smoke", "integration"):
         assert "actions" not in _permissions(doc, job), f"{job} needs no actions: read"
     steps = _steps(doc, "promote")
     resolve = next(s for s in steps if s.get("id") == "approver")
     assert "/actions/runs/$SIGANTRY_RUN_ID/approvals" in resolve["run"]
     assert 'select(.state == "approved")' in resolve["run"]
-    assert "::warning::" in resolve["run"], "falling back to the actor must be said out loud"
+    assert "::error::" in resolve["run"], "missing approver or self-approval must fail closed"
+    assert 'echo "approver=$SIGANTRY_ACTOR"' not in resolve["run"], (
+        "never fall back to the triggering actor as approver (SIG-006)"
+    )
     assert "${{" not in resolve["run"], "inputs reach bash via env (WR-05)"
     record = next(s for s in steps if s.get("name") == "sigantry release record")
     assert record["env"]["SIGANTRY_APPROVER"] == "${{ steps.approver.outputs.approver }}"
+    assert record["env"]["GITHUB_TOKEN"] == "${{ github.token }}"
     assert steps.index(resolve) < steps.index(record)
 
 
@@ -237,7 +243,8 @@ def test_gha_approver_record_is_scoped_to_the_gate_and_outranks_the_input() -> N
     assert run.index("/approvals") < run.index('-n "$SIGANTRY_APPROVER_INPUT"'), (
         "the record is read first; the input is a fallback"
     )
-    assert run.count("::warning::") >= 3
+    assert run.count("::warning::") >= 2
+    assert run.count("::error::") >= 2
 
 
 def test_ado_integration_stage_installs_pytest_and_runs_under_the_service_connection() -> None:
@@ -247,7 +254,8 @@ def test_ado_integration_stage_installs_pytest_and_runs_under_the_service_connec
     assert "'.[dev,test]'" in extras["script"]
     run = next(s for s in steps if s.get("task") == "AzureCLI@2")
     assert run["inputs"]["azureSubscription"] == "${{ parameters.serviceConnection }}"
-    assert run["inputs"]["inlineScript"] == "${{ parameters.integrationCommand }}"
+    assert "${{" not in run["inputs"]["inlineScript"], "command reaches bash via env (WR-05)"
+    assert run["env"]["SIGANTRY_INTEGRATION_COMMAND"] == "${{ parameters.integrationCommand }}"
     assert steps.index(extras) < steps.index(run)
 
 
@@ -303,3 +311,222 @@ def test_ado_step_template_takes_sigantry_version_and_the_deprecated_alias(name:
     # the condition of the warning, and nowhere else.
     text = path.read_text("utf-8")
     assert text.count("parameters.fabricDataopsVersion") == 2, name
+
+
+# ---------------------------------------------------------------------------
+# Wave 1 CD & drift pipeline hardening:
+# - SIG-006: no requester self-approval default on ADO; fail-closed on GHA
+# - cd-promote-empty-workitems-fails: workItems required / validated in approval
+# - gha-integration-requires-pyproject: GHA integration installs pytest + guards extras
+# - template-param-shell-interpolation (WR-05): no ${{ }} in run/script/inlineScript
+# - ado-feed-install-inconsistent: artifactsFeed consistent across install & CD
+# - gha-cd-concurrency-only-on-promote: top-level concurrency per environment
+# - SIG-002 / ci-fabric-items-from-static-scan: .platform metadata + itemTypes filter
+# ---------------------------------------------------------------------------
+
+
+def test_ado_promote_rejects_self_approval_and_has_no_requester_default() -> None:
+    """SIG-006: ADO sigantry-cd.yml must not default approver to $(Build.RequestedForEmail)
+    and must reject empty or self-approval in promote."""
+    doc = _load(ADO_CD)
+    params = {p["name"]: p for p in doc["parameters"]}
+    assert params["approver"].get("default", "") == "", (
+        "ADO approver must not default to $(Build.RequestedForEmail) (SIG-006)"
+    )
+    steps = _ado_job_steps(_ado_stage(doc, "promote"))
+    record = next(s for s in steps if s.get("displayName") == "sigantry release record")
+    script = record["inputs"]["inlineScript"]
+    assert "SIGANTRY_REQUESTED_FOR_EMAIL" in record["env"]
+    assert "$SIGANTRY_APPROVER" in script and "$SIGANTRY_REQUESTED_FOR_EMAIL" in script
+    assert "Self-approval is not permitted" in script
+
+
+def test_cd_pipeline_pair_validates_work_items_before_deploy() -> None:
+    """cd-promote-empty-workitems-fails: workItems is required/validated in approval before deploy."""
+    gha = _load(GHA_CD)
+    for trigger in ("workflow_dispatch", "workflow_call"):
+        wi = _on(gha)[trigger]["inputs"]["workItems"]
+        assert wi["required"] is True, f"GHA {trigger}.workItems must be required"
+    gha_approval_steps = _steps(gha, "approval")
+    assert any(
+        "SIGANTRY_WORK_ITEMS" in (s.get("env") or {}) and "SIGANTRY_WORK_ITEMS" in _run(s)
+        for s in gha_approval_steps
+    ), "GHA approval job must validate SIGANTRY_WORK_ITEMS before deploy runs"
+
+    ado = _load(ADO_CD)
+    ado_approval_steps = _ado_job_steps(_ado_stage(ado, "approval"))
+    assert any(
+        "SIGANTRY_WORK_ITEMS" in (s.get("env") or {})
+        and "SIGANTRY_WORK_ITEMS" in str(s.get("script", ""))
+        for s in ado_approval_steps
+    ), "ADO approval stage must validate SIGANTRY_WORK_ITEMS before deploy runs"
+
+
+def test_gha_integration_stage_installs_pytest_and_guards_editable_install() -> None:
+    """gha-integration-requires-pyproject: GHA integration job matches ADO."""
+    doc = _load(GHA_CD)
+    steps = _steps(doc, "integration")
+    extras = next(
+        (s for s in steps if "pip install pytest" in _run(s)),
+        None,
+    )
+    assert extras is not None, (
+        "GHA integration job must install pytest before running integration suite"
+    )
+    run = _run(extras)
+    assert "if [ -f pyproject.toml ] || [ -f setup.py ]; then" in run
+    assert "'.[dev,test]'" in run
+
+
+def test_cd_templates_never_interpolate_inputs_or_parameters_into_shell_scripts() -> None:
+    """WR-05 / template-param-shell-interpolation: all inputs/parameters reach bash via env."""
+    gha = _load(GHA_CD)
+    for job_name, job in gha["jobs"].items():
+        for step in job.get("steps", []):
+            if "run" in step:
+                assert "${{" not in step["run"], (
+                    f"GHA sigantry-cd.yml:{job_name} interpolates ${{}} in run: {step['run']!r}"
+                )
+
+    ado = _load(ADO_CD)
+    for stage in ado["stages"]:
+        stage_name = stage["stage"]
+        for step in _ado_job_steps(stage):
+            for key in ("script", "bash"):
+                if key in step:
+                    assert "${{" not in str(step[key]), (
+                        f"ADO sigantry-cd.yml:{stage_name} interpolates ${{}} in {key}"
+                    )
+            inline = (step.get("inputs") or {}).get("inlineScript", "")
+            assert "${{" not in str(inline), (
+                f"ADO sigantry-cd.yml:{stage_name} interpolates ${{}} in inlineScript"
+            )
+
+    deploy_step = _load(ADO_DEPLOY_STEP)
+    for step in deploy_step["steps"]:
+        inline = (step.get("inputs") or {}).get("inlineScript", "")
+        assert "${{" not in str(inline), (
+            f"fabric-deploy.yml interpolates ${{}} in inlineScript: {inline!r}"
+        )
+
+
+def test_ado_artifacts_feed_is_consistent_across_install_and_cd_templates() -> None:
+    """ado-feed-install-inconsistent: artifactsFeed defaults to '' and threads through all stages."""
+    install_doc = _load(ADO_INSTALL)
+    install_params = {p["name"]: p for p in install_doc["parameters"]}
+    assert "artifactsFeed" in install_params
+    assert install_params["artifactsFeed"]["default"] == ""
+    assert any("${{ if ne(parameters.artifactsFeed, '') }}" in s for s in install_doc["steps"]), (
+        "sigantry-install.yml must conditionally run PipAuthenticate@1 when artifactsFeed is set"
+    )
+
+    deploy_doc = _load(ADO_DEPLOY_STEP)
+    deploy_params = {p["name"]: p for p in deploy_doc["parameters"]}
+    assert deploy_params["artifactsFeed"]["default"] == ""
+
+    for path, stages in (
+        (ADO_CD, ("smoke", "integration", "promote")),
+        (ADO_DRIFT, ("drift_check", "notify")),
+    ):
+        doc = _load(path)
+        params = {p["name"]: p for p in doc["parameters"]}
+        assert "artifactsFeed" in params and params["artifactsFeed"]["default"] == ""
+        for stage_name in stages:
+            steps = _ado_job_steps(_ado_stage(doc, stage_name))
+            install = next(
+                s
+                for s in steps
+                if str(s.get("template", "")).endswith("steps/sigantry-install.yml")
+            )
+            assert (
+                install["parameters"].get("artifactsFeed") == "${{ parameters.artifactsFeed }}"
+            ), f"{path.name}:{stage_name} must forward artifactsFeed to sigantry-install.yml"
+
+    cd_doc = _load(ADO_CD)
+    deploy_template_step = _ado_job_steps(_ado_stage(cd_doc, "deploy"))[0]
+    assert (
+        deploy_template_step["parameters"].get("artifactsFeed") == "${{ parameters.artifactsFeed }}"
+    )
+
+
+def test_gha_cd_declares_workflow_level_concurrency_per_environment() -> None:
+    """gha-cd-concurrency-only-on-promote: workflow-level concurrency serialises deploy+integration+promote."""
+    doc = _load(GHA_CD)
+    concurrency = doc.get("concurrency")
+    assert isinstance(concurrency, dict), "GHA sigantry-cd.yml must declare top-level concurrency"
+    assert concurrency.get("group") == "deploy-${{ inputs.environment }}"
+    assert concurrency.get("cancel-in-progress") is False
+
+
+def test_cd_promote_fabric_items_discovery_reads_platform_metadata_and_filters_item_types(
+    tmp_path: pathlib.Path,
+) -> None:
+    """SIG-002 / ci-fabric-items-from-static-scan: promote auto-discovery supports sync pull
+    directories (.platform metadata) and filters to SIGANTRY_ITEM_TYPES."""
+    import json
+    import os
+    import subprocess
+
+    # 1. Classic <Name>.<Type> directory in scope
+    nb_dir = tmp_path / "etl_daily.Notebook"
+    nb_dir.mkdir()
+    (nb_dir / ".platform").write_text(
+        json.dumps({"metadata": {"type": "Notebook", "displayName": "etl_daily"}}),
+        encoding="utf-8",
+    )
+    # 2. sync pull directory without .<Type> suffix in directory name, in scope
+    lh_dir = tmp_path / " bronze" / "sales_curated"
+    lh_dir.mkdir(parents=True)
+    (lh_dir / ".platform").write_text(
+        json.dumps({"metadata": {"type": "Lakehouse", "displayName": "sales_curated"}}),
+        encoding="utf-8",
+    )
+    # 3. Out-of-scope item type (Report not in Notebook,Lakehouse)
+    rpt_dir = tmp_path / "exec_summary.Report"
+    rpt_dir.mkdir()
+    (rpt_dir / ".platform").write_text(
+        json.dumps({"metadata": {"type": "Report", "displayName": "exec_summary"}}),
+        encoding="utf-8",
+    )
+
+    gha = _load(GHA_CD)
+    gha_record = next(
+        s for s in _steps(gha, "promote") if s.get("name") == "sigantry release record"
+    )
+    assert gha_record["env"].get("SIGANTRY_ITEM_TYPES") == "${{ inputs.itemTypes }}"
+
+    ado = _load(ADO_CD)
+    ado_record = next(
+        s
+        for s in _ado_job_steps(_ado_stage(ado, "promote"))
+        if s.get("displayName") == "sigantry release record"
+    )
+    assert ado_record["env"].get("SIGANTRY_ITEM_TYPES") == "${{ parameters.itemTypes }}"
+
+    for label, script in (
+        ("GHA", gha_record["run"]),
+        ("ADO", ado_record["inputs"]["inlineScript"]),
+    ):
+        # Extract the shell block up to `sigantry release record` and print SIGANTRY_FABRIC_ITEMS
+        before_cli = (
+            script.split("sigantry release record")[0] + '\nprintf "%s" "$SIGANTRY_FABRIC_ITEMS"\n'
+        )
+        env = {
+            **os.environ,
+            "SIGANTRY_FABRIC_ITEMS": "",
+            "SIGANTRY_SOURCE_DIR": str(tmp_path),
+            "SIGANTRY_ITEM_TYPES": "Notebook,Lakehouse",
+            "SIGANTRY_APPROVER": "reviewer@example.com",
+            "SIGANTRY_REQUESTED_FOR_EMAIL": "requester@example.com",
+        }
+        res = subprocess.run(
+            ["bash", "-c", before_cli],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert res.returncode == 0, f"{label} discovery failed: {res.stderr}"
+        assert res.stdout == "etl_daily:Notebook,sales_curated:Lakehouse", (
+            f"{label} discovery output mismatch: {res.stdout!r}"
+        )

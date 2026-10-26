@@ -13,6 +13,7 @@
 # keep them above line 20):
 # sigantry-dual-ci-ignore: gha-uses-oidc-not-service-connection
 # sigantry-dual-ci-ignore: ado-gh-env-naming
+# sigantry-dual-ci-ignore: ado-uses-artifacts-feed
 #
 # Authentication: every job that calls Fabric signs in with azure/login
 # through OIDC (`azureClientId` + `azureTenantId`, no secret), which
@@ -72,7 +73,7 @@ on:
       integrationCommand:    { type: string,  required: false, default: 'python -m pytest tests/integration/ -m sigantry_pipeline -v' }
       ghApprovalEnvironment: { type: string,  required: true }
       releaseId:             { type: string,  required: false, default: '' }
-      workItems:             { type: string,  required: false, default: '' }
+      workItems:             { type: string,  required: true }
       approver:              { type: string,  required: false, default: '' }
       fabricItems:           { type: string,  required: false, default: '' }
       auditDir:              { type: string,  required: false, default: '.sigantry/audit' }
@@ -90,7 +91,7 @@ on:
       integrationCommand:    { type: string,  required: false, default: 'python -m pytest tests/integration/ -m sigantry_pipeline -v' }
       ghApprovalEnvironment: { type: string,  required: true }
       releaseId:             { type: string,  required: false, default: '' }
-      workItems:             { type: string,  required: false, default: '' }
+      workItems:             { type: string,  required: true }
       approver:              { type: string,  required: false, default: '' }
       fabricItems:           { type: string,  required: false, default: '' }
       auditDir:              { type: string,  required: false, default: '.sigantry/audit' }
@@ -99,13 +100,27 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
 jobs:
   approval:
     name: Awaiting approval
     runs-on: ubuntu-latest
     environment: ${{ inputs.ghApprovalEnvironment }}     # GitHub environment with required_reviewers (D-04)
     steps:
-      - run: echo "Approval granted for environment ${{ inputs.ghApprovalEnvironment }}"
+      - name: Validate required governance inputs
+        env:
+          SIGANTRY_GATE_ENVIRONMENT: ${{ inputs.ghApprovalEnvironment }}
+          SIGANTRY_WORK_ITEMS: ${{ inputs.workItems }}
+        run: |
+          set -e
+          if [ -z "${SIGANTRY_WORK_ITEMS// /}" ]; then
+            echo "::error::workItems must not be empty; pass at least one work item ID before deploying"
+            exit 1
+          fi
+          echo "Approval granted for environment $SIGANTRY_GATE_ENVIRONMENT"
 
   deploy:
     name: Deploy
@@ -130,13 +145,19 @@ jobs:
           SIGANTRY_VERSION: ${{ inputs.sigantryVersion }}
         run: pip install "sigantry${SIGANTRY_VERSION:+==$SIGANTRY_VERSION}"
       - name: sigantry deploy run
+        env:
+          SIGANTRY_SOURCE_DIR: ${{ inputs.sourceDir }}
+          SIGANTRY_WORKSPACE_ID: ${{ inputs.workspaceId }}
+          SIGANTRY_ENVIRONMENT: ${{ inputs.environment }}
+          SIGANTRY_PARAMETERS_PATH: ${{ inputs.parametersPath }}
+          SIGANTRY_ITEM_TYPES: ${{ inputs.itemTypes }}
         run: |
           sigantry deploy run \
-            --source '${{ inputs.sourceDir }}' \
-            --workspace-id '${{ inputs.workspaceId }}' \
-            --environment '${{ inputs.environment }}' \
-            --params '${{ inputs.parametersPath }}' \
-            --item-types '${{ inputs.itemTypes }}'
+            --source "$SIGANTRY_SOURCE_DIR" \
+            --workspace-id "$SIGANTRY_WORKSPACE_ID" \
+            --environment "$SIGANTRY_ENVIRONMENT" \
+            --params "$SIGANTRY_PARAMETERS_PATH" \
+            --item-types "$SIGANTRY_ITEM_TYPES"
 
   smoke:
     name: Smoke
@@ -151,7 +172,9 @@ jobs:
           SIGANTRY_VERSION: ${{ inputs.sigantryVersion }}
         run: pip install "sigantry${SIGANTRY_VERSION:+==$SIGANTRY_VERSION}"
       - name: Run smoke command
-        run: ${{ inputs.smokeCommand }}
+        env:
+          SIGANTRY_SMOKE_COMMAND: ${{ inputs.smokeCommand }}
+        run: bash -c "$SIGANTRY_SMOKE_COMMAND"
 
   integration:
     name: Integration
@@ -174,9 +197,17 @@ jobs:
       - name: Install sigantry and the consumer's test extras
         env:
           SIGANTRY_VERSION: ${{ inputs.sigantryVersion }}
-        run: pip install "sigantry${SIGANTRY_VERSION:+==$SIGANTRY_VERSION}" '.[dev,test]'
+        run: |
+          set -e
+          pip install "sigantry${SIGANTRY_VERSION:+==$SIGANTRY_VERSION}"
+          python -m pip install pytest
+          if [ -f pyproject.toml ] || [ -f setup.py ]; then
+            python -m pip install '.[dev,test]'
+          fi
       - name: Run integration command
-        run: ${{ inputs.integrationCommand }}
+        env:
+          SIGANTRY_INTEGRATION_COMMAND: ${{ inputs.integrationCommand }}
+        run: bash -c "$SIGANTRY_INTEGRATION_COMMAND"
 
   promote:
     name: Promote
@@ -190,6 +221,7 @@ jobs:
       contents: read
       id-token: write   # azure/login OIDC token, this job only
       actions: read     # the run's approval record
+      issues: write     # sigantry release record posts to GitHub issues
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -209,9 +241,8 @@ jobs:
         # The ledger's approver is whoever cleared the approval gate
         # (`ghApprovalEnvironment`), which GitHub records per run. That record
         # is authoritative: the operator-typed `approver` input is only a
-        # fallback, the actor who started the run the last one, and the step
-        # says so whenever it falls back or ignores the input. An API error
-        # (a caller that did not grant `actions: read`) is reported, not hidden.
+        # fallback when no approval record exists, and self-approval or
+        # missing approver fails closed (SIG-006).
         env:
           GH_TOKEN: ${{ github.token }}
           SIGANTRY_APPROVER_INPUT: ${{ inputs.approver }}
@@ -229,17 +260,26 @@ jobs:
           else
             echo "::warning::could not read the approval record for run $SIGANTRY_RUN_ID (does the caller grant actions: read?): $approvals"
           fi
+          actor_noreply="${SIGANTRY_ACTOR}@users.noreply.github.com"
           if [ -n "$login" ]; then
+            if [ "$login" = "$SIGANTRY_ACTOR" ]; then
+              echo "::error::Self-approval is not permitted: reviewer '$login' matches triggering actor '$SIGANTRY_ACTOR'"
+              exit 1
+            fi
             approver="${login}@users.noreply.github.com"
             if [ -n "$SIGANTRY_APPROVER_INPUT" ] && [ "$SIGANTRY_APPROVER_INPUT" != "$approver" ]; then
               echo "::warning::approver input ignored: the approval record for $SIGANTRY_GATE_ENVIRONMENT names $login"
             fi
           elif [ -n "$SIGANTRY_APPROVER_INPUT" ]; then
+            if [ "$SIGANTRY_APPROVER_INPUT" = "$SIGANTRY_ACTOR" ] || [ "$SIGANTRY_APPROVER_INPUT" = "$actor_noreply" ]; then
+              echo "::error::Self-approval is not permitted: inputs.approver ('$SIGANTRY_APPROVER_INPUT') matches triggering actor ('$SIGANTRY_ACTOR')"
+              exit 1
+            fi
             echo "::warning::no approval record for $SIGANTRY_GATE_ENVIRONMENT in run $SIGANTRY_RUN_ID; recording the operator-supplied approver"
             approver="$SIGANTRY_APPROVER_INPUT"
           else
-            echo "::warning::no approval record for $SIGANTRY_GATE_ENVIRONMENT in run $SIGANTRY_RUN_ID; recording the run actor, who may not be the approver"
-            approver="${SIGANTRY_ACTOR}@users.noreply.github.com"
+            echo "::error::no approval record for $SIGANTRY_GATE_ENVIRONMENT in run $SIGANTRY_RUN_ID and no explicit approver input provided; refusing to record triggering actor ('$SIGANTRY_ACTOR') as approver"
+            exit 1
           fi
           echo "approver=$approver" >> "$GITHUB_OUTPUT"
       - name: sigantry release record
@@ -255,18 +295,38 @@ jobs:
           # inside default values (defaults are evaluated at parse time,
           # before the github context is bound) -- that was the real
           # ghost-runs root cause (fixed in a 2026-05-12 follow-up).
+          GITHUB_TOKEN: ${{ github.token }}
           SIGANTRY_RELEASE_ID: ${{ inputs.releaseId != '' && inputs.releaseId || github.run_id }}
           SIGANTRY_WORKSPACE_ID: ${{ inputs.workspaceId }}
           SIGANTRY_WORK_ITEMS: ${{ inputs.workItems }}
           SIGANTRY_APPROVER: ${{ steps.approver.outputs.approver }}
           SIGANTRY_FABRIC_ITEMS: ${{ inputs.fabricItems }}
           SIGANTRY_SOURCE_DIR: ${{ inputs.sourceDir }}
+          SIGANTRY_ITEM_TYPES: ${{ inputs.itemTypes }}
           SIGANTRY_AUDIT_DIR: ${{ inputs.auditDir != '' && inputs.auditDir || '.sigantry/audit' }}
           SIGANTRY_GITHUB_OWNER: ${{ github.repository_owner }}
           SIGANTRY_GITHUB_REPO: ${{ github.event.repository.name }}
         run: |
           if [ -z "$SIGANTRY_FABRIC_ITEMS" ] && [ -d "$SIGANTRY_SOURCE_DIR" ]; then
-            SIGANTRY_FABRIC_ITEMS=$(python -c 'import sys, pathlib; p = pathlib.Path(sys.argv[1]); print(",".join(sorted(f.parent.name for f in p.rglob(".platform") if "." in f.parent.name)))' "$SIGANTRY_SOURCE_DIR")
+            SIGANTRY_FABRIC_ITEMS=$(python -c '
+          import json, pathlib, sys
+          root = pathlib.Path(sys.argv[1])
+          allowed = {t.strip() for t in sys.argv[2].split(",") if t.strip()}
+          items = []
+          for pf in sorted(root.rglob(".platform")):
+              name, itype = "", ""
+              try:
+                  meta = json.loads(pf.read_text("utf-8")).get("metadata") or {}
+                  name = str(meta.get("displayName") or "").strip()
+                  itype = str(meta.get("type") or "").strip()
+              except Exception:
+                  pass
+              if (not name or not itype) and "." in pf.parent.name:
+                  name, itype = pf.parent.name.rsplit(".", 1)
+              if name and itype and (not allowed or itype in allowed):
+                  items.append(f"{name}:{itype}")
+          print(",".join(sorted(set(items))))
+          ' "$SIGANTRY_SOURCE_DIR" "$SIGANTRY_ITEM_TYPES")
           fi
           sigantry release record \
             --release-id "$SIGANTRY_RELEASE_ID" \
