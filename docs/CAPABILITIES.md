@@ -426,13 +426,13 @@ Notes on `env sync` (proven live on a production workspace, 2026-06-14):
 | `sigantry release list` | List releases (most recent first). | `cli.py:310` |
 | `sigantry release show <id>` | Show one `DeployRecord`. | `cli.py:378` |
 | `sigantry release diff <id1> <id2>` | Diff `fabric_items_changed` between two releases. | `cli.py:432` |
-| `sigantry release verify` | Check that the deploy ledger forms an unbroken SHA-256 chain. The chain is unkeyed; see the [audit ledger threat model](reference/audit-ledger-threat-model.md). | `cli.py:562` |
+| `sigantry release verify` | Check that an audit ledger (`deploys.jsonl` by default, `--ledger-file <name>`, or `--all`) forms an unbroken SHA-256 chain (`audit_hash` digests and `prev_hash` linkage). The chain is unkeyed; see the [audit ledger threat model](reference/audit-ledger-threat-model.md). | `cli.py:735` |
 
 **Audit invariants:**
 
 - `DeployRecord.audit_hash` is a SHA-256 over canonical-JSON of all other fields.
 - `DeployRecord.verify_hash()` returns `True` iff the stored `audit_hash` matches a hash recomputed from the record's other fields. A field changed without recomputing the hash makes it `False`; a record whose hash was recomputed after an edit (a re-seal) returns `True`.
-- `BootstrapRecord` mirrors this algorithm. `sigantry release verify` does not read the bootstrap ledger.
+- `BootstrapRecord` mirrors this algorithm and can be verified with `sigantry release verify --ledger-file bootstraps.jsonl` (or `--all`).
 
 Runbook: [`runbooks/work-item-traceability/comment-rendering.md`](runbooks/work-item-traceability/comment-rendering.md) -- byte-equal cross-provider rendering of release-record comments.
 

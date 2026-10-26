@@ -47,7 +47,14 @@ Set up your CI to follow this mapping:
 
 `DEV` is the loosest: deploy every merged PR to it. The Fabric
 workspace IDs for each env live in `parameters.yml` under the
-`replace_value` blocks (`DEV` / `PREPROD` / `PROD`).
+`replace_value` blocks (`DEV` / `PREPROD` / `PROD`). A forward deploy
+publishes the item tree for the target environment:
+
+```bash
+sigantry deploy run --source ./fabric_items --params parameters.yml \
+  --workspace-id <dev-workspace-id> --environment DEV \
+  --tenant-id <tenant-guid>
+```
 
 Put an environment approver on `PREPROD` (GitHub Environments or ADO
 Environments, depending on your CI). To go back to an earlier recorded
