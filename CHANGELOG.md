@@ -85,6 +85,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Both old names are planned for removal in 2.0.
 
 ### Fixed
+- `delete_workspace(..., pbi_fallback=True)` refuses the Power BI retry with
+  `ValueError` when the Fabric client's `base_url` is not
+  `https://api.fabric.microsoft.com`, logs a `workspace_delete_fallback`
+  record at `INFO` on `sigantry_core.governance.audit` (with `workspace_id`,
+  `endpoint` and `correlation_id`) when the retry runs, and re-raises the
+  original Fabric `HttpError` (with the `NotFoundError` as `__cause__`) when
+  `DELETE /v1.0/myorg/groups/{id}` returns HTTP `404`, so a Fabric-native
+  workspace with no Power BI group surfaces and records the Fabric error class
+  instead of `NotFoundError` (#62). `BaseRestClient.base_url` is exposed as a
+  read-only property.
 - A scheduled drift check that produces no drift report is announced as
   failed instead of sending nothing (#34). When `sigantry diff` exits 2 it
   leaves `drift.json` empty, and `python -m sigantry_core.sync._notify_main`

@@ -348,6 +348,9 @@ class _FallbackHarness:
 
         self.sent: list[tuple[str, str, str]] = []
         self.default_chain: list[_RecordingCredential] = []
+        self.fabric_status: int = 400
+        self.pbi_status: int = 200
+        self.pbi_body: dict = {"error": {"code": "ItemNotFound"}}
 
         def build_default(**_: object) -> _RecordingCredential:
             cred = _RecordingCredential(_TENANT_B, "default-chain")
@@ -359,9 +362,11 @@ class _FallbackHarness:
             self.sent.append((request.method, url, request.headers.get("Authorization", "")))
             if request.method == "DELETE" and url.endswith(f"/v1/workspaces/{_WS}"):
                 body = {"errorCode": "UnknownError", "message": "transient"}
-                return httpx.Response(400, json=body, request=request)
+                return httpx.Response(self.fabric_status, json=body, request=request)
             if request.method == "DELETE" and url == _POWERBI_DELETE:
-                return httpx.Response(200, request=request)
+                if self.pbi_status >= 400:
+                    return httpx.Response(self.pbi_status, json=self.pbi_body, request=request)
+                return httpx.Response(self.pbi_status, request=request)
             raise AssertionError(f"unexpected request {request.method} {url}")
 
         monkeypatch.setattr(
@@ -447,3 +452,105 @@ class TestPbiFallbackAuthenticatesAsTheCaller:
         assert _TENANT_A in str(excinfo.value) and _TENANT_B in str(excinfo.value)
         assert fallback.powerbi_auth() == []
         assert fallback.default_chain == []
+
+    def test_non_commercial_base_url_is_refused_before_the_retry(
+        self,
+        fallback: _FallbackHarness,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        import logging
+
+        from sigantry_core.auth import TokenProvider
+        from sigantry_core.client import FabricRestClient
+
+        caplog.set_level(logging.INFO, logger="sigantry_core.governance.audit")
+        caller = _RecordingCredential(_TENANT_A, "caller")
+        tp = TokenProvider(credential=caller, tenant_id=_TENANT_A)
+        with (
+            FabricRestClient(
+                token_provider=tp,
+                base_url="https://api.fabric.microsoft.us",
+            ) as client,
+            pytest.raises(ValueError, match=r"https://api\.fabric\.microsoft\.us"),
+        ):
+            delete_workspace(client, _WS, force=True, pbi_fallback=True)
+
+        assert fallback.powerbi_auth() == []
+        assert [
+            r for r in caplog.records if getattr(r, "event", None) == "workspace_delete_fallback"
+        ] == []
+
+    def test_fallback_emits_structured_audit_log_record(
+        self,
+        fallback: _FallbackHarness,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        import logging
+
+        from sigantry_core.auth import TokenProvider
+        from sigantry_core.client import FabricRestClient
+
+        caplog.set_level(logging.INFO, logger="sigantry_core.governance.audit")
+        caller = _RecordingCredential(_TENANT_A, "caller")
+        tp = TokenProvider(credential=caller, tenant_id=_TENANT_A)
+        with (
+            FabricRestClient(token_provider=tp) as client,
+            client.correlation("corr-62-fallback"),
+        ):
+            delete_workspace(client, _WS, force=True, pbi_fallback=True)
+
+        fallback_records = [
+            r for r in caplog.records if getattr(r, "event", None) == "workspace_delete_fallback"
+        ]
+        assert len(fallback_records) == 1
+        rec = fallback_records[0]
+        assert rec.name == "sigantry_core.governance.audit"
+        assert rec.getMessage() == "workspace_delete_fallback"
+        assert getattr(rec, "workspace_id", None) == _WS
+        assert getattr(rec, "endpoint", None) == _POWERBI_DELETE
+        assert getattr(rec, "correlation_id", None) == "corr-62-fallback"
+
+    def test_pbi_404_reraises_original_fabric_error_and_records_its_exc_type(
+        self,
+        fallback: _FallbackHarness,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path,
+    ) -> None:
+        import json
+        import logging
+        import sys
+
+        from sigantry_core.auth import TokenProvider
+        from sigantry_core.client import FabricRestClient
+        from sigantry_core.client.errors import NotFoundError, ServerError
+        from sigantry_core.governance import audit_io
+
+        monkeypatch.setattr(
+            sys.modules["sigantry_core.governance.audit"], "_DEFAULT_AUDIT_DIR", tmp_path
+        )
+        monkeypatch.setattr(audit_io, "_DEFAULT_AUDIT_DIR", tmp_path)
+        fallback.fabric_status = 500
+        fallback.pbi_status = 404
+
+        caplog.set_level(logging.INFO, logger="sigantry_core.governance.audit")
+        caller = _RecordingCredential(_TENANT_A, "caller")
+        tp = TokenProvider(credential=caller, tenant_id=_TENANT_A)
+        with (
+            FabricRestClient(token_provider=tp) as client,
+            pytest.raises(ServerError) as excinfo,
+        ):
+            delete_workspace(client, _WS, force=True, pbi_fallback=True)
+
+        assert isinstance(excinfo.value.__cause__, NotFoundError)
+        destructive_records = [
+            r for r in caplog.records if getattr(r, "event", None) == "destructive_op"
+        ]
+        assert len(destructive_records) == 1
+        assert getattr(destructive_records[0], "exc_type", None) == "ServerError"
+
+        ledger_lines = (tmp_path / "destructive_ops.jsonl").read_text(encoding="utf-8").splitlines()
+        assert len(ledger_lines) == 1
+        row = json.loads(ledger_lines[0])
+        assert row["outcome"] == "failed"
+        assert row["exc_type"] == "ServerError"

@@ -330,9 +330,18 @@ with `UnknownError`, the delete is tried again once through
 `https://api.powerbi.com/v1.0/myorg/groups/{id}`, with the caller's token
 provider (the `token_provider` argument, else the Fabric client's own), so as
 the same principal under the same tenant pin. A `tenant_id` argument must name
-that pin; an unpinned provider is pinned to it for the retry. The retry always
-goes to `api.powerbi.com`, whatever base URL the Fabric client uses, and the
-audit record does not show that it ran (issue #62).
+that pin; an unpinned provider is pinned to it for the retry. Because the retry
+is pinned to `https://api.powerbi.com`, a Fabric client whose `base_url` is
+anything other than `https://api.fabric.microsoft.com` is refused with
+`ValueError` before the retry. When the retry runs, a
+`workspace_delete_fallback` record is logged at `INFO` on the
+`sigantry_core.governance.audit` logger with `workspace_id`, `endpoint` and
+`correlation_id` (the `destructive_ops.jsonl` ledger schema is unchanged). If
+the Power BI retry fails with HTTP `404` (`NotFoundError`, e.g. for a
+Fabric-native workspace with no Power BI group), the original Fabric
+`HttpError` is re-raised (with the `NotFoundError` as `__cause__`) so the
+caller and the `destructive_ops.jsonl` audit record see the Fabric error class
+(issue #62).
 
 ---
 
