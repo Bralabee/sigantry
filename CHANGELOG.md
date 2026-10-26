@@ -22,6 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in 2.0 (ADR-0011)"`.
 
 ### Fixed
+- **Demo walkthrough and sample item tree (`templates/demo/`, `docs/demo/QUICKSTART.md`, `scripts/export-demo.py`).**
+  Removed `Sales.Lakehouse` from `templates/demo/fabric_items/`, `templates/demo/sync.yml`,
+  and `templates/demo/parameters.yml` (`sync apply` has no `Lakehouse` packager),
+  converted `LoadOrders.Notebook/notebook-content.py` into a valid
+  `notebook-content.ipynb` referenced by `templates/demo/sync.yml`, and updated
+  `docs/demo/QUICKSTART.md` Step 3 to validate the `DEV` slot with
+  `sigantry config validate parameters.yml --environment DEV` (#70).
 - **Windows CI PDF text extraction (`.github/workflows/ci.yml`).** Installed
   Poppler on `windows-latest` in the `test` matrix job and prepended its `bin`
   directory to `GITHUB_PATH` ahead of Git for Windows's Xpdf 4.06 `pdftotext.exe`

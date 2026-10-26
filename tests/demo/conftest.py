@@ -29,7 +29,7 @@ DEMO_DIR: Final[Path] = REPO / "templates" / "demo"
 """Phase 15 demo source tree (extends STARTER_DIR per CONTEXT D-02)."""
 
 FABRIC_ITEMS_DIR: Final[Path] = DEMO_DIR / "fabric_items"
-"""The 4 sample-item subtree (Sales.Lakehouse, LoadOrders.Notebook,
+"""The 3 sample-item subtree (LoadOrders.Notebook,
 RefreshOrdersDaily.DataPipeline, OrdersAnalytics.SemanticModel)."""
 
 DEMO_DIVERGENCE_ALLOWED: Final[frozenset[str]] = frozenset(

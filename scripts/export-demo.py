@@ -29,8 +29,8 @@ that make a copy of the tree deterministic:
     templates/demo/parameters.yml validates clean via
     sigantry_core.deploy.parameters.
   Invariant 4 (demo-specific):
-    The 4 fabric_items/<*>/.platform files carry the locked
-    placeholder logicalIds (d001..d004) and metadata.type matches
+    The 3 fabric_items/<*>/.platform files carry the locked
+    placeholder logicalIds (d002..d004) and metadata.type matches
     the directory suffix.
 
 If any invariant trips, the script exits non-zero with a clear
@@ -80,9 +80,8 @@ ADO_WORKFLOW = Path(".azuredevops") / "jobs" / "pr-bot.yml"
 DEMO_PARAMETERS_YML = Path("parameters.yml")
 DEMO_FABRIC_ITEMS_DIRNAME = "fabric_items"
 
-# Per CONTEXT D-03: locked placeholder logicalIds for the 4 sample items.
+# Per CONTEXT D-03: locked placeholder logicalIds for the 3 sample items.
 EXPECTED_LOGICAL_IDS: dict[str, str] = {
-    "Sales.Lakehouse": "00000000-0000-0000-0000-00000000d001",
     "LoadOrders.Notebook": "00000000-0000-0000-0000-00000000d002",
     "RefreshOrdersDaily.DataPipeline": "00000000-0000-0000-0000-00000000d003",
     "OrdersAnalytics.SemanticModel": "00000000-0000-0000-0000-00000000d004",
@@ -90,7 +89,6 @@ EXPECTED_LOGICAL_IDS: dict[str, str] = {
 
 # Mapping of directory suffix -> .platform metadata.type for Invariant 4.
 EXPECTED_METADATA_TYPE: dict[str, str] = {
-    "Sales.Lakehouse": "Lakehouse",
     "LoadOrders.Notebook": "Notebook",
     "RefreshOrdersDaily.DataPipeline": "DataPipeline",
     "OrdersAnalytics.SemanticModel": "SemanticModel",
@@ -101,11 +99,8 @@ EXPECTED_METADATA_TYPE: dict[str, str] = {
 # resolution succeeds without operator credentials.
 _DEMO_DRY_RUN_ENV_VARS: tuple[str, ...] = (
     "SIGANTRY_DEMO_WORKSPACE_ID",
-    "SIGANTRY_DEMO_CAPACITY_ID",
     "SIGANTRY_FABRIC_WORKSPACE_ID_PREPROD",
     "SIGANTRY_FABRIC_WORKSPACE_ID_PROD",
-    "SIGANTRY_FABRIC_CAPACITY_ID_PREPROD",
-    "SIGANTRY_FABRIC_CAPACITY_ID_PROD",
 )
 
 
@@ -277,6 +272,13 @@ def assert_fabric_items_locked_logical_ids(demo_dir: Path) -> None:
     items_root = demo_dir / DEMO_FABRIC_ITEMS_DIRNAME
     if not items_root.is_dir():
         raise RuntimeError(f"missing fabric_items dir: {items_root}")
+
+    actual_dirs = sorted(p.name for p in items_root.iterdir() if p.is_dir())
+    expected_dirs = sorted(EXPECTED_LOGICAL_IDS)
+    if actual_dirs != expected_dirs:
+        raise RuntimeError(
+            f"fabric_items directory set mismatch: expected {expected_dirs!r}; got {actual_dirs!r}"
+        )
 
     for item_dir, expected_lid in EXPECTED_LOGICAL_IDS.items():
         platform_path = items_root / item_dir / ".platform"

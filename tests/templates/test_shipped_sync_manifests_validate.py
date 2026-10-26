@@ -57,20 +57,33 @@ def test_shipped_sync_manifest_validates(manifest: Path) -> None:
 
 
 @pytest.mark.parametrize("manifest", _MANIFESTS, ids=_rel)
-def test_shipped_sync_manifest_item_paths_exist(manifest: Path) -> None:
-    """Every ``local_path`` resolves to a real directory in the scaffold.
+def test_shipped_sync_manifest_item_paths_exist(manifest: Path, tmp_path: Path) -> None:
+    """Every ``local_path`` resolves to a real source and packs cleanly via PACKAGER_REGISTRY.
 
     A manifest can validate against the schema while pointing at item
-    folders that were renamed or never committed; ``sync apply`` would then
-    fail at pack time for the adopter rather than at review time for us.
+    folders that were renamed, an unsupported type (e.g. ``Lakehouse``),
+    or a non-``.ipynb`` notebook path; ``sync apply`` would then fail at
+    pack time for the adopter rather than at review time for us.
     """
+    import shutil
+
+    from sigantry_core.sync.apply import _pack_phase
     from sigantry_core.sync.manifest import load_manifest
+    from sigantry_core.sync.packagers import PACKAGER_REGISTRY
 
     parsed = load_manifest(manifest)
     missing = [
         str(item.local_path)
         for item in parsed.items
-        if not (manifest.parent / item.local_path).is_dir()
+        if not (manifest.parent / item.local_path).exists()
     ]
-
     assert not missing, f"{_rel(manifest)} references non-existent item paths: {missing}"
+
+    unsupported = [item.type for item in parsed.items if item.type not in PACKAGER_REGISTRY]
+    assert not unsupported, f"{_rel(manifest)} declares unsupported packager types: {unsupported}"
+
+    scaffold_copy = tmp_path / "scaffold"
+    shutil.copytree(manifest.parent, scaffold_copy)
+    staging_dir = tmp_path / "staging"
+    staging_dir.mkdir()
+    _pack_phase(parsed.normalised(), scaffold_copy, staging_dir)
