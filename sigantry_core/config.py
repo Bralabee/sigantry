@@ -844,7 +844,8 @@ def _is_mapping_field(section: str, key: str) -> bool:
 
     Used to refuse a scalar env override that would replace a whole table --
     ``SIGANTRY_RELEASE__GITHUB=x`` against ``ReleaseSettings.github``, say.
-    Unknown keys return False: they land in ``extras``, where a scalar is fine.
+    Unknown keys return False: they pass through as extra fields, and a plugin
+    whose key expects a table validates it when resolved.
     """
     model = _section_model(section)
     if model is None:

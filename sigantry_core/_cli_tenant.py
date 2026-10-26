@@ -28,6 +28,7 @@ from __future__ import annotations
 import functools
 import tomllib
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any, NoReturn, TypeVar
 
 import typer
@@ -37,6 +38,7 @@ from pydantic_settings import SettingsError
 from sigantry_core._cli_settings import load_settings_for_cli
 from sigantry_core.auth.errors import InvalidTenantIdError, TenantMismatchError
 from sigantry_core.auth.tenant import require_tenant_guid
+from sigantry_core.config import _CONFIG_FILENAME, _LEGACY_CONFIG_FILENAME
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -81,8 +83,33 @@ def _describe_settings_error(exc: Exception) -> str:
     return f"{type(exc).__name__}: {_one_line(str(exc))}"
 
 
+def _find_ancestor_config(cwd: Path | None = None) -> Path | None:
+    """Return the nearest ancestor config file when ``cwd`` has none, stopping at ``.git``."""
+    try:
+        start = (cwd if cwd is not None else Path.cwd()).resolve()
+    except OSError:
+        return None
+    if (start / ".git").exists():
+        return None
+    for parent in start.parents:
+        if parent.parent == parent:
+            break
+        for name in (_CONFIG_FILENAME, _LEGACY_CONFIG_FILENAME):
+            candidate = parent / name
+            if candidate.is_file():
+                return candidate
+        if (parent / ".git").exists():
+            break
+    return None
+
+
 def resolve_tenant_id(flag: str | None) -> str | None:
     """Return the tenant a command pins: the flag, else ``core.tenant_id``, else ``None``.
+
+    When ``None`` is returned because neither ``.sigantry.toml`` nor the legacy
+    config file exists in the working directory, checks ancestor directories up
+    to the enclosing ``.git`` boundary and prints a single-line notice on
+    ``stderr`` if an ancestor config file is present.
 
     Raises:
         InvalidTenantIdError: the value is not a tenant ID GUID.
@@ -100,6 +127,16 @@ def resolve_tenant_id(flag: str | None) -> str | None:
         ) from exc
     configured = settings.core.tenant_id
     if configured is None or not str(configured).strip():
+        if not Path(_CONFIG_FILENAME).is_file() and not Path(_LEGACY_CONFIG_FILENAME).is_file():
+            ancestor = _find_ancestor_config()
+            if ancestor is not None:
+                typer.echo(
+                    f"sigantry: note: {ancestor} was not read because settings are loaded only "
+                    "from the working directory; running without a core.tenant_id pin "
+                    "(pass --tenant-id, set SIGANTRY_CORE__TENANT_ID, or run from "
+                    f"{ancestor.parent}).",
+                    err=True,
+                )
         return None
     return require_tenant_guid(str(configured), source="core.tenant_id")
 

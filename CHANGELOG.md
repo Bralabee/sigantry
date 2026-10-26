@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- When `resolve_tenant_id(None)` returns `None` from a directory that has
+  neither `.sigantry.toml` nor the legacy config file while an ancestor
+  directory (up to the enclosing `.git` boundary) holds one, `sigantry` prints
+  a single-line notice on `stderr` naming that ancestor file and explaining
+  that settings are loaded only from the working directory (#112).
+
 ## [1.1.1] - 2026-10-26
 
 ### Upgrading from 1.1.0
