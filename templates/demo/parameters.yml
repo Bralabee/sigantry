@@ -5,11 +5,10 @@
 # Byte-extension of templates/starter/parameters.yml. Only the DEV
 # ENV-var refs differ -- the DEV slot reads SIGANTRY_DEMO_* variables
 # (per CONTEXT.md D-06). The demo uses only the DEV slot; the
-# PREPROD/PROD slots are kept for shape parity with the starter, and
-# `sigantry config validate` needs their $ENV: references set too.
+# PREPROD/PROD slots are kept for shape parity with the starter.
 #
-# Validate locally with:
-#     sigantry config validate parameters.yml
+# Validate the DEV slot locally with:
+#     sigantry config validate parameters.yml --environment DEV
 #
 # IMPORTANT: This file MUST NOT contain literal tenant IDs or
 # tokens -- only $ENV:* references. Any literal value here is a
@@ -24,14 +23,6 @@ find_replace:
       DEV:     "$ENV:SIGANTRY_DEMO_WORKSPACE_ID"
       PREPROD: "$ENV:SIGANTRY_FABRIC_WORKSPACE_ID_PREPROD"
       PROD:    "$ENV:SIGANTRY_FABRIC_WORKSPACE_ID_PROD"
-
-  # Capacity-ID swap (rarely needed in body content but here for symmetry).
-  - find_value: "placeholder-capacity-id"
-    item_type: Lakehouse
-    replace_value:
-      DEV:     "$ENV:SIGANTRY_DEMO_CAPACITY_ID"
-      PREPROD: "$ENV:SIGANTRY_FABRIC_CAPACITY_ID_PREPROD"
-      PROD:    "$ENV:SIGANTRY_FABRIC_CAPACITY_ID_PROD"
 
 # ----- key_value_replace: JSON-path substitution -----
 key_value_replace:

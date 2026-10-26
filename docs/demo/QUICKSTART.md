@@ -49,8 +49,8 @@ cp -r sigantry/templates/demo ./sigantry-demo
 cd sigantry-demo
 ```
 
-The tree holds `parameters.yml`, `sync.yml`, `fabric_items/` (4 subdirs:
-`Sales.Lakehouse/`, `LoadOrders.Notebook/`,
+The tree holds `parameters.yml`, `sync.yml`, `fabric_items/` (3 subdirs:
+`LoadOrders.Notebook/`,
 `RefreshOrdersDaily.DataPipeline/`, `OrdersAnalytics.SemanticModel/`),
 `.github/`, `.azuredevops/`, `docs/`, `_partials/` and `README.md`.
 
@@ -75,20 +75,19 @@ export SIGANTRY_DEMO_FABRIC_TOKEN="..."
 
 ## Step 3 -- Validate parameters.yml
 
-`parameters.yml` also references four PREPROD and PROD variables. The
-demo uses only the `DEV` slot, but the validator needs every `$ENV:`
-reference set, so point them at the demo values:
+Validate the `DEV` environment slot in `parameters.yml` (the slot the
+demo uses):
 
 ```bash
-export SIGANTRY_FABRIC_WORKSPACE_ID_PREPROD="$SIGANTRY_DEMO_WORKSPACE_ID"
-export SIGANTRY_FABRIC_WORKSPACE_ID_PROD="$SIGANTRY_DEMO_WORKSPACE_ID"
-export SIGANTRY_FABRIC_CAPACITY_ID_PREPROD="$SIGANTRY_DEMO_CAPACITY_ID"
-export SIGANTRY_FABRIC_CAPACITY_ID_PROD="$SIGANTRY_DEMO_CAPACITY_ID"
-sigantry config validate parameters.yml
+sigantry config validate parameters.yml --environment DEV
 ```
 
 This step checks `parameters.yml`, the file the demo CI's deploy step
-reads, and every `$ENV:` reference in it.
+reads, and resolves the `$ENV:` references for `DEV` (and `_ALL_`).
+
+```text
+OK -- 3 environment(s) parsed: DEV, PREPROD, PROD
+```
 
 ## Step 4 -- Run `sync apply` on the demo items
 
@@ -120,12 +119,12 @@ in OneLake rather than Git, are outside it (see
 
 Step 6 needs your copy to be a Git repository with a GitHub or ADO
 remote of your own. Edit
-`fabric_items/LoadOrders.Notebook/notebook-content.py` (e.g. add a
-comment), then:
+`fabric_items/LoadOrders.Notebook/notebook-content.ipynb` (e.g. add a
+comment line to the code cell), then:
 
 ```bash
 git checkout -b feature/demo-quickstart-touch
-git add fabric_items/LoadOrders.Notebook/notebook-content.py
+git add fabric_items/LoadOrders.Notebook/notebook-content.ipynb
 git commit -m "demo: add comment to LoadOrders notebook"
 git push -u origin feature/demo-quickstart-touch
 ```

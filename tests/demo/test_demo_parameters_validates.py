@@ -30,11 +30,8 @@ _DEMO_PARAMS = _REPO / "templates" / "demo" / "parameters.yml"
 # `_resolve_env_references` pass requires these to be set at validation time.
 _DEMO_ENV_VARS = (
     "SIGANTRY_DEMO_WORKSPACE_ID",
-    "SIGANTRY_DEMO_CAPACITY_ID",
     "SIGANTRY_FABRIC_WORKSPACE_ID_PREPROD",
     "SIGANTRY_FABRIC_WORKSPACE_ID_PROD",
-    "SIGANTRY_FABRIC_CAPACITY_ID_PREPROD",
-    "SIGANTRY_FABRIC_CAPACITY_ID_PROD",
 )
 
 
@@ -50,6 +47,25 @@ def test_demo_parameters_yml_validates_clean(monkeypatch: pytest.MonkeyPatch) ->
         f"expected DEV/PREPROD/PROD; got {result.environments_seen}"
     )
     assert result.path == str(_DEMO_PARAMS)
+
+
+def test_demo_parameters_yml_validates_dev_slot_with_only_demo_vars(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """load_and_validate(demo/parameters.yml, environment='DEV') succeeds with only SIGANTRY_DEMO_WORKSPACE_ID."""
+    from sigantry_core.deploy.parameters import load_and_validate
+
+    for var in (
+        "SIGANTRY_FABRIC_WORKSPACE_ID_PREPROD",
+        "SIGANTRY_FABRIC_WORKSPACE_ID_PROD",
+        "SIGANTRY_FABRIC_CAPACITY_ID_PREPROD",
+        "SIGANTRY_FABRIC_CAPACITY_ID_PROD",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("SIGANTRY_DEMO_WORKSPACE_ID", "00000000-0000-0000-0000-000000000001")
+
+    result = load_and_validate(_DEMO_PARAMS, environment="DEV")
+    assert result.environments_seen == frozenset({"DEV", "PREPROD", "PROD"})
 
 
 def test_demo_parameters_uses_DEV_environment_only_in_workflows() -> None:  # noqa: N802 -- DEV is an env-name acronym

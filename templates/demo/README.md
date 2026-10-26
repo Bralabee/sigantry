@@ -21,8 +21,7 @@ Fabric DataOps. A prospect or evaluator can:
 | Path | Purpose |
 | --- | --- |
 | `parameters.yml` | fabric-cicd parameter substitution for the demo tenant |
-| `sync.yml` | sync manifest enumerating the 4 sample items |
-| `fabric_items/Sales.Lakehouse/` | demo lakehouse (bronze tier) |
+| `sync.yml` | sync manifest enumerating the 3 sample items |
 | `fabric_items/LoadOrders.Notebook/` | demo notebook (Synapse pyspark) |
 | `fabric_items/RefreshOrdersDaily.DataPipeline/` | demo data pipeline |
 | `fabric_items/OrdersAnalytics.SemanticModel/` | demo semantic model (TMDL) |

@@ -1,10 +1,11 @@
-"""Plan 15-01 / DEMO-02 -- the 4 sample fabric_items trees.
+"""Plan 15-01 / DEMO-02 -- the 3 sample fabric_items trees.
 
-Plan 15-01 ships templates/demo/fabric_items/{Sales.Lakehouse,
-LoadOrders.Notebook, RefreshOrdersDaily.DataPipeline,
-OrdersAnalytics.SemanticModel}/ trees with .platform schema 2.0 +
-placeholder logicalIds 00000000-0000-0000-0000-00000000d001..d004
-per CONTEXT D-03 + RESEARCH §Pattern 2.
+Ships templates/demo/fabric_items/{LoadOrders.Notebook,
+RefreshOrdersDaily.DataPipeline, OrdersAnalytics.SemanticModel}/ trees
+with .platform schema 2.0 + placeholder logicalIds
+00000000-0000-0000-0000-00000000d002..d004 per CONTEXT D-03 + Issue #70
+(Sales.Lakehouse removed because sync apply has no Lakehouse packager,
+and LoadOrders.Notebook converted to notebook-content.ipynb).
 
 Local-import idiom matches tests/starter/test_starter_content.py:20.
 """
@@ -17,21 +18,18 @@ from pathlib import Path
 _FABRIC_ITEMS_DIR = Path(__file__).resolve().parents[2] / "templates" / "demo" / "fabric_items"
 
 _ITEMS = (
-    "Sales.Lakehouse",
     "LoadOrders.Notebook",
     "RefreshOrdersDaily.DataPipeline",
     "OrdersAnalytics.SemanticModel",
 )
 
 _EXPECTED_LOGICAL_IDS = {
-    "Sales.Lakehouse": "00000000-0000-0000-0000-00000000d001",
     "LoadOrders.Notebook": "00000000-0000-0000-0000-00000000d002",
     "RefreshOrdersDaily.DataPipeline": "00000000-0000-0000-0000-00000000d003",
     "OrdersAnalytics.SemanticModel": "00000000-0000-0000-0000-00000000d004",
 }
 
 _EXPECTED_TYPES = {
-    "Sales.Lakehouse": "Lakehouse",
     "LoadOrders.Notebook": "Notebook",
     "RefreshOrdersDaily.DataPipeline": "DataPipeline",
     "OrdersAnalytics.SemanticModel": "SemanticModel",
@@ -39,14 +37,16 @@ _EXPECTED_TYPES = {
 
 
 def test_demo_fabric_items_have_platform_files() -> None:
-    """Each of the 4 sample item directories carries a Microsoft Fabric `.platform` file."""
+    """Each of the 3 sample item directories carries a Microsoft Fabric `.platform` file."""
+    actual_dirs = sorted(p.name for p in _FABRIC_ITEMS_DIR.iterdir() if p.is_dir())
+    assert actual_dirs == sorted(_ITEMS), actual_dirs
     for item in _ITEMS:
         platform = _FABRIC_ITEMS_DIR / item / ".platform"
         assert platform.is_file(), f"missing .platform for {item}: {platform}"
 
 
 def test_demo_fabric_items_carry_placeholder_logical_ids() -> None:
-    """logicalIds are 00000000-0000-0000-0000-00000000d001..d004 (placeholder, never real workspace IDs)."""
+    """logicalIds are 00000000-0000-0000-0000-00000000d002..d004 (placeholder, never real workspace IDs)."""
     for item, expected_lid in _EXPECTED_LOGICAL_IDS.items():
         platform = _FABRIC_ITEMS_DIR / item / ".platform"
         data = json.loads(platform.read_text(encoding="utf-8"))
@@ -56,25 +56,25 @@ def test_demo_fabric_items_carry_placeholder_logical_ids() -> None:
         assert actual_type == _EXPECTED_TYPES[item], (item, actual_type)
 
 
-def test_lakehouse_metadata_json_default_schema_dbo() -> None:
-    """Sales.Lakehouse/lakehouse.metadata.json declares defaultSchema=dbo."""
-    metadata_path = _FABRIC_ITEMS_DIR / "Sales.Lakehouse" / "lakehouse.metadata.json"
-    data = json.loads(metadata_path.read_text(encoding="utf-8"))
-    assert data == {"defaultSchema": "dbo"}, data
-
-    shortcuts_path = _FABRIC_ITEMS_DIR / "Sales.Lakehouse" / "shortcuts.metadata.json"
-    shortcuts = json.loads(shortcuts_path.read_text(encoding="utf-8"))
-    assert shortcuts == {"shortcuts": []}, shortcuts
+def test_sales_lakehouse_is_not_shipped_in_demo_fabric_items() -> None:
+    """Sales.Lakehouse is omitted from templates/demo/fabric_items/ (Issue #70)."""
+    assert not (_FABRIC_ITEMS_DIR / "Sales.Lakehouse").exists()
 
 
-def test_notebook_content_py_carries_metadata_block() -> None:
-    """LoadOrders.Notebook/notebook-content.py contains the `# META` metadata block."""
-    notebook_path = _FABRIC_ITEMS_DIR / "LoadOrders.Notebook" / "notebook-content.py"
-    text = notebook_path.read_text(encoding="utf-8")
-    assert "# METADATA" in text
-    assert "synapse_pyspark" in text
-    assert "# CELL" in text
-    assert "Demo: load_orders" in text
+def test_notebook_content_ipynb_is_valid_synapse_pyspark_notebook() -> None:
+    """LoadOrders.Notebook/notebook-content.ipynb is a valid .ipynb with list-of-lines cell source."""
+    notebook_dir = _FABRIC_ITEMS_DIR / "LoadOrders.Notebook"
+    assert not (notebook_dir / "notebook-content.py").exists()
+    notebook_path = notebook_dir / "notebook-content.ipynb"
+    assert notebook_path.is_file(), notebook_path
+    data = json.loads(notebook_path.read_text(encoding="utf-8"))
+    assert data["nbformat"] == 4
+    assert data["metadata"]["kernel_info"]["name"] == "synapse_pyspark"
+    cells = data["cells"]
+    assert isinstance(cells, list) and len(cells) >= 1
+    source = cells[0]["source"]
+    assert isinstance(source, list)
+    assert any("Demo: load_orders" in line for line in source)
 
 
 def test_data_pipeline_content_minimal_valid() -> None:
