@@ -16,8 +16,8 @@ Only ``<PREFIX><SECTION>__<KEY>`` forms are honoured, and ``<SECTION>`` must
 name a real settings section -- see :func:`_apply_env_overrides` for why that
 restriction is load-bearing rather than tidiness.
 
-Legacy surface, honoured for one more minor release with a
-``DeprecationWarning`` and then removed (ADR-0011):
+Legacy surface, honoured in 1.x with a
+``DeprecationWarning`` and removed in 2.0 (ADR-0011):
 
 - the config filename ``.fabric-dataops.toml``;
 - the env prefix ``FDT_``.
@@ -613,8 +613,8 @@ def _resolve_config(path: str | Path | None) -> _ResolvedConfig:
     read an explicit path too. With no path:
 
     - ``.sigantry.toml`` alone is read. 1.0.0 did not read it.
-    - The legacy file alone is the one-minor fallback, read with a
-      ``DeprecationWarning``.
+    - The legacy file alone is the 1.x fallback, read with a
+      ``DeprecationWarning`` and removed in 2.0.
     - With both, 1.0.0 read the legacy file, so that is still what is read,
       with a ``UserWarning``, which Python shows by default. Two files with
       the same bytes cannot give a different result, so ``.sigantry.toml`` is
@@ -649,8 +649,8 @@ def _resolve_config(path: str | Path | None) -> _ResolvedConfig:
     if not fixture:
         _warn(
             f"{_LEGACY_CONFIG_FILENAME} is deprecated: rename it to "
-            f"{_CONFIG_FILENAME}. The legacy filename is read for one more "
-            "minor release and then removed (ADR-0011).",
+            f"{_CONFIG_FILENAME}. The legacy filename is read in 1.x and "
+            "removed in 2.0 (ADR-0011).",
             DeprecationWarning,
         )
     return _ResolvedConfig(legacy, True)
@@ -790,8 +790,8 @@ class _EnvReport:
             _warn(
                 f"The {_LEGACY_ENV_PREFIX} settings env prefix is deprecated: use "
                 f"{_ENV_PREFIX} instead (e.g. {_ENV_PREFIX}CORE__TENANT_ID). "
-                f"Seen: {_names(self.legacy)}. The legacy prefix is read for "
-                "one more minor release and then removed (ADR-0011).",
+                f"Seen: {_names(self.legacy)}. The legacy prefix is read in 1.x "
+                "and removed in 2.0 (ADR-0011).",
                 DeprecationWarning,
             )
         if self.case:
@@ -801,8 +801,8 @@ class _EnvReport:
                 f"Ignoring {_ENV_PREFIX} settings variable(s) {_names(self.shadowed)}: "
                 f"the same setting is supplied by an {_LEGACY_ENV_PREFIX} variable, or "
                 f"by a config file sigantry 1.0.0 also read (the legacy "
-                f"{_LEGACY_CONFIG_FILENAME}, or a file passed by path), and through "
-                f"1.0.x those still take precedence. Remove the legacy setting to let "
+                f"{_LEGACY_CONFIG_FILENAME}, or a file passed by path), and in "
+                f"1.x those still take precedence. Remove the legacy setting to let "
                 f"the {_ENV_PREFIX} value apply.",
                 UserWarning,
             )
