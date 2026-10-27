@@ -263,9 +263,11 @@ def _publish_and_optionally_unpublish(
             candidate_items = _repository_item_specs(repository_directory, item_type_in_scope)
 
         if item_name_exclude_regex:
+            # Same test as fabric-cicd's serial publish: re.match, anchored at
+            # the start of the item name.
             excluded = re.compile(item_name_exclude_regex)
             candidate_items = [
-                spec for spec in candidate_items if not excluded.search(spec.rsplit(".", 1)[0])
+                spec for spec in candidate_items if not excluded.match(spec.rsplit(".", 1)[0])
             ]
 
         if len(candidate_items) > 1:

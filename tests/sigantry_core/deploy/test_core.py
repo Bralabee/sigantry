@@ -694,8 +694,13 @@ def test_bulk_forwards_every_scope_filter_and_drops_excluded_names(
         item_type_in_scope=["Lakehouse", "Notebook"],
         parameters_path=str(tmp_item_tree / "parameters.yml"),
         token_provider=mock_token_provider,
-        items_to_include=["Bronze.Lakehouse", "Ingest.Notebook", "Scratch_1.Notebook"],
-        item_name_exclude_regex="^Scratch",
+        items_to_include=[
+            "Bronze.Lakehouse",
+            "Ingest.Notebook",
+            "Scratch_1.Notebook",
+            "My_Scratch.Notebook",
+        ],
+        item_name_exclude_regex="Scratch",
         folder_path_exclude_regex="/archive",
         folder_path_to_include=["/live"],
         shortcut_exclude_regex="^tmp_",
@@ -703,8 +708,10 @@ def test_bulk_forwards_every_scope_filter_and_drops_excluded_names(
     )
     called = [c.kwargs["items_to_include"] for c in fake_pub.call_args_list]
     assert ["Scratch_1.Notebook"] not in called
+    # fabric-cicd tests the exclusion with re.match: "My_Scratch" is NOT excluded.
+    assert ["My_Scratch.Notebook"] in called
     for c in fake_pub.call_args_list:
-        assert c.kwargs["item_name_exclude_regex"] == "^Scratch"
+        assert c.kwargs["item_name_exclude_regex"] == "Scratch"
         assert c.kwargs["folder_path_exclude_regex"] == "/archive"
         assert c.kwargs["folder_path_to_include"] == ["/live"]
         assert c.kwargs["shortcut_exclude_regex"] == "^tmp_"
