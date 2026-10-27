@@ -319,14 +319,9 @@ def publish_absent_items(
     # waves (one per item type, in fabric-cicd's publish order), so an item is
     # never published before a type it can reference; a failed wave stops.
     if bulk and len(items_to_include) > 1:
-        import concurrent.futures
+        from sigantry_core.deploy.bulk import bulk_publish_waves, run_bulk_waves
 
-        from sigantry_core.deploy.bulk import bulk_publish_waves
-
-        succeeded_items: list[str] = []
-        failed_item: str | None = None
-
-        def _publish_unit(unit: list[str]) -> bool:
+        def _publish_unit(unit: list[str]) -> None:
             ws = FabricWorkspace(
                 workspace_id=workspace_id,
                 environment=fabric_cicd_environment,
@@ -335,24 +330,13 @@ def publish_absent_items(
                 token_credential=token_provider.get_credential(),
                 parameter_file_path=str(parameters_path),
             )
-            try:
-                publish_all_items(ws, items_to_include=unit)
-                return True
-            except Exception:
-                logger.error("sync_bulk_publish_item_failed specs=%s", unit, exc_info=True)
-                return False
+            publish_all_items(ws, items_to_include=unit)
 
-        for wave in bulk_publish_waves(list(items_to_include)):
-            if failed_item is not None:
-                break
-            workers = min(max_workers, len(wave))
-            with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
-                results = list(executor.map(_publish_unit, wave))
-            for unit, ok in zip(wave, results, strict=True):
-                if ok:
-                    succeeded_items.extend(unit)
-                elif failed_item is None:
-                    failed_item = unit[0]
+        bulk_outcome = run_bulk_waves(
+            bulk_publish_waves(list(items_to_include)), _publish_unit, max_workers
+        )
+        succeeded_items = bulk_outcome.published
+        failed_item = bulk_outcome.failed[0] if bulk_outcome.failed else None
 
         if failed_item is not None:
             outcome = "partial-failure" if succeeded_items else "failed"

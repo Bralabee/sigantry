@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -676,3 +677,134 @@ def test_plain_bulk_reads_items_from_the_tree_before_fabric_cicd_scans_it(
     assert result.items_published == 2
     called = [c.kwargs["items_to_include"] for c in fake_pub.call_args_list]
     assert called == [["Bronze.Lakehouse"], ["Ingest.Notebook"]]
+
+
+# --- PR #130 review round 1 ------------------------------------------------
+
+
+def test_bulk_forwards_every_scope_filter_and_drops_excluded_names(
+    monkeypatch, mock_token_provider, tmp_item_tree: Path
+) -> None:
+    """Plain --bulk now engages, so it must honour the filters the serial path did."""
+    fake_pub = _patch_bulk(monkeypatch, None)
+    deploy_workspace(
+        workspace_id="w1",
+        repository_directory=str(tmp_item_tree),
+        environment="DEV",
+        item_type_in_scope=["Lakehouse", "Notebook"],
+        parameters_path=str(tmp_item_tree / "parameters.yml"),
+        token_provider=mock_token_provider,
+        items_to_include=["Bronze.Lakehouse", "Ingest.Notebook", "Scratch_1.Notebook"],
+        item_name_exclude_regex="^Scratch",
+        folder_path_exclude_regex="/archive",
+        folder_path_to_include=["/live"],
+        shortcut_exclude_regex="^tmp_",
+        bulk=True,
+    )
+    called = [c.kwargs["items_to_include"] for c in fake_pub.call_args_list]
+    assert ["Scratch_1.Notebook"] not in called
+    for c in fake_pub.call_args_list:
+        assert c.kwargs["item_name_exclude_regex"] == "^Scratch"
+        assert c.kwargs["folder_path_exclude_regex"] == "/archive"
+        assert c.kwargs["folder_path_to_include"] == ["/live"]
+        assert c.kwargs["shortcut_exclude_regex"] == "^tmp_"
+
+
+def test_bulk_counts_only_the_named_failures_of_a_multi_item_unit(
+    monkeypatch, mock_token_provider, tmp_item_tree: Path
+) -> None:
+    """fabric-cicd publishes every item of a call before raising; only the named ones failed."""
+
+    def _pub(ws, items_to_include=None, **kwargs):
+        if items_to_include and len(items_to_include) > 1:
+            raise RuntimeError("Failed to publish 1 item(s): ['PL_B']")
+
+    _patch_bulk(monkeypatch, _pub)
+    with pytest.raises(RuntimeError) as exc_info:
+        deploy_workspace(
+            workspace_id="w1",
+            repository_directory=str(tmp_item_tree),
+            environment="DEV",
+            item_type_in_scope=["Notebook", "DataPipeline"],
+            parameters_path=str(tmp_item_tree / "parameters.yml"),
+            token_provider=mock_token_provider,
+            items_to_include=["Load.Notebook", "PL_A.DataPipeline", "PL_B.DataPipeline"],
+            bulk=True,
+        )
+    assert "1 item(s) failed to publish (succeeded=2, not attempted=0)" in str(exc_info.value)
+
+
+def test_bulk_publishes_serially_when_fabric_cicd_exposes_no_order(
+    monkeypatch, mock_token_provider, tmp_item_tree: Path
+) -> None:
+    monkeypatch.setattr("sigantry_core.deploy.bulk.fabric_cicd_type_rank", lambda: {})
+    fake_pub = _patch_bulk(monkeypatch, None)
+    result = deploy_workspace(
+        workspace_id="w1",
+        repository_directory=str(tmp_item_tree),
+        environment="DEV",
+        item_type_in_scope=["Lakehouse", "Notebook", "DataPipeline"],
+        parameters_path=str(tmp_item_tree / "parameters.yml"),
+        token_provider=mock_token_provider,
+        items_to_include=_bulk_specs(),
+        bulk=True,
+    )
+    assert result.items_published == 3
+    called = [c.kwargs["items_to_include"] for c in fake_pub.call_args_list]
+    assert called == [_bulk_specs()]
+
+
+def test_bulk_runs_the_first_unit_alone_so_folders_are_created_once(
+    monkeypatch, mock_token_provider, tmp_item_tree: Path
+) -> None:
+    import threading
+    import time
+
+    spans: dict[str, tuple[float, float]] = {}
+    lock = threading.Lock()
+
+    def _pub(ws, items_to_include=None, **kwargs):
+        start = time.monotonic()
+        time.sleep(0.05)
+        with lock:
+            spans[items_to_include[0]] = (start, time.monotonic())
+
+    _patch_bulk(monkeypatch, _pub)
+    deploy_workspace(
+        workspace_id="w1",
+        repository_directory=str(tmp_item_tree),
+        environment="DEV",
+        item_type_in_scope=["Notebook"],
+        parameters_path=str(tmp_item_tree / "parameters.yml"),
+        token_provider=mock_token_provider,
+        items_to_include=["A.Notebook", "B.Notebook", "C.Notebook"],
+        bulk=True,
+        max_workers=3,
+    )
+    first_end = spans["A.Notebook"][1]
+    assert spans["B.Notebook"][0] >= first_end
+    assert spans["C.Notebook"][0] >= first_end
+
+
+def test_bulk_waves_keep_lakehouses_together_and_drop_duplicates() -> None:
+    from sigantry_core.deploy.bulk import bulk_publish_waves
+
+    waves = bulk_publish_waves(["Silver.Lakehouse", "Bronze.Lakehouse", "Silver.Lakehouse"])
+    # A shortcut can point at another lakehouse: fabric-cicd orders them in one call.
+    assert waves == [[["Silver.Lakehouse", "Bronze.Lakehouse"]]]
+
+
+def test_repository_item_specs_skips_hidden_dirs_and_duplicates(tmp_path: Path) -> None:
+    from sigantry_core.deploy.core import _repository_item_specs
+
+    def _item(rel: str, name: str, item_type: str) -> None:
+        d = tmp_path / rel
+        d.mkdir(parents=True)
+        (d / ".platform").write_text(
+            json.dumps({"metadata": {"type": item_type, "displayName": name}}), encoding="utf-8"
+        )
+
+    _item("a/Utils.Notebook", "Utils", "Notebook")
+    _item("b/Utils.Notebook", "Utils", "Notebook")
+    _item(".git/old/Stale.Notebook", "Stale", "Notebook")
+    assert _repository_item_specs(tmp_path, ["Notebook"]) == ["Utils.Notebook"]

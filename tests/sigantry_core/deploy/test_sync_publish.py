@@ -736,3 +736,46 @@ def test_publish_absent_items_bulk_publishes_a_pipeline_after_its_notebook(
     assert result.outcome == "succeeded", result
     assert deployed == ["itemB.Lakehouse", "itemA.Notebook", "itemC.DataPipeline"]
     assert fake_publish.call_count == 3
+
+
+def test_publish_absent_items_bulk_reports_unattempted_and_true_failures(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    reset_feature_flags,
+    mock_token_provider: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A failed wave stops the later ones, and they are logged as not attempted (PR #130 review)."""
+    import logging
+
+    from sigantry_core.deploy.sync_publish import publish_absent_items
+
+    def _pub(ws, items_to_include=None, **kwargs):
+        if items_to_include == ["itemA.Notebook"]:
+            raise RuntimeError("Failed to publish 1 item(s): ['itemA']")
+
+    _patch_fabric_cicd(monkeypatch, publish_side_effect=_pub)
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    params = tmp_path / "parameters.yml"
+    params.write_text("# substituted\n", encoding="utf-8")
+    absent = [
+        _make_sync_item(display_name="itemC", type_="DataPipeline"),
+        _make_sync_item(display_name="itemA", type_="Notebook"),
+        _make_sync_item(display_name="itemB", type_="Lakehouse"),
+    ]
+    with caplog.at_level(logging.WARNING, logger="sigantry_core.deploy.bulk"):
+        result = publish_absent_items(
+            workspace_id="ws-bulk-stop",
+            environment="DEV",
+            staging_dir=staging,
+            absent_items=absent,
+            item_type_in_scope=["Notebook", "Lakehouse", "DataPipeline"],
+            parameters_path=params,
+            token_provider=mock_token_provider,
+            bulk=True,
+        )
+    assert result.outcome == "partial-failure"
+    assert result.published_items == ["itemB.Lakehouse"]
+    assert result.failed_item == "itemA.Notebook"
+    assert "not attempted" in caplog.text and "itemC.DataPipeline" in caplog.text

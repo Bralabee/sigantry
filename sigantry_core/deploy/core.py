@@ -14,6 +14,7 @@ Destructive orphan cleanup wraps ``unpublish_all_orphan_items`` with
 from __future__ import annotations
 
 import logging
+import re
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,7 +28,7 @@ from fabric_cicd import (
 )
 
 from sigantry_core.auth import TokenProvider
-from sigantry_core.deploy.bulk import bulk_publish_waves
+from sigantry_core.deploy.bulk import bulk_publish_waves, run_bulk_waves
 from sigantry_core.deploy.dependency import validate_order
 from sigantry_core.deploy.parameters import (
     load_and_validate,
@@ -261,10 +262,15 @@ def _publish_and_optionally_unpublish(
             # item specs from the tree's ``.platform`` files instead.
             candidate_items = _repository_item_specs(repository_directory, item_type_in_scope)
 
-        if len(candidate_items) > 1:
-            import concurrent.futures
+        if item_name_exclude_regex:
+            excluded = re.compile(item_name_exclude_regex)
+            candidate_items = [
+                spec for spec in candidate_items if not excluded.search(spec.rsplit(".", 1)[0])
+            ]
 
-            def _publish_unit(unit: list[str]) -> bool:
+        if len(candidate_items) > 1:
+
+            def _publish_unit(unit: list[str]) -> None:
                 ws = FabricWorkspace(
                     workspace_id=workspace_id,
                     environment=environment,
@@ -273,42 +279,26 @@ def _publish_and_optionally_unpublish(
                     token_credential=tp.get_credential(),
                     parameter_file_path=parameters_path,
                 )
-                try:
-                    publish_all_items(ws, items_to_include=unit)
-                    return True
-                except Exception:
-                    logger.error("bulk_publish_item_failed specs=%s", unit, exc_info=True)
-                    return False
+                # Every scope filter the serial publish honours applies here too.
+                publish_all_items(
+                    ws,
+                    item_name_exclude_regex=item_name_exclude_regex,
+                    folder_path_exclude_regex=folder_path_exclude_regex,
+                    folder_path_to_include=folder_path_to_include,
+                    items_to_include=unit,
+                    shortcut_exclude_regex=shortcut_exclude_regex,
+                )
 
             # Items are published in waves, one per item type, in
             # fabric-cicd's own publish order, so an item is never published
             # before a type it can reference (a pipeline before its notebook
-            # fails "referenced item is not yet deployed"). Only items of one
-            # type run concurrently, and a failed wave stops the later ones.
-            published = 0
-            failed = 0
-            skipped = 0
-            waves = bulk_publish_waves(candidate_items)
-            for index, wave in enumerate(waves):
-                if failed:
-                    skipped += sum(len(unit) for unit in wave)
-                    continue
-                workers = min(max_workers, len(wave))
-                with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
-                    results = list(executor.map(_publish_unit, wave))
-                for unit, ok in zip(wave, results, strict=True):
-                    if ok:
-                        published += len(unit)
-                    else:
-                        failed += len(unit)
-                logger.info(
-                    "bulk_publish_wave wave=%d/%d units=%d published=%d failed=%d",
-                    index + 1,
-                    len(waves),
-                    len(wave),
-                    published,
-                    failed,
-                )
+            # fails "referenced item is not yet deployed").
+            bulk_outcome = run_bulk_waves(
+                bulk_publish_waves(candidate_items), _publish_unit, max_workers
+            )
+            published = len(bulk_outcome.published)
+            failed = len(bulk_outcome.failed)
+            skipped = len(bulk_outcome.not_attempted)
 
             orphans = 0
             if unpublish_orphans:
@@ -440,9 +430,13 @@ def _repository_item_specs(
     """``name.Type`` for every item ``.platform`` under the tree, within scope."""
     import json
 
+    root = Path(repository_directory)
     scope = set(item_type_in_scope) if item_type_in_scope else None
     specs: list[str] = []
-    for platform_path in sorted(Path(repository_directory).rglob(".platform")):
+    for platform_path in sorted(root.rglob(".platform")):
+        # Hidden directories (.git, editor backups) hold no items.
+        if any(part.startswith(".") for part in platform_path.relative_to(root).parts[:-1]):
+            continue
         try:
             metadata = json.loads(platform_path.read_text(encoding="utf-8")).get("metadata") or {}
         except (OSError, ValueError):
@@ -452,7 +446,7 @@ def _repository_item_specs(
         if not item_type or not name or (scope is not None and item_type not in scope):
             continue
         specs.append(f"{name}.{item_type}")
-    return specs
+    return list(dict.fromkeys(specs))
 
 
 def _count_failed(result: Any) -> int:
