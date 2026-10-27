@@ -223,7 +223,7 @@ sequenceDiagram
 | `--with-publish` | Compose folder reconcile with `fabric-cicd.publish_all_items` for first-time items (Phase 17, ADR-0012 Option C). Requires `--params`. |
 | `--republish-existing` | Modifier on `--with-publish`: also refresh the content of manifest items that already exist in the workspace (matched by display name + type). |
 | `--params` | Path to `parameters.yml`. Required when `--with-publish` is set. |
-| `--bulk` | Modifier on `--with-publish`: when more than one item is published, publish them through a concurrent worker pool. Has no effect without `--with-publish`. |
+| `--bulk` | Modifier on `--with-publish`: when more than one item is published, publish them through a concurrent worker pool, one wave per item type in fabric-cicd's publish order (a pipeline never before its notebook; pipelines and dataflows publish as one ordered unit). Has no effect without `--with-publish`. |
 | `--unpublish-orphans` | Delete workspace folders + items absent from the manifest. Destructive. An item is deleted only if its type is in `PACKAGER_REGISTRY` (the five types sync can create) and it is outside every `folders[]` path; a Lakehouse, Warehouse or other type is kept, as is everything in a preserved folder, and both are listed as kept with the reason. A `folders[]` entry keeps its folder, everything below it, and its ancestors (as folders); a folder still holding a kept item is kept. Needs `--force`; `--dry-run` lists what would go and what is kept. Default off. |
 | `--force` | Confirms `--unpublish-orphans`; a real run without it exits 1 before any request, with no audit record. `--dry-run` needs none, and `--force` alone enables nothing. |
 
@@ -322,7 +322,7 @@ sequenceDiagram
 
 | Verb | Purpose | Source |
 |---|---|---|
-| `sigantry deploy run` | Deploy a Fabric item tree. Non-zero exit on item-publish failure. `--bulk` publishes through a concurrent worker pool; `--items-to-include`, `--item-name-exclude-regex`, `--folder-path-to-include`, `--folder-path-exclude-regex` and `--shortcut-exclude-regex` scope the publish. | `sigantry_core/deploy/cli.py:53` |
+| `sigantry deploy run` | Deploy a Fabric item tree. Non-zero exit on item-publish failure. `--bulk` publishes through a concurrent worker pool in dependency waves (one per item type, fabric-cicd's publish order; a failed wave stops the rest); `--items-to-include`, `--item-name-exclude-regex`, `--folder-path-to-include`, `--folder-path-exclude-regex` and `--shortcut-exclude-regex` scope the publish. | `sigantry_core/deploy/cli.py:53` |
 | `sigantry deploy validate` | Validate WITHOUT deploying (ADOPIPE-05 pre-flight). | `cli.py:315` |
 | `sigantry deploy run --rollback --to-release <id>` | Publish again the items a prior `DeployRecord` names (`fabric_items_changed`) whose type is in `--item-types`, with their content read from the `--source` checkout. The record holds item names only, no content and no commit; a record that names no items makes the rollback publish nothing. | `sigantry_core/deploy/rollback.py:88` |
 | `sigantry fabric-item copy` | Duplicate an item folder with a fresh `logicalId`. | `sigantry_core/deploy/cli.py:463` |

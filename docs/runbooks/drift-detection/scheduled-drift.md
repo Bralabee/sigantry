@@ -60,6 +60,9 @@ This is the load-bearing boundary the scheduled drift-check templates enforce --
            - master
        always: true        # run even if no commits
 
+   variables:
+     - group: sigantry-drift-sink   # the library variables of section 4
+
    stages:
      - template: schedules/drift-check.yml@sigantry-templates
        parameters:
@@ -127,7 +130,12 @@ Override per-environment in your consumer's parameters or per-run via the platfo
 
 ## 4. Notification sink configuration -- env vars (D-30)
 
-The notification sink is selected by `SIGANTRY_NOTIFICATION_SINK` (env var read by the scheduled CI step). Each sink reads its own per-impl secret. Configure these as ADO library variables (mark them secret) or GHA repo / org secrets.
+The notification sink is selected by `SIGANTRY_NOTIFICATION_SINK` (env var read by the scheduled CI step). Each sink reads its own per-impl settings, under exactly the names below:
+
+- **ADO:** library variables in a variable group (mark the webhooks and the SMTP password secret) that the consumer pipeline links with `variables: - group:` (section 2). The template maps each name into the dispatcher step; a variable that is not defined arrives as its literal `$(NAME)` and is treated as unset.
+- **GHA:** repo or org secrets, passed with `secrets: inherit` or by name. The reusable workflow declares them as optional `workflow_call` secrets and hands them to the dispatcher step only.
+
+Optional on either platform: `SIGANTRY_TEAMS_WEBHOOK_FORMAT` (`adaptive_card`, the default, or `messagecard` for a legacy connector) and `SIGANTRY_SMTP_USE_TLS` (`false` for a relay without STARTTLS).
 
 | Sink | `SIGANTRY_NOTIFICATION_SINK` | Required env vars |
 |------|------------------------------|-------------------|

@@ -300,3 +300,15 @@ def test_parameters_and_landscape_docs_reflect_1_4_0_plain_name_audit() -> None:
     landscape_text = (_REPO_ROOT / "docs" / "LANDSCAPE-2026-06.md").read_text(encoding="utf-8")
     sec_9_4 = landscape_text.split("### 9.4", 1)[1]
     assert "1.4.0" in sec_9_4
+
+
+def test_serial_publish_order_is_exposed_for_bulk_waves() -> None:
+    """``deploy --bulk`` orders its waves by the installed fabric-cicd's type order."""
+    from fabric_cicd import constants
+
+    from sigantry_core.deploy.bulk import fabric_cicd_type_rank
+
+    rank = fabric_cicd_type_rank()
+    assert len(rank) == len(constants.SERIAL_ITEM_PUBLISH_ORDER)
+    assert rank["Lakehouse"] < rank["Notebook"] < rank["DataPipeline"]
+    assert rank["SemanticModel"] < rank["Report"]
