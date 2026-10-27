@@ -27,6 +27,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in 2.0 (ADR-0011)"`.
 
 ### Fixed
+- **`--bulk` publishes in dependency order (`sigantry_core/deploy/bulk.py`, `sigantry_core/deploy/core.py`, `sigantry_core/deploy/sync_publish.py`).**
+  `deploy run --bulk` and `sync apply --with-publish --bulk` published every item
+  concurrently, so a pipeline could be published before the notebook it runs and
+  fail with "Cannot replace logical ID ... referenced item is not yet deployed"
+  (observed live). Items now publish in waves, one per item type, in the
+  installed fabric-cicd's own publish order; only items of one type run
+  concurrently, pipelines, dataflows and lakehouses (which can reference their own
+  type) publish as one ordered unit, the first unit runs alone so workspace
+  folders are created once, and a failed wave stops the later ones (deploy's error
+  and a sync warning list what was not attempted). If the installed fabric-cicd
+  exposes no publish order, bulk publishes serially. `deploy run --bulk` without
+  `--items-to-include` silently published serially, because fabric-cicd fills its
+  item list only during publish; it now reads the items from the tree's
+  `.platform` files and honours `--item-name-exclude-regex`, the folder filters
+  and `--shortcut-exclude-regex` like the serial publish.
 - **CD audit ledger restore keeps one chain across runs (#126, #127; `.github/workflows/sigantry-cd.yml`, `templates/stages/sigantry-cd.yml`, `templates/demo/`).**
   The GitHub restore looked at the latest successful run of *any* workflow, so a CI
   run in between silently started a new one-record chain. It now lists only runs of
