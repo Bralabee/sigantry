@@ -27,6 +27,7 @@ import pathlib
 import subprocess
 import sys
 
+import pytest
 import yaml
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -253,3 +254,105 @@ def test_drift_pair_runs_the_dispatcher_when_the_artifact_is_missing() -> None:
     after = steps[steps.index(download) + 1 :]
     (dispatch,) = [s for s in after if "_notify_main" in str(s.get("script", ""))]
     assert "condition" not in dispatch and "continueOnError" not in dispatch, dispatch
+
+
+# ---------------------------------------------------------------------------
+# #131: the notify step must receive the sink's webhook / SMTP settings.
+# Observed live: a caller with `secrets: inherit` and SIGANTRY_SLACK_WEBHOOK
+# set as a repo secret still failed "requires SIGANTRY_SLACK_WEBHOOK".
+# ---------------------------------------------------------------------------
+
+_SINK_SETTINGS = (
+    "SIGANTRY_TEAMS_WEBHOOK",
+    "SIGANTRY_TEAMS_WEBHOOK_FORMAT",
+    "SIGANTRY_SLACK_WEBHOOK",
+    "SIGANTRY_SMTP_HOST",
+    "SIGANTRY_SMTP_PORT",
+    "SIGANTRY_SMTP_USER",
+    "SIGANTRY_SMTP_PASSWORD",
+    "SIGANTRY_SMTP_FROM",
+    "SIGANTRY_SMTP_TO",
+    "SIGANTRY_SMTP_USE_TLS",
+)
+
+
+def test_issue_131_sink_settings_cover_every_setting_the_factory_reads() -> None:
+    import re
+
+    source = (REPO_ROOT / "sigantry_core" / "notifications" / "__init__.py").read_text(
+        encoding="utf-8"
+    )
+    read = set(re.findall(r'_setting\("(SIGANTRY_[A-Z_]+)"', source)) - {
+        "SIGANTRY_NOTIFICATION_SINK"
+    }
+    assert read == set(_SINK_SETTINGS)
+
+
+def test_issue_131_gha_drift_notify_receives_sink_settings_on_the_dispatcher_only() -> None:
+    doc = yaml.safe_load(GHA_WORKFLOW.read_text(encoding="utf-8"))
+    on = doc.get("on", doc.get(True))
+    declared = on["workflow_call"]["secrets"]
+    job = doc["jobs"]["notify"]
+    step = next(s for s in job["steps"] if s.get("name") == "Run notification dispatcher")
+    for name in _SINK_SETTINGS:
+        assert declared[name].get("required") is False, name
+        assert step["env"][name] == f"${{{{ secrets.{name} }}}}", name
+        # Not on the job: checkout, actions and the pip install must not see them.
+        assert name not in job.get("env", {}), name
+    other_steps = [s for s in job["steps"] if s is not step]
+    assert "secrets." not in yaml.safe_dump(other_steps)
+
+
+def test_issue_131_ado_drift_notify_maps_sink_settings() -> None:
+    doc = yaml.safe_load(ADO_TEMPLATE.read_text(encoding="utf-8"))
+    stage = next(s for s in doc["stages"] if s["stage"] == "notify")
+    step = next(s for s in stage["jobs"][0]["steps"] if "_notify_main" in str(s.get("script", "")))
+    for name in _SINK_SETTINGS:
+        assert step["env"][name] == f"$({name})", name
+
+
+def test_issue_131_unexpanded_ado_macro_counts_as_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An undefined ADO variable arrives as the literal $(NAME); it must not reach the sink."""
+    from sigantry_core.notifications import sink_from_env
+
+    monkeypatch.setenv("SIGANTRY_NOTIFICATION_SINK", "teams")
+    monkeypatch.setenv("SIGANTRY_TEAMS_WEBHOOK", "$(SIGANTRY_TEAMS_WEBHOOK)")
+    with pytest.raises(ValueError, match="requires SIGANTRY_TEAMS_WEBHOOK"):
+        sink_from_env()
+    # A real value that merely starts with "$(" is kept.
+    monkeypatch.setenv("SIGANTRY_NOTIFICATION_SINK", "email")
+    for name, value in {
+        "SIGANTRY_SMTP_HOST": "smtp.example",
+        "SIGANTRY_SMTP_FROM": "a@example.com",
+        "SIGANTRY_SMTP_TO": "b@example.com",
+        "SIGANTRY_SMTP_PASSWORD": "$(not-a-macro) x",
+        "SIGANTRY_SMTP_PORT": "$(SIGANTRY_SMTP_PORT)",
+    }.items():
+        monkeypatch.setenv(name, value)
+    sink = sink_from_env()
+    assert sink._smtp_password.value == "$(not-a-macro) x"  # type: ignore[attr-defined]
+    assert sink.smtp_port == 587  # type: ignore[attr-defined]
+
+
+def test_issue_131_empty_setting_falls_back_to_its_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """GHA passes an unset secret as ""; a Teams caller without a format secret must still work."""
+    from sigantry_core.notifications import sink_from_env
+    from sigantry_core.notifications.teams import TeamsNotificationSink
+
+    monkeypatch.setenv("SIGANTRY_NOTIFICATION_SINK", "teams")
+    monkeypatch.setenv("SIGANTRY_TEAMS_WEBHOOK", "https://example.invalid/hook")
+    monkeypatch.setenv("SIGANTRY_TEAMS_WEBHOOK_FORMAT", "")
+    assert isinstance(sink_from_env(), TeamsNotificationSink)
+    monkeypatch.setenv("SIGANTRY_NOTIFICATION_SINK", "email")
+    for name, value in {
+        "SIGANTRY_SMTP_HOST": "smtp.example",
+        "SIGANTRY_SMTP_FROM": "a@example.com",
+        "SIGANTRY_SMTP_TO": "b@example.com",
+        "SIGANTRY_SMTP_USE_TLS": "",
+        "SIGANTRY_SMTP_USER": "",
+        "SIGANTRY_SMTP_PASSWORD": "",
+    }.items():
+        monkeypatch.setenv(name, value)
+    sink = sink_from_env()
+    assert sink._use_tls is True  # type: ignore[attr-defined]
+    assert sink._smtp_password is None  # type: ignore[attr-defined]

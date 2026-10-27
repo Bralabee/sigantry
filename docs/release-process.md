@@ -174,9 +174,12 @@ tests make it hard to widen by accident:
   OIDC token (`id-token: write`): the publish job, and the `azure/login`
   jobs of the two consumer workflows, which no PyPI publisher trusts.
 - The same file allows workflows to reference only `NAME_GATE_TOKENS`,
-  `SIGANTRY_TEAMS_WEBHOOK` and `GITHUB_TOKEN`, none of which can upload to an
-  index, and refuses `secrets: inherit` and any other way of reading the
-  secrets context. A new secret means a reviewed change to that list.
+  `SIGANTRY_TEAMS_WEBHOOK` and `GITHUB_TOKEN`, plus, in `drift-check.yml`
+  alone, the notify step's sink settings (`SIGANTRY_SLACK_WEBHOOK`,
+  `SIGANTRY_TEAMS_WEBHOOK_FORMAT` and `SIGANTRY_SMTP_*`). None of them can
+  upload to an index. It refuses `secrets: inherit` and any other way of
+  reading the secrets context. A new secret means a reviewed change to those
+  lists.
 - Every job that holds a publishing credential must depend on an enforcing
   `ci.yml` job. Jobs are found by the credential they hold, not by how the
   upload command is spelled.

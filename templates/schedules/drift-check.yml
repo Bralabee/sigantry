@@ -127,10 +127,21 @@ stages:
             displayName: 'Run notification dispatcher'
             # WR-05 / D-28: notification-sink config flows via ``env:``
             # block. ``SIGANTRY_NOTIFICATION_SINK`` selects the sink kind
-            # (teams / slack / email); the per-impl webhook URLs / SMTP
-            # creds come from the operator's CI secrets store and MUST
-            # be wired here as additional env entries when configuring
-            # the schedule (e.g. SIGANTRY_TEAMS_WEBHOOK -> $(teamsWebhook)).
+            # (teams / slack / email). Secret pipeline variables never reach
+            # a script unless mapped, so the per-impl webhook URLs / SMTP
+            # settings are mapped here from library variables of the same
+            # names (#131). A variable that is not defined arrives as the
+            # literal $(NAME); the sink factory treats that as unset.
             env:
               SIGANTRY_NOTIFICATION_SINK: ${{ parameters.notificationSink }}
               SIGANTRY_DRIFT_WORKSPACE_ID: ${{ parameters.workspaceId }}
+              SIGANTRY_TEAMS_WEBHOOK: $(SIGANTRY_TEAMS_WEBHOOK)
+              SIGANTRY_TEAMS_WEBHOOK_FORMAT: $(SIGANTRY_TEAMS_WEBHOOK_FORMAT)
+              SIGANTRY_SLACK_WEBHOOK: $(SIGANTRY_SLACK_WEBHOOK)
+              SIGANTRY_SMTP_HOST: $(SIGANTRY_SMTP_HOST)
+              SIGANTRY_SMTP_PORT: $(SIGANTRY_SMTP_PORT)
+              SIGANTRY_SMTP_USER: $(SIGANTRY_SMTP_USER)
+              SIGANTRY_SMTP_PASSWORD: $(SIGANTRY_SMTP_PASSWORD)
+              SIGANTRY_SMTP_FROM: $(SIGANTRY_SMTP_FROM)
+              SIGANTRY_SMTP_TO: $(SIGANTRY_SMTP_TO)
+              SIGANTRY_SMTP_USE_TLS: $(SIGANTRY_SMTP_USE_TLS)

@@ -27,6 +27,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in 2.0 (ADR-0011)"`.
 
 ### Fixed
+- **Drift alerts are delivered from the reusable drift-check templates (#131; `.github/workflows/drift-check.yml`, `templates/schedules/drift-check.yml`).**
+  The notify step read the Teams / Slack webhook and SMTP settings from its own
+  environment, which a calling workflow cannot set, so a detected drift ended in
+  "requires SIGANTRY_SLACK_WEBHOOK to be set" and no alert (observed live). The
+  GitHub workflow now declares them as optional `workflow_call` secrets and maps
+  them into the notify job (`secrets: inherit` works, as the runbook says); the
+  Azure DevOps template maps library variables of the same names and ignores any
+  that arrive as an unexpanded `$(NAME)` macro.
 - **`--bulk` publishes in dependency order (`sigantry_core/deploy/bulk.py`, `sigantry_core/deploy/core.py`, `sigantry_core/deploy/sync_publish.py`).**
   `deploy run --bulk` and `sync apply --with-publish --bulk` published every item
   concurrently, so a pipeline could be published before the notebook it runs and
