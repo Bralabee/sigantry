@@ -102,11 +102,26 @@ _AZURE_LOGIN_HOLDERS = frozenset(
 )
 
 # The only secrets a workflow may reference. None of them can publish to an
-# index: the token list feeds the name gate, the webhook posts to Teams, and
-# GITHUB_TOKEN is scoped to this repository. A new secret fails
-# `test_workflows_reference_only_allowed_secrets` and has to be added here,
-# in a reviewed change, with what it is for.
-_ALLOWED_SECRETS = frozenset({"NAME_GATE_TOKENS", "SIGANTRY_TEAMS_WEBHOOK", "GITHUB_TOKEN"})
+# index: the token list feeds the name gate, GITHUB_TOKEN is scoped to this
+# repository, and the drift-check notify job's sink settings (#131) only
+# deliver an alert: the Teams and Slack webhooks post to a channel, and the
+# SMTP settings send mail through the operator's own relay. A new secret
+# fails `test_workflows_reference_only_allowed_secrets` and has to be added
+# here, in a reviewed change, with what it is for.
+_ALLOWED_SECRETS = frozenset(
+    {
+        "NAME_GATE_TOKENS",
+        "GITHUB_TOKEN",
+        "SIGANTRY_TEAMS_WEBHOOK",
+        "SIGANTRY_SLACK_WEBHOOK",
+        "SIGANTRY_SMTP_HOST",
+        "SIGANTRY_SMTP_PORT",
+        "SIGANTRY_SMTP_USER",
+        "SIGANTRY_SMTP_PASSWORD",
+        "SIGANTRY_SMTP_FROM",
+        "SIGANTRY_SMTP_TO",
+    }
+)
 
 # The repository variables a workflow may read: none. A variable is shown in
 # logs and to anyone with read access, so it must never hold a credential, but
