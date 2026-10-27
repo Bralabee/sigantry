@@ -102,26 +102,32 @@ _AZURE_LOGIN_HOLDERS = frozenset(
 )
 
 # The only secrets a workflow may reference. None of them can publish to an
-# index: the token list feeds the name gate, GITHUB_TOKEN is scoped to this
-# repository, and the drift-check notify job's sink settings (#131) only
-# deliver an alert: the Teams and Slack webhooks post to a channel, and the
-# SMTP settings send mail through the operator's own relay. A new secret
-# fails `test_workflows_reference_only_allowed_secrets` and has to be added
-# here, in a reviewed change, with what it is for.
-_ALLOWED_SECRETS = frozenset(
-    {
-        "NAME_GATE_TOKENS",
-        "GITHUB_TOKEN",
-        "SIGANTRY_TEAMS_WEBHOOK",
-        "SIGANTRY_SLACK_WEBHOOK",
-        "SIGANTRY_SMTP_HOST",
-        "SIGANTRY_SMTP_PORT",
-        "SIGANTRY_SMTP_USER",
-        "SIGANTRY_SMTP_PASSWORD",
-        "SIGANTRY_SMTP_FROM",
-        "SIGANTRY_SMTP_TO",
-    }
-)
+# index: the token list feeds the name gate, the webhook posts to Teams, and
+# GITHUB_TOKEN is scoped to this repository. A new secret fails
+# `test_workflows_reference_only_allowed_secrets` and has to be added here,
+# in a reviewed change, with what it is for.
+_ALLOWED_SECRETS = frozenset({"NAME_GATE_TOKENS", "SIGANTRY_TEAMS_WEBHOOK", "GITHUB_TOKEN"})
+
+# Secrets one workflow alone may reference, on top of the list above. The
+# drift-check notify step reads its sink's settings (#131): the Teams and
+# Slack webhooks post to a channel and the SMTP settings send mail through the
+# operator's own relay. None can publish to an index, and no other workflow
+# (the publish job above all) may read them.
+_WORKFLOW_ONLY_SECRETS: dict[str, frozenset[str]] = {
+    "drift-check.yml": frozenset(
+        {
+            "SIGANTRY_TEAMS_WEBHOOK_FORMAT",
+            "SIGANTRY_SLACK_WEBHOOK",
+            "SIGANTRY_SMTP_HOST",
+            "SIGANTRY_SMTP_PORT",
+            "SIGANTRY_SMTP_USER",
+            "SIGANTRY_SMTP_PASSWORD",
+            "SIGANTRY_SMTP_FROM",
+            "SIGANTRY_SMTP_TO",
+            "SIGANTRY_SMTP_USE_TLS",
+        }
+    ),
+}
 
 # The repository variables a workflow may read: none. A variable is shown in
 # logs and to anyone with read access, so it must never hold a credential, but
@@ -1477,7 +1483,8 @@ def test_workflows_reference_only_allowed_secrets(all_workflows: dict[str, dict]
     """
     seen: set[str] = set()
     for filename, workflow in all_workflows.items():
-        for context, allowed in (("secrets", _ALLOWED_SECRETS), ("vars", _ALLOWED_VARS)):
+        secrets_allowed = _ALLOWED_SECRETS | _WORKFLOW_ONLY_SECRETS.get(filename, frozenset())
+        for context, allowed in (("secrets", secrets_allowed), ("vars", _ALLOWED_VARS)):
             names, problems = _context_uses(workflow, context)
             assert not problems, (
                 f"{filename} reads {context} in a form this check cannot enumerate: "
@@ -1607,3 +1614,11 @@ def test_ci_concurrency_group_does_not_cancel_the_release_gate(ci_workflow: dict
         "`github.workflow` (in a called workflow it is the CALLER's name) so a "
         "release's quality gate cannot be cancelled by a push to the same ref."
     )
+
+
+def test_sink_secrets_are_allowed_in_drift_check_only() -> None:
+    """The drift alert settings (#131) must not become readable by every workflow."""
+    sink_only = _WORKFLOW_ONLY_SECRETS["drift-check.yml"]
+    assert set(_WORKFLOW_ONLY_SECRETS) == {"drift-check.yml"}
+    assert not (sink_only & _ALLOWED_SECRETS)
+    assert "SIGANTRY_SMTP_PASSWORD" in sink_only

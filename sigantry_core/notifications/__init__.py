@@ -29,12 +29,29 @@ Recognised environment variables:
 from __future__ import annotations
 
 import os
+import re
 from typing import cast
 
 from sigantry_core.notifications.email import EmailNotificationSink
 from sigantry_core.notifications.slack import SlackNotificationSink
 from sigantry_core.notifications.teams import TeamsNotificationSink
 from sigantry_core.protocols import NotificationSink
+
+# An Azure DevOps variable mapped into a step but never defined reaches the
+# process as its own macro text, e.g. "$(SIGANTRY_TEAMS_WEBHOOK)". Posting to
+# that "URL" would fail and the sink would swallow it, so it counts as unset.
+_UNEXPANDED_MACRO = re.compile(r"\$\([A-Za-z0-9_.]+\)")
+
+
+def _setting(name: str, default: str = "", *, strip: bool = True) -> str:
+    """``os.environ[name]``, or ``default`` when unset or an unexpanded macro.
+
+    Stripped unless ``strip=False`` (credentials are passed through as given).
+    """
+    value = os.environ.get(name)
+    if value is None or _UNEXPANDED_MACRO.fullmatch(value.strip()):
+        return default
+    return value.strip() if strip else value
 
 
 def sink_from_env() -> NotificationSink:
@@ -50,14 +67,14 @@ def sink_from_env() -> NotificationSink:
         If ``SIGANTRY_NOTIFICATION_SINK`` is unset, holds an unknown
         value, or any required per-impl env var is missing.
     """
-    kind = os.environ.get("SIGANTRY_NOTIFICATION_SINK", "").strip().lower()
+    kind = _setting("SIGANTRY_NOTIFICATION_SINK", "").lower()
     if kind == "teams":
-        webhook = os.environ.get("SIGANTRY_TEAMS_WEBHOOK", "").strip()
+        webhook = _setting("SIGANTRY_TEAMS_WEBHOOK", "")
         if not webhook:
             raise ValueError(
                 "SIGANTRY_NOTIFICATION_SINK=teams requires SIGANTRY_TEAMS_WEBHOOK to be set."
             )
-        fmt = os.environ.get("SIGANTRY_TEAMS_WEBHOOK_FORMAT", "adaptive_card").strip().lower()
+        fmt = _setting("SIGANTRY_TEAMS_WEBHOOK_FORMAT", "adaptive_card").lower()
         if fmt not in ("adaptive_card", "messagecard"):
             raise ValueError(
                 "SIGANTRY_TEAMS_WEBHOOK_FORMAT must be 'adaptive_card' (default) or "
@@ -71,22 +88,22 @@ def sink_from_env() -> NotificationSink:
             ),
         )
     if kind == "slack":
-        webhook = os.environ.get("SIGANTRY_SLACK_WEBHOOK", "").strip()
+        webhook = _setting("SIGANTRY_SLACK_WEBHOOK", "")
         if not webhook:
             raise ValueError(
                 "SIGANTRY_NOTIFICATION_SINK=slack requires SIGANTRY_SLACK_WEBHOOK to be set."
             )
         return cast(NotificationSink, SlackNotificationSink(webhook_url=webhook))
     if kind == "email":
-        host = os.environ.get("SIGANTRY_SMTP_HOST", "").strip()
-        from_addr = os.environ.get("SIGANTRY_SMTP_FROM", "").strip()
-        to_str = os.environ.get("SIGANTRY_SMTP_TO", "").strip()
+        host = _setting("SIGANTRY_SMTP_HOST", "")
+        from_addr = _setting("SIGANTRY_SMTP_FROM", "")
+        to_str = _setting("SIGANTRY_SMTP_TO", "")
         if not (host and from_addr and to_str):
             raise ValueError(
                 "SIGANTRY_NOTIFICATION_SINK=email requires SIGANTRY_SMTP_HOST, "
                 "SIGANTRY_SMTP_FROM, and SIGANTRY_SMTP_TO to be set."
             )
-        port_str = os.environ.get("SIGANTRY_SMTP_PORT", "587").strip() or "587"
+        port_str = _setting("SIGANTRY_SMTP_PORT", "587") or "587"
         try:
             port = int(port_str)
         except ValueError as exc:
@@ -94,14 +111,14 @@ def sink_from_env() -> NotificationSink:
         recipients = [s.strip() for s in to_str.split(",") if s.strip()]
         if not recipients:
             raise ValueError("SIGANTRY_SMTP_TO must list at least one recipient (comma-separated).")
-        use_tls = os.environ.get("SIGANTRY_SMTP_USE_TLS", "true").strip().lower() != "false"
+        use_tls = _setting("SIGANTRY_SMTP_USE_TLS", "true").lower() != "false"
         return cast(
             NotificationSink,
             EmailNotificationSink(
                 smtp_host=host,
                 smtp_port=port,
-                smtp_user=os.environ.get("SIGANTRY_SMTP_USER") or None,
-                smtp_password=os.environ.get("SIGANTRY_SMTP_PASSWORD") or None,
+                smtp_user=_setting("SIGANTRY_SMTP_USER", strip=False) or None,
+                smtp_password=_setting("SIGANTRY_SMTP_PASSWORD", strip=False) or None,
                 from_addr=from_addr,
                 default_recipients=recipients,
                 use_tls=use_tls,
