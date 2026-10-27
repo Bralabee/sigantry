@@ -194,7 +194,7 @@ jobs:
       azureClientId: '<app-registration-client-id>'
       azureTenantId: '<tenant-id>'
       workItems: '123'
-      sigantryVersion: '1.1.1'
+      sigantryVersion: '1.2.0'
       smokeCommand: 'sigantry doctor && curl -s https://my-app/health'
 ```
 
