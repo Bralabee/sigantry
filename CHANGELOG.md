@@ -27,6 +27,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in 2.0 (ADR-0011)"`.
 
 ### Fixed
+- **CD audit ledger restore keeps one chain across runs (#126, #127; `.github/workflows/sigantry-cd.yml`, `templates/stages/sigantry-cd.yml`, `templates/demo/`).**
+  The GitHub restore looked at the latest successful run of *any* workflow, so a CI
+  run in between silently started a new one-record chain. It now lists only runs of
+  the calling workflow, skips the current run, takes the newest one holding a
+  `sigantry-audit-ledger` artifact, fails the job when runs cannot be listed, and
+  announces a new chain when none exists. The Azure DevOps CD and demo pipelines
+  never fetched a previous run's artifact at all; they now download it with
+  `DownloadPipelineArtifact@2` from the same pipeline definition. Both demo
+  pipelines now upload the ledger, and the demo GitHub job grants `actions: read`.
 - **Live-Fabric verification remediation (`.github/workflows/sigantry-cd.yml`, `templates/stages/sigantry-cd.yml`, `templates/demo/`, `sigantry_core/preflight/`, `sigantry_core/capacity/core.py`, `sigantry_core/governance/destructive.py`, `sigantry_core/workspace/`, `sigantry_core/sync/apply.py`, `sigantry_core/deploy/`, `sigantry_core/auth/`, `sigantry_core/pr_bot/`, `docs/`).**
   1. Moved the CD self-approval gate into the `approval` job/stage (`sigantry-cd.yml` on both GHA and ADO) so self-approval is rejected **before** `deploy` runs rather than in `promote` after changes are already live.
   2. Added an M partition block to `templates/demo/fabric_items/OrdersAnalytics.SemanticModel/definition/tables/Orders.tmdl` so live Fabric semantic-model publish succeeds, and extended `SchemaSyntaxProbe` to reject table `.tmdl` files that lack a `partition` declaration.

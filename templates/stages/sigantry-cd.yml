@@ -197,6 +197,22 @@ stages:
                   parameters:
                     sigantryVersion: ${{ parameters.sigantryVersion }}
                     artifactsFeed: ${{ parameters.artifactsFeed }}
+                # Issue #127: fetch the ledger artifact of the latest earlier
+                # run of THIS pipeline into its own folder (the implicit
+                # `download: current` only brings this run's artifacts). The
+                # first run has none, so the task may fail; the record step
+                # then says a new chain starts.
+                - task: DownloadPipelineArtifact@2
+                  displayName: 'Download prior audit ledger'
+                  continueOnError: true
+                  inputs:
+                    source: specific
+                    project: $(System.TeamProjectId)
+                    pipeline: $(System.DefinitionId)
+                    runVersion: latest
+                    allowPartiallySucceededBuilds: true
+                    artifact: sigantry-audit-ledger
+                    path: $(Pipeline.Workspace)/sigantry-prior-ledger
                 - task: AzureCLI@2
                   displayName: 'sigantry release record'
                   # WR-05 review fix: operator inputs are passed via the
@@ -234,8 +250,13 @@ stages:
                       fi
                       if [ -n "${SIGANTRY_AUDIT_DIR:-}" ]; then
                         mkdir -p "$SIGANTRY_AUDIT_DIR"
-                        if [ ! -s "$SIGANTRY_AUDIT_DIR/deploys.jsonl" ] && [ -n "${SIGANTRY_PIPELINE_WORKSPACE:-}" ] && [ -s "$SIGANTRY_PIPELINE_WORKSPACE/sigantry-audit-ledger/deploys.jsonl" ]; then
-                          cp "$SIGANTRY_PIPELINE_WORKSPACE/sigantry-audit-ledger/deploys.jsonl" "$SIGANTRY_AUDIT_DIR/deploys.jsonl"
+                        if [ -s "$SIGANTRY_AUDIT_DIR/deploys.jsonl" ]; then
+                          echo "audit ledger already present in $SIGANTRY_AUDIT_DIR; not restoring"
+                        elif [ -n "${SIGANTRY_PIPELINE_WORKSPACE:-}" ] && [ -s "$SIGANTRY_PIPELINE_WORKSPACE/sigantry-prior-ledger/deploys.jsonl" ]; then
+                          cp "$SIGANTRY_PIPELINE_WORKSPACE/sigantry-prior-ledger/deploys.jsonl" "$SIGANTRY_AUDIT_DIR/deploys.jsonl"
+                          echo "restored audit ledger ($(wc -l < "$SIGANTRY_AUDIT_DIR/deploys.jsonl") record(s))"
+                        else
+                          echo "##vso[task.logissue type=warning]no prior sigantry-audit-ledger artifact for this pipeline; this release starts a NEW audit ledger chain"
                         fi
                       fi
                       if [ -z "$SIGANTRY_FABRIC_ITEMS" ] && [ -d "$SIGANTRY_SOURCE_DIR" ]; then

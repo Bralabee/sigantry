@@ -322,19 +322,43 @@ jobs:
             exit 1
           fi
           echo "approver=$approver" >> "$GITHUB_OUTPUT"
-      - name: Restore prior audit ledger (deploys.jsonl) if available
+      - name: Restore prior audit ledger (deploys.jsonl)
+        # Issue #126: only runs of the CALLING workflow carry the ledger
+        # artifact, so the lookup is filtered to that workflow (the github
+        # context of a reusable workflow is the caller's). The newest
+        # completed run holding the artifact wins: promote uploads it with
+        # `if: always()`, so a run that failed after recording still has the
+        # latest chain. A listing failure stops the job instead of silently
+        # starting a new chain; no prior ledger at all is announced.
         env:
           GH_TOKEN: ${{ github.token }}
           SIGANTRY_REPOSITORY: ${{ github.repository }}
+          SIGANTRY_WORKFLOW_REF: ${{ github.workflow_ref }}
+          SIGANTRY_RUN_ID: ${{ github.run_id }}
           SIGANTRY_AUDIT_DIR: ${{ inputs.auditDir != '' && inputs.auditDir || '.sigantry/audit' }}
         run: |
+          set -euo pipefail
           mkdir -p "$SIGANTRY_AUDIT_DIR"
-          if [ ! -s "$SIGANTRY_AUDIT_DIR/deploys.jsonl" ] && command -v gh >/dev/null 2>&1 && [ -n "${GH_TOKEN:-}" ]; then
-            prev_run=$(gh run list --repo "$SIGANTRY_REPOSITORY" --status success --limit 5 --json databaseId --jq '.[0].databaseId // empty' 2>/dev/null || true)
-            if [ -n "$prev_run" ]; then
-              gh run download "$prev_run" --repo "$SIGANTRY_REPOSITORY" --name sigantry-audit-ledger --dir "$SIGANTRY_AUDIT_DIR" 2>/dev/null || true
-            fi
+          if [ -s "$SIGANTRY_AUDIT_DIR/deploys.jsonl" ]; then
+            echo "audit ledger already present in $SIGANTRY_AUDIT_DIR; not restoring"
+            exit 0
           fi
+          workflow_path="${SIGANTRY_WORKFLOW_REF%@*}"
+          workflow_file="${workflow_path##*/}"
+          if ! runs=$(gh run list --repo "$SIGANTRY_REPOSITORY" --workflow "$workflow_file" --status completed --limit 50 --json databaseId --jq '.[].databaseId'); then
+            echo "::error::could not list prior runs of $workflow_file (does the caller grant actions: read?); refusing to record into a new, unchained audit ledger"
+            exit 1
+          fi
+          for run in $runs; do
+            [ "$run" = "$SIGANTRY_RUN_ID" ] && continue
+            if gh run download "$run" --repo "$SIGANTRY_REPOSITORY" --name sigantry-audit-ledger --dir "$SIGANTRY_AUDIT_DIR" 2>/dev/null \
+              && [ -s "$SIGANTRY_AUDIT_DIR/deploys.jsonl" ]; then
+              echo "restored audit ledger from run $run of $workflow_file ($(wc -l < "$SIGANTRY_AUDIT_DIR/deploys.jsonl") record(s))"
+              exit 0
+            fi
+          done
+          echo "::warning::no sigantry-audit-ledger artifact in the last 50 completed runs of $workflow_file; this release starts a NEW audit ledger chain"
+          echo "**sigantry:** no prior audit ledger found for \`$workflow_file\`; this release starts a new chain." >> "$GITHUB_STEP_SUMMARY"
       - name: sigantry release record
         # WR-05 review fix: operator inputs are passed via the ``env:``
         # block (which GHA expands BEFORE bash sees the script) rather
