@@ -91,7 +91,7 @@ All three of these are involved in the buying decision. The brief addresses each
 
 ## Demo
 
-The demo runs end to end on a Fabric capacity (an F SKU or a Fabric trial).
+The demo runs end to end through its GitHub Actions CI; see [what it needs](demo/QUICKSTART.md).
 
 Sigantry's demo is [`templates/demo/`](../templates/demo/) in this
 repository. It is not provisioned as its own repository; to run its

@@ -1,7 +1,8 @@
 # Sigantry demo -- public adoption surface
 
-> The demo runs end to end on a Fabric capacity (an F SKU or a Fabric trial); a Power BI Premium Per User
-> capacity hosts only its semantic model.
+> The demo runs end to end on a Fabric capacity (an F or P SKU, or a
+> Fabric trial) through its GitHub Actions CI; what it needs is set out
+> at the top of `docs/demo/QUICKSTART.md` in the sigantry repository.
 >
 > This tree is the demo. It lives in the sigantry repository as
 > `templates/demo/` and is not provisioned as its own repository; to

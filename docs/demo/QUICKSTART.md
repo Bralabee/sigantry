@@ -1,8 +1,11 @@
 # Sigantry demo walkthrough
 
-> The demo runs end to end on a Fabric capacity (an F SKU or a Fabric trial). A Power BI Premium Per User
-> capacity hosts only its semantic model; `sigantry preflight` reports
-> that before a deploy.
+> **What the demo needs.** It runs end to end on a Fabric capacity: an F
+> or P SKU, or a Fabric trial. A Power BI Premium Per User capacity hosts
+> only its semantic model; `sigantry preflight --manifest sync.yml
+> --params parameters.yml --workspace-id "$SIGANTRY_DEMO_WORKSPACE_ID"`
+> reports that before anything is deployed. The end-to-end run used the
+> GitHub Actions demo CI; the Azure DevOps pipeline has not been run.
 >
 > Phase 15 / DEMO-04. This walkthrough is for outside reviewers who
 > did not build Sigantry.
@@ -116,6 +119,11 @@ sigantry diff \
 compares item names, types and folders, so Lakehouse tables, which live
 in OneLake rather than Git, are outside it (see
 [Troubleshooting](#troubleshooting)).
+
+On a newly provisioned workspace the diff lists the three demo items as
+removed: step 4 places the items the workspace already holds but does
+not publish new ones. The demo CI in step 6 deploys them, after which
+`sigantry diff` reports no drift.
 
 ## Step 6 -- Push a change for the demo CI
 
