@@ -58,6 +58,18 @@ on:
       azureClientId:    { type: string, required: true }
       azureTenantId:    { type: string, required: true }
       sigantryVersion:  { type: string, required: false, default: '' }
+    # The notify job's sink settings (#131). A caller passes them with
+    # `secrets: inherit` or by name; each is optional, and only the ones the
+    # chosen sink needs are read.
+    secrets:
+      SIGANTRY_TEAMS_WEBHOOK: { required: false }
+      SIGANTRY_SLACK_WEBHOOK: { required: false }
+      SIGANTRY_SMTP_HOST: { required: false }
+      SIGANTRY_SMTP_PORT: { required: false }
+      SIGANTRY_SMTP_USER: { required: false }
+      SIGANTRY_SMTP_PASSWORD: { required: false }
+      SIGANTRY_SMTP_FROM: { required: false }
+      SIGANTRY_SMTP_TO: { required: false }
 
 permissions:
   contents: read
@@ -115,13 +127,20 @@ jobs:
     if: failure()
     # WR-05 / D-28: notification-sink config flows via ``env:`` block.
     # ``SIGANTRY_NOTIFICATION_SINK`` selects the sink kind (teams / slack /
-    # email); the per-impl webhook URLs / SMTP creds come from the
-    # operator's GitHub repository secrets and MUST be wired here as
-    # additional env entries when configuring the workflow (e.g.
-    # SIGANTRY_TEAMS_WEBHOOK: ${{ secrets.SIGANTRY_TEAMS_WEBHOOK }}).
+    # email). A reusable workflow's env is not reachable from its caller, so
+    # the per-impl webhook URLs / SMTP settings are declared `secrets:` above
+    # and mapped here (#131); an unset secret is an empty value.
     env:
       SIGANTRY_NOTIFICATION_SINK: ${{ inputs.notificationSink }}
       SIGANTRY_DRIFT_WORKSPACE_ID: ${{ inputs.workspaceId }}
+      SIGANTRY_TEAMS_WEBHOOK: ${{ secrets.SIGANTRY_TEAMS_WEBHOOK }}
+      SIGANTRY_SLACK_WEBHOOK: ${{ secrets.SIGANTRY_SLACK_WEBHOOK }}
+      SIGANTRY_SMTP_HOST: ${{ secrets.SIGANTRY_SMTP_HOST }}
+      SIGANTRY_SMTP_PORT: ${{ secrets.SIGANTRY_SMTP_PORT }}
+      SIGANTRY_SMTP_USER: ${{ secrets.SIGANTRY_SMTP_USER }}
+      SIGANTRY_SMTP_PASSWORD: ${{ secrets.SIGANTRY_SMTP_PASSWORD }}
+      SIGANTRY_SMTP_FROM: ${{ secrets.SIGANTRY_SMTP_FROM }}
+      SIGANTRY_SMTP_TO: ${{ secrets.SIGANTRY_SMTP_TO }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0

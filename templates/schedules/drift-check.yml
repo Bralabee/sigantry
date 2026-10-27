@@ -121,16 +121,30 @@ stages:
             continueOnError: true
           - script: |
               set -e
+              # An undefined pipeline variable reaches the script as the
+              # literal text $(NAME); drop it so the sink reports a missing
+              # setting instead of posting to "$(NAME)" (#131).
+              for v in SIGANTRY_TEAMS_WEBHOOK SIGANTRY_SLACK_WEBHOOK SIGANTRY_SMTP_HOST SIGANTRY_SMTP_PORT SIGANTRY_SMTP_USER SIGANTRY_SMTP_PASSWORD SIGANTRY_SMTP_FROM SIGANTRY_SMTP_TO; do
+                case "${!v-}" in '$('*) unset "$v" ;; esac
+              done
               python -m sigantry_core.sync._notify_main \
                 --drift-json "$(Pipeline.Workspace)/drift_json/drift.json" \
                 --workspace-id "$SIGANTRY_DRIFT_WORKSPACE_ID"
             displayName: 'Run notification dispatcher'
             # WR-05 / D-28: notification-sink config flows via ``env:``
             # block. ``SIGANTRY_NOTIFICATION_SINK`` selects the sink kind
-            # (teams / slack / email); the per-impl webhook URLs / SMTP
-            # creds come from the operator's CI secrets store and MUST
-            # be wired here as additional env entries when configuring
-            # the schedule (e.g. SIGANTRY_TEAMS_WEBHOOK -> $(teamsWebhook)).
+            # (teams / slack / email). Secret pipeline variables never reach
+            # a script unless mapped, so the per-impl webhook URLs / SMTP
+            # settings are mapped here from library variables of the same
+            # names (#131).
             env:
               SIGANTRY_NOTIFICATION_SINK: ${{ parameters.notificationSink }}
               SIGANTRY_DRIFT_WORKSPACE_ID: ${{ parameters.workspaceId }}
+              SIGANTRY_TEAMS_WEBHOOK: $(SIGANTRY_TEAMS_WEBHOOK)
+              SIGANTRY_SLACK_WEBHOOK: $(SIGANTRY_SLACK_WEBHOOK)
+              SIGANTRY_SMTP_HOST: $(SIGANTRY_SMTP_HOST)
+              SIGANTRY_SMTP_PORT: $(SIGANTRY_SMTP_PORT)
+              SIGANTRY_SMTP_USER: $(SIGANTRY_SMTP_USER)
+              SIGANTRY_SMTP_PASSWORD: $(SIGANTRY_SMTP_PASSWORD)
+              SIGANTRY_SMTP_FROM: $(SIGANTRY_SMTP_FROM)
+              SIGANTRY_SMTP_TO: $(SIGANTRY_SMTP_TO)

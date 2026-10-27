@@ -27,6 +27,7 @@ import pathlib
 import subprocess
 import sys
 
+import pytest
 import yaml
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -253,3 +254,75 @@ def test_drift_pair_runs_the_dispatcher_when_the_artifact_is_missing() -> None:
     after = steps[steps.index(download) + 1 :]
     (dispatch,) = [s for s in after if "_notify_main" in str(s.get("script", ""))]
     assert "condition" not in dispatch and "continueOnError" not in dispatch, dispatch
+
+
+# ---------------------------------------------------------------------------
+# #131: the notify step must receive the sink's webhook / SMTP settings.
+# Observed live: a caller with `secrets: inherit` and SIGANTRY_SLACK_WEBHOOK
+# set as a repo secret still failed "requires SIGANTRY_SLACK_WEBHOOK".
+# ---------------------------------------------------------------------------
+
+_SINK_SETTINGS = (
+    "SIGANTRY_TEAMS_WEBHOOK",
+    "SIGANTRY_SLACK_WEBHOOK",
+    "SIGANTRY_SMTP_HOST",
+    "SIGANTRY_SMTP_PORT",
+    "SIGANTRY_SMTP_USER",
+    "SIGANTRY_SMTP_PASSWORD",
+    "SIGANTRY_SMTP_FROM",
+    "SIGANTRY_SMTP_TO",
+)
+
+
+def test_issue_131_gha_drift_notify_receives_sink_settings() -> None:
+    doc = yaml.safe_load(GHA_WORKFLOW.read_text(encoding="utf-8"))
+    on = doc.get("on", doc.get(True))
+    declared = on["workflow_call"]["secrets"]
+    env = doc["jobs"]["notify"]["env"]
+    for name in _SINK_SETTINGS:
+        assert declared[name] == {"required": False}, name
+        assert env[name] == f"${{{{ secrets.{name} }}}}", name
+
+
+def _ado_notify_step() -> dict:
+    doc = yaml.safe_load(ADO_TEMPLATE.read_text(encoding="utf-8"))
+    stage = next(s for s in doc["stages"] if s["stage"] == "notify")
+    steps = stage["jobs"][0]["steps"]
+    return next(s for s in steps if "_notify_main" in str(s.get("script", "")))
+
+
+def test_issue_131_ado_drift_notify_maps_sink_settings() -> None:
+    env = _ado_notify_step()["env"]
+    for name in _SINK_SETTINGS:
+        assert env[name] == f"$({name})", name
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs the template's bash step")
+def test_issue_131_ado_drops_unexpanded_variable_macros(tmp_path: pathlib.Path) -> None:
+    """An undefined ADO variable arrives as the literal $(NAME): it must not reach the sink."""
+    script = _ado_notify_step()["script"]
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    fake_python = bindir / "python"
+    fake_python.write_text(
+        "#!/usr/bin/env bash\nenv | grep '^SIGANTRY_' | sort\n", encoding="utf-8"
+    )
+    fake_python.chmod(0o755)
+    proc = subprocess.run(
+        ["bash", "-c", script.replace("$(Pipeline.Workspace)", str(tmp_path))],
+        env={
+            "PATH": f"{bindir}:/usr/bin:/bin",
+            "SIGANTRY_NOTIFICATION_SINK": "slack",
+            "SIGANTRY_DRIFT_WORKSPACE_ID": "ws",
+            "SIGANTRY_SLACK_WEBHOOK": "https://hooks.example/real",
+            "SIGANTRY_TEAMS_WEBHOOK": "$(SIGANTRY_TEAMS_WEBHOOK)",
+            "SIGANTRY_SMTP_HOST": "$(SIGANTRY_SMTP_HOST)",
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "SIGANTRY_SLACK_WEBHOOK=https://hooks.example/real" in proc.stdout
+    assert "SIGANTRY_TEAMS_WEBHOOK" not in proc.stdout
+    assert "SIGANTRY_SMTP_HOST" not in proc.stdout
