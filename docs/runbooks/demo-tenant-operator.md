@@ -1,6 +1,8 @@
 # Demo tenant -- operator runbook
 
-> The demo does not run end to end on the shipped demo tree yet.
+> The demo runs end to end on a Fabric capacity (an F or P SKU, or a
+> Fabric trial) through its GitHub Actions CI; see
+> [what it needs](../demo/QUICKSTART.md).
 >
 > Phase 15 / DEMO-02 closure (DEMO-03, the walkthrough video build, is
 > retired). This runbook is for the
@@ -25,8 +27,11 @@ for why.
 
 1. Create a Microsoft 365 dev tenant (or sub-tenant) with Fabric
    enabled.
-2. In the Fabric admin portal, create an F2 (trial) capacity. Note
-   the capacity ID -- this becomes `SIGANTRY_DEMO_CAPACITY_ID`.
+2. Get a Fabric capacity: start a Fabric trial (account manager ->
+   Start trial, which creates an FTL64 trial capacity), create an F SKU
+   capacity in Azure, or use a P SKU capacity you already have. A Premium Per User capacity is not enough: it
+   cannot host the demo's Notebook or DataPipeline. Note the capacity ID
+   -- this becomes `SIGANTRY_DEMO_CAPACITY_ID`.
 3. Create a workspace named `demo-sigantry` and assign it to the
    capacity. Note the workspace ID -- this becomes
    `SIGANTRY_DEMO_WORKSPACE_ID`. Note the tenant ID -- this becomes
@@ -142,9 +147,13 @@ and the `sigantry-demo-secrets` ADO variable group per Section 2.
 
 ## 5. Demo CI notes
 
-The demo does not run end to end on the shipped demo tree yet, so this
-runbook has no recovery procedure for a failed demo CI run.
+This runbook has no recovery procedure for a failed demo CI run; the
+checks below cover the usual causes.
 
+- **Capacity:** a Fabric trial expires after 60 days and an F SKU can be
+  paused; either fails the deploy. Run `sigantry preflight --manifest
+  sync.yml --params parameters.yml --workspace-id <id>` and check the
+  capacity probe.
 - **Credentials:** check the SPN with the commands in Section 1;
   rotate per Section 2.
 - **Tenant status:** check `https://admin.fabric.microsoft.com` and

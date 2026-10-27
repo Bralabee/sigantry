@@ -109,7 +109,7 @@ def test_demo_branching_is_starter_page_plus_notice() -> None:
         end += 1
     notice = demo[2:end]
     assert notice, "demo BRANCHING.md has no notice block after its title"
-    assert "does not run end to end" in " ".join(notice), "demo notice missing"
+    assert "the starter's branching guide" in " ".join(notice), "demo notice missing"
     assert demo[end] == "", "demo notice must be followed by a blank line"
     assert demo[:2] + demo[end + 1 :] == starter, (
         "demo BRANCHING.md differs from the starter's page outside the notice block"

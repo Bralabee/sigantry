@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+- **The demo runs end to end (`templates/demo/`, `docs/demo/QUICKSTART.md`, `docs/runbooks/demo-tenant-operator.md`, `docs/CONSUMING.md`, `docs/PRODUCT-BRIEF.md`, `docs/CAPABILITIES.md`, `templates/README.md`).**
+  Removed the "does not run end to end" banner. On a Fabric trial capacity the
+  demo CI's GitHub workflow deployed all three items, recorded and verified the
+  release and found no drift, with the ledger chained across four runs (PR,
+  merge, and the step-6 notebook change). The walkthrough's own steps behave as
+  written; on a new workspace its diff lists the items as missing until the CI
+  deploys them, which the page now says. `docs/demo/QUICKSTART.md` opens with
+  what the demo needs, a Fabric capacity (F or P SKU, or a trial; a Premium Per
+  User capacity hosts only the semantic model), and the other pages link to it.
+  The Azure DevOps demo pipeline has not been run. The operator runbook's
+  capacity step no longer calls a trial an "F2" capacity, and its CI notes name
+  an expired trial or paused capacity as a cause of a failed run.
+
 ### Security
 - **CA certificate bundle floor (`pyproject.toml`).**
   Added an explicit `certifi>=2026.10.19,<2027.0` runtime dependency floor in

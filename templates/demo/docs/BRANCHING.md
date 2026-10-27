@@ -1,7 +1,6 @@
 # Branching strategy
 
-> The demo does not run end to end on the shipped demo tree yet. This
-> page is the starter's branching guide; the demo's own CI
+> This page is the starter's branching guide; the demo's own CI
 > (`.github/workflows/sigantry-demo-ci.yml` and
 > `.azuredevops/sigantry-demo-ci.yml`) targets only `DEV`.
 

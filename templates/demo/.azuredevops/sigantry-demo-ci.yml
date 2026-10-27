@@ -4,7 +4,9 @@
 # monorepo dual-CI parity registry (RESEARCH Anti-Pattern 4 + Phase 14
 # pr-bot.yml precedent).
 #
-# The demo does not run end to end on the shipped demo tree yet.
+# The demo runs end to end on a Fabric capacity (an F or P SKU, or a Fabric
+# trial) through its GitHub Actions half; this Azure DevOps half has not
+# been run.
 #
 # Demo CI ADO half (Phase 15 / DEMO-02). Runs in an ADO project you create
 # from a copy of templates/demo/; the demo is not provisioned as its own

@@ -539,7 +539,7 @@ No PowerShell module ships in this repository. The `templates/jobs/build-powersh
 | [`templates/schedules/`](../templates/schedules/) | `drift-check.yml` |
 | [`templates/pr-review/`](../templates/pr-review/) | `sigantry-pr-bot.yml` |
 | [`templates/starter/`](../templates/starter/) | Greenfield consumer scaffold, written to be copied into a consumer repository. |
-| [`templates/demo/`](../templates/demo/) | Demo walkthrough scaffold (byte-extends starter); the demo does not run end to end on it yet. |
+| [`templates/demo/`](../templates/demo/) | Demo walkthrough scaffold (byte-extends starter); runs end to end through its GitHub Actions CI, see [what it needs](demo/QUICKSTART.md). |
 
 **The 5-stage Phase 12 pipeline (`sigantry-cd.yml`):**
 

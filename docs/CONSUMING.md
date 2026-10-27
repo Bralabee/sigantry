@@ -31,13 +31,13 @@ The base package registers its own notification sinks, secret stores and approva
 | Scaffold in this repository | Use it when |
 |---|---|
 | [`templates/starter/`](../templates/starter/) | greenfield adoption -- a dev/preprod/prod `parameters.yml`, the PR-review bot as a GitHub Actions / Azure DevOps pair, PR templates, branching strategy |
-| [`templates/demo/`](../templates/demo/) | walkthrough against a demo Fabric tenant; the demo does not run end to end on the shipped demo tree yet (see [docs/demo/QUICKSTART.md](demo/QUICKSTART.md)) |
+| [`templates/demo/`](../templates/demo/) | walkthrough against a demo Fabric tenant; runs end to end through its GitHub Actions CI, see [what it needs](demo/QUICKSTART.md) |
 
 Copy the scaffold into your own repository. Public mirror repositories for both are planned but not provisioned. `scripts/export-starter.py` and `scripts/export-demo.py` are parity checks for those trees, not publishing tools: their live `--target-*` flags raise `NotImplementedError` deliberately.
 
 ## Quick start (against a demo Fabric tenant)
 
-The demo does not run end to end on the shipped demo tree yet.
+The demo runs end to end through its GitHub Actions CI; see [what it needs](demo/QUICKSTART.md).
 
 From a copy of [`templates/demo/`](../templates/demo/):
 
