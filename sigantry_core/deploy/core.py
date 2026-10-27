@@ -27,6 +27,7 @@ from fabric_cicd import (
 )
 
 from sigantry_core.auth import TokenProvider
+from sigantry_core.deploy.bulk import bulk_publish_waves
 from sigantry_core.deploy.dependency import validate_order
 from sigantry_core.deploy.parameters import (
     load_and_validate,
@@ -233,8 +234,10 @@ def _publish_and_optionally_unpublish(
         candidate_items: list[str] = []
         if items_to_include:
             candidate_items = list(items_to_include)
-        elif hasattr(target_workspace, "repository_items") and isinstance(
-            target_workspace.repository_items, dict
+        elif (
+            hasattr(target_workspace, "repository_items")
+            and isinstance(target_workspace.repository_items, dict)
+            and target_workspace.repository_items
         ):
             scope_set = set(item_type_in_scope) if item_type_in_scope else None
             for it_type, bucket in target_workspace.repository_items.items():
@@ -251,11 +254,17 @@ def _publish_and_optionally_unpublish(
                         candidate_items.append(f"{name}.{it_type}")
                 else:
                     candidate_items.append(str(it_type))
+        else:
+            # fabric-cicd fills ``repository_items`` only inside
+            # ``publish_all_items``, so before the first publish it is empty
+            # and bulk would silently fall back to a serial publish. Read the
+            # item specs from the tree's ``.platform`` files instead.
+            candidate_items = _repository_item_specs(repository_directory, item_type_in_scope)
 
         if len(candidate_items) > 1:
             import concurrent.futures
 
-            def _publish_single_item(spec: str) -> bool:
+            def _publish_unit(unit: list[str]) -> bool:
                 ws = FabricWorkspace(
                     workspace_id=workspace_id,
                     environment=environment,
@@ -265,17 +274,41 @@ def _publish_and_optionally_unpublish(
                     parameter_file_path=parameters_path,
                 )
                 try:
-                    publish_all_items(ws, items_to_include=[spec])
+                    publish_all_items(ws, items_to_include=unit)
                     return True
                 except Exception:
-                    logger.error("bulk_publish_item_failed spec=%s", spec, exc_info=True)
+                    logger.error("bulk_publish_item_failed specs=%s", unit, exc_info=True)
                     return False
 
-            workers = min(max_workers, len(candidate_items))
-            with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
-                results = list(executor.map(_publish_single_item, candidate_items))
-                published = results.count(True)
-                failed = results.count(False)
+            # Items are published in waves, one per item type, in
+            # fabric-cicd's own publish order, so an item is never published
+            # before a type it can reference (a pipeline before its notebook
+            # fails "referenced item is not yet deployed"). Only items of one
+            # type run concurrently, and a failed wave stops the later ones.
+            published = 0
+            failed = 0
+            skipped = 0
+            waves = bulk_publish_waves(candidate_items)
+            for index, wave in enumerate(waves):
+                if failed:
+                    skipped += sum(len(unit) for unit in wave)
+                    continue
+                workers = min(max_workers, len(wave))
+                with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+                    results = list(executor.map(_publish_unit, wave))
+                for unit, ok in zip(wave, results, strict=True):
+                    if ok:
+                        published += len(unit)
+                    else:
+                        failed += len(unit)
+                logger.info(
+                    "bulk_publish_wave wave=%d/%d units=%d published=%d failed=%d",
+                    index + 1,
+                    len(waves),
+                    len(wave),
+                    published,
+                    failed,
+                )
 
             orphans = 0
             if unpublish_orphans:
@@ -292,8 +325,8 @@ def _publish_and_optionally_unpublish(
 
             if failed > 0:
                 raise RuntimeError(
-                    f"{failed} item(s) failed to publish (succeeded={published}); "
-                    f"see log for per-item status."
+                    f"{failed} item(s) failed to publish (succeeded={published}, "
+                    f"not attempted={skipped}); see log for per-item status."
                 )
 
             return DeployResult(
@@ -399,6 +432,27 @@ def _unpublish_orphans_gated(
 # `repository_items` count. If the return is a dict carrying a failure summary
 # (list-of-dicts with `status`, or `{summary: {Failed: N}}`), count explicitly.
 # ----------------------------------------------------------------------------
+
+
+def _repository_item_specs(
+    repository_directory: str | Path, item_type_in_scope: list[str] | None
+) -> list[str]:
+    """``name.Type`` for every item ``.platform`` under the tree, within scope."""
+    import json
+
+    scope = set(item_type_in_scope) if item_type_in_scope else None
+    specs: list[str] = []
+    for platform_path in sorted(Path(repository_directory).rglob(".platform")):
+        try:
+            metadata = json.loads(platform_path.read_text(encoding="utf-8")).get("metadata") or {}
+        except (OSError, ValueError):
+            continue
+        item_type = metadata.get("type")
+        name = metadata.get("displayName")
+        if not item_type or not name or (scope is not None and item_type not in scope):
+            continue
+        specs.append(f"{name}.{item_type}")
+    return specs
 
 
 def _count_failed(result: Any) -> int:

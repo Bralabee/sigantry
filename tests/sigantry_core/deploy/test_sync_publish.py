@@ -687,3 +687,52 @@ def test_publish_absent_items_bulk_parallel_partial_failure(
     assert result.outcome == "partial-failure"
     assert "itemA.Notebook" in result.published_items
     assert result.failed_item == "itemB.Notebook"
+
+
+def test_publish_absent_items_bulk_publishes_a_pipeline_after_its_notebook(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    reset_feature_flags,
+    mock_token_provider: MagicMock,
+) -> None:
+    """bulk=True publishes in fabric-cicd's type order, so a pipeline never precedes its notebook.
+
+    Observed live 2026-10-27 on deploy --bulk: an unordered concurrent publish
+    failed "Cannot replace logical ID ... referenced item is not yet deployed".
+    """
+    from sigantry_core.deploy.sync_publish import publish_absent_items
+
+    deployed: list[str] = []
+
+    def _pub(ws, items_to_include=None, **kwargs):
+        for spec in items_to_include or []:
+            if spec.endswith(".DataPipeline") and "itemA.Notebook" not in deployed:
+                raise RuntimeError("referenced item is not yet deployed")
+            deployed.append(spec)
+
+    _, _, fake_publish = _patch_fabric_cicd(monkeypatch, publish_side_effect=_pub)
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    params = tmp_path / "parameters.yml"
+    params.write_text("# substituted\n", encoding="utf-8")
+    absent = [
+        _make_sync_item(display_name="itemC", type_="DataPipeline"),
+        _make_sync_item(display_name="itemA", type_="Notebook"),
+        _make_sync_item(display_name="itemB", type_="Lakehouse"),
+    ]
+
+    result = publish_absent_items(
+        workspace_id="ws-bulk-order",
+        environment="DEV",
+        staging_dir=staging,
+        absent_items=absent,
+        item_type_in_scope=["Notebook", "Lakehouse", "DataPipeline"],
+        parameters_path=params,
+        token_provider=mock_token_provider,
+        bulk=True,
+        max_workers=8,
+    )
+
+    assert result.outcome == "succeeded", result
+    assert deployed == ["itemB.Lakehouse", "itemA.Notebook", "itemC.DataPipeline"]
+    assert fake_publish.call_count == 3

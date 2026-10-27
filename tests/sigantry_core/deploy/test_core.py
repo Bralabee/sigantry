@@ -554,3 +554,125 @@ def test_deploy_workspace_bulk_parallel_failure_raises(
             bulk=True,
         )
     assert "1 item(s) failed to publish" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# --bulk publishes in dependency waves (observed live 2026-10-27: a concurrent
+# per-item publish ran a pipeline before its notebook and failed "Cannot replace
+# logical ID ... as referenced item is not yet deployed").
+# ---------------------------------------------------------------------------
+
+
+def test_bulk_waves_follow_fabric_cicd_type_order() -> None:
+    from sigantry_core.deploy.bulk import bulk_publish_waves
+
+    waves = bulk_publish_waves(
+        ["Run.DataPipeline", "Load.Notebook", "Data.Lakehouse", "Child.DataPipeline", "X.Zzz"]
+    )
+    assert waves == [
+        [["Data.Lakehouse"]],
+        [["Load.Notebook"]],
+        # Pipelines can invoke pipelines: one unit, ordered by fabric-cicd.
+        [["Run.DataPipeline", "Child.DataPipeline"]],
+        # A type fabric-cicd does not list goes last.
+        [["X.Zzz"]],
+    ]
+
+
+def _patch_bulk(monkeypatch, publish_side_effect) -> MagicMock:
+    fake_instance = MagicMock(name="fabric_workspace_instance")
+    fake_instance.repository_items = {}
+    monkeypatch.setattr(
+        "sigantry_core.deploy.core.FabricWorkspace",
+        MagicMock(name="FabricWorkspace", return_value=fake_instance),
+    )
+    fake_pub = MagicMock(name="publish_all_items", side_effect=publish_side_effect)
+    monkeypatch.setattr("sigantry_core.deploy.core.publish_all_items", fake_pub)
+    monkeypatch.setattr(
+        "sigantry_core.deploy.core.unpublish_all_orphan_items",
+        MagicMock(name="unpublish_all_orphan_items", return_value=None),
+    )
+    monkeypatch.setattr(
+        "sigantry_core.deploy.core.load_and_validate",
+        MagicMock(name="load_and_validate", return_value=MagicMock(raw={})),
+    )
+    monkeypatch.setattr(
+        "sigantry_core.deploy.core.validate_order",
+        MagicMock(name="validate_order", return_value=None),
+    )
+    return fake_pub
+
+
+def _bulk_specs() -> list[str]:
+    return ["Run.DataPipeline", "Load.Notebook", "Data.Lakehouse"]
+
+
+def test_bulk_publishes_a_pipeline_only_after_its_notebook(
+    monkeypatch, mock_token_provider, tmp_item_tree: Path
+) -> None:
+    deployed: set[str] = set()
+
+    def _pub(ws, items_to_include=None, **kwargs):
+        for spec in items_to_include or []:
+            if spec.endswith(".DataPipeline") and "Load.Notebook" not in deployed:
+                raise RuntimeError("Cannot replace logical ID: referenced item is not yet deployed")
+            deployed.add(spec)
+
+    fake_pub = _patch_bulk(monkeypatch, _pub)
+    result = deploy_workspace(
+        workspace_id="w1",
+        repository_directory=str(tmp_item_tree),
+        environment="DEV",
+        item_type_in_scope=["Lakehouse", "Notebook", "DataPipeline"],
+        parameters_path=str(tmp_item_tree / "parameters.yml"),
+        token_provider=mock_token_provider,
+        items_to_include=_bulk_specs(),
+        bulk=True,
+        max_workers=8,
+    )
+    assert result.items_published == 3
+    order = [c.kwargs["items_to_include"] for c in fake_pub.call_args_list]
+    assert order == [["Data.Lakehouse"], ["Load.Notebook"], ["Run.DataPipeline"]]
+
+
+def test_bulk_failed_wave_stops_later_waves(
+    monkeypatch, mock_token_provider, tmp_item_tree: Path
+) -> None:
+    def _pub(ws, items_to_include=None, **kwargs):
+        if items_to_include == ["Load.Notebook"]:
+            raise RuntimeError("upstream error")
+
+    fake_pub = _patch_bulk(monkeypatch, _pub)
+    with pytest.raises(RuntimeError) as exc_info:
+        deploy_workspace(
+            workspace_id="w1",
+            repository_directory=str(tmp_item_tree),
+            environment="DEV",
+            item_type_in_scope=["Lakehouse", "Notebook", "DataPipeline"],
+            parameters_path=str(tmp_item_tree / "parameters.yml"),
+            token_provider=mock_token_provider,
+            items_to_include=_bulk_specs(),
+            bulk=True,
+        )
+    assert "1 item(s) failed to publish (succeeded=1, not attempted=1)" in str(exc_info.value)
+    called = [c.kwargs["items_to_include"] for c in fake_pub.call_args_list]
+    assert ["Run.DataPipeline"] not in called
+
+
+def test_plain_bulk_reads_items_from_the_tree_before_fabric_cicd_scans_it(
+    monkeypatch, mock_token_provider, tmp_item_tree: Path
+) -> None:
+    """repository_items is empty until publish_all_items runs; bulk must still engage."""
+    fake_pub = _patch_bulk(monkeypatch, None)
+    result = deploy_workspace(
+        workspace_id="w1",
+        repository_directory=str(tmp_item_tree),
+        environment="DEV",
+        item_type_in_scope=["Lakehouse", "Notebook"],
+        parameters_path=str(tmp_item_tree / "parameters.yml"),
+        token_provider=mock_token_provider,
+        bulk=True,
+    )
+    assert result.items_published == 2
+    called = [c.kwargs["items_to_include"] for c in fake_pub.call_args_list]
+    assert called == [["Bronze.Lakehouse"], ["Ingest.Notebook"]]
