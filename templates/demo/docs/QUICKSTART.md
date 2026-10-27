@@ -1,6 +1,7 @@
 # Demo quickstart
 
-> The demo does not run end to end on the shipped demo tree yet.
+> The demo runs end to end on a Fabric capacity (an F SKU or a Fabric trial); a Power BI Premium Per User
+> capacity hosts only its semantic model.
 >
 > The canonical quickstart for trying Sigantry against the
 > demo lives at `docs/demo/QUICKSTART.md` in the sigantry

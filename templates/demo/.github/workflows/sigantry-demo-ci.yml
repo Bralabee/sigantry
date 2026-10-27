@@ -1,5 +1,5 @@
 # sigantry-demo-ci.yml -- adopter-consumed GHA workflow (Phase 15 / DEMO-02)
-# The demo does not run end to end on the shipped demo tree yet.
+# The demo runs end to end on a Fabric capacity (an F SKU or a Fabric trial).
 #
 # Runs in a GitHub repo you create from a copy of templates/demo/; the demo
 # is not provisioned as its own repository.

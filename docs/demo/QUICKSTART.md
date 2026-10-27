@@ -1,6 +1,8 @@
 # Sigantry demo walkthrough
 
-> The demo does not run end to end on the shipped demo tree yet.
+> The demo runs end to end on a Fabric capacity (an F SKU or a Fabric trial). A Power BI Premium Per User
+> capacity hosts only its semantic model; `sigantry preflight` reports
+> that before a deploy.
 >
 > Phase 15 / DEMO-04. This walkthrough is for outside reviewers who
 > did not build Sigantry.

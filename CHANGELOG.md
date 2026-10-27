@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+- **The demo runs end to end (`templates/demo/`, `docs/demo/QUICKSTART.md`, `docs/runbooks/demo-tenant-operator.md`, `docs/CONSUMING.md`, `docs/PRODUCT-BRIEF.md`, `docs/CAPABILITIES.md`, `templates/README.md`).**
+  Removed the "does not run end to end" banner. On a Fabric trial capacity the
+  walkthrough (validate, sync apply, diff) and the demo CI's GitHub workflow
+  (deploy all three items, record, verify, diff with no drift, then the step-6
+  notebook change) ran green, with the ledger chained across four runs. The
+  pages now say what it needs: a Fabric capacity (F SKU or trial); a Premium
+  Per User capacity hosts only the semantic model. The operator runbook's
+  capacity step no longer calls a trial an "F2" capacity, and the demo
+  `parameters.yml` says its rules are the starter's examples and match
+  nothing in the demo items.
+
 ### Security
 - **CA certificate bundle floor (`pyproject.toml`).**
   Added an explicit `certifi>=2026.10.19,<2027.0` runtime dependency floor in

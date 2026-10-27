@@ -43,7 +43,7 @@ The dual-CI parity test gate (`tests/ci/test_starter_dual_ci.py`, `tests/ci/test
 
 - [`../CONSUMING.md`](../docs/CONSUMING.md) -- operator entry point for the Python distribution + scaffolding
 - [`../docs/PRODUCT-BRIEF.md`](../docs/PRODUCT-BRIEF.md) -- product positioning, ICP
-- [`../docs/demo/QUICKSTART.md`](../docs/demo/QUICKSTART.md) -- demo walkthrough (the demo does not run end to end on the shipped demo tree yet)
+- [`../docs/demo/QUICKSTART.md`](../docs/demo/QUICKSTART.md) -- demo walkthrough (runs end to end on a Fabric capacity (an F SKU or a Fabric trial))
 - [`../scripts/export-starter.py`](../scripts/export-starter.py) -- starter parity gate (CI-side closure of STARTER-01)
 - [`../scripts/export-demo.py`](../scripts/export-demo.py) -- demo parity gate (CI-side closure of DEMO-01)
 - [`../scripts/ci/check-dual-ci-parity.py`](../scripts/ci/check-dual-ci-parity.py) -- internal CI building-block parity registry (Plan 10-06)

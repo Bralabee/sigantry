@@ -1,6 +1,7 @@
 # Sigantry demo -- parameters.yml
 # ------------------------------
-# The demo does not run end to end on the shipped demo tree yet.
+# The rules below mirror the starter's examples. The demo items carry none
+# of their placeholders, so a demo deploy substitutes nothing.
 #
 # Byte-extension of templates/starter/parameters.yml. Only the DEV
 # ENV-var refs differ -- the DEV slot reads SIGANTRY_DEMO_* variables
