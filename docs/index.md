@@ -50,6 +50,16 @@ sibling plugin packages that ship alongside the base.
 
 ## Current release
 
+v1.2.0 (2026-10-27). Publishes `--bulk` in dependency waves, delivers drift
+alerts from the reusable drift-check templates, keeps one audit-ledger chain
+across CD runs on GitHub and Azure DevOps, refuses CD self-approval before
+deploying, makes preflight catch a table without a partition and a Power
+BI-only capacity (Premium Per User or Embedded) paired with Fabric-only items, flags TMDL column type changes as
+breaking in the PR bot, and records `sync apply` deletions under `--audit-dir`
+with readable names. The demo now runs end to end on a Fabric capacity.
+`CHANGELOG.md` lists the changes; read its "Upgrading from 1.1.1" section
+before upgrading.
+
 v1.1.1 (2026-10-26). Requires `--force` on `sync apply --unpublish-orphans` and
 keeps unmanaged item types (`Lakehouse`, `Warehouse`) and `folders[]` subtrees
 during orphan reconciliation, accepts Azure DevOps Services collection URLs

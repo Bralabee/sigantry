@@ -9,6 +9,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-27
+
+### Upgrading from 1.1.1
+- **The bullets below describe ways this release differs from 1.1.1**, one
+  subject each. No module-level export, CLI subapp or flag of 1.1.1 was
+  removed or renamed, no required argument was added to them, and the
+  telemetry schema is unchanged, so under `docs/release-process.md` this is a
+  minor release. Several bullets are checks that now refuse what 1.1.1
+  accepted, and the CI templates (which that policy does not version) gained
+  required inputs and permissions: read them before upgrading a pipeline.
+- **PR bot.** A TMDL column whose `dataType` changes is now a HIGH breaking
+  change (`column_type_changed`), so `pr-bot run --fail-on-breaking` exits 1 on
+  it; modified columns also carry `old_type` / `new_type`.
+- **Preflight.** `--environment` defaults to `DEV` (was `dev`, which no shipped
+  `parameters.yml` declares). The schema probe fails a table `.tmdl` with no
+  `partition` block, which Fabric rejects. The capacity probe fails when a
+  Power BI-only SKU (`PP*`, `EM*`, `A*`) is paired with Fabric-only item types
+  in `sync.yml`.
+- **GitHub CD workflow (`sigantry-cd.yml`).**
+  - `workItems` is now a required input (it was optional with an empty
+    default); an empty value fails the approval job.
+  - Self-approval is refused in the approval job, before anything deploys.
+  - A `workflow_call:` caller must grant `contents: read`, `id-token: write`,
+    `actions: read` (approval and promote read the run's approval record and
+    earlier runs) and `issues: write` (promote's release record comments on
+    the work items).
+  - The whole workflow runs in `concurrency: deploy-<environment>` (promote
+    has its own `promote-<environment>` group). A caller that already uses a
+    group of that name deadlocks; rename the caller's group.
+  - Promote restores the previous ledger only from runs of the calling
+    workflow and fails if it cannot list them.
+- **Azure DevOps CD template.** `approver` no longer defaults to the requester
+  and must name someone else; `workItems` has no default and must not be
+  empty. Promote downloads the previous run's ledger with
+  `DownloadPipelineArtifact@2`. `templates/steps/fabric-deploy.yml` no longer
+  defaults `artifactsFeed` to a private feed: with it unset, `PipAuthenticate`
+  is skipped and pip installs from PyPI, so a pipeline that relied on the old
+  default must pass its feed.
+- **Rollback.** `deploy run --rollback --to-release <id>` refuses a release
+  whose record outcome is `failed` or `partial-failure`.
+- **Drift-check templates.** The GitHub workflow declares the notify step's
+  webhook / SMTP settings as optional `workflow_call` secrets (`secrets:
+  inherit` now reaches them); the ADO template maps library variables of the
+  same names, so link the variable group in the consumer pipeline.
+- **`deploy run --bulk`.** Publishes in dependency waves, one per item type in
+  fabric-cicd's order, and without `--items-to-include` now actually runs in
+  bulk (it read an empty list and ran serially before), honouring the same
+  name, folder and shortcut filters as the serial publish.
+- **Audit records.** `sync apply` writes destructive per-item records under
+  `--audit-dir` (not `~/.sigantry`), with a readable `resource_id`
+  (`<workspace>/<folder>/<name>.<type> (<id>)`) and the caller's identity as
+  `principal`. Its `deploys.jsonl` record lists only the items it moved or
+  deleted.
+- **Tenant pinning.** A token for another tenant now ends in a
+  `TenantMismatchError` naming both tenants; `DefaultAzureCredential` excludes
+  the broker credential. The `get_*_token` helpers, `get_default_credential`
+  and `resolve_secret` now pin to `core.tenant_id` from `.sigantry.toml` when
+  no `tenant_id` is passed, so a library caller under a pinned config with a
+  credential for another tenant gets that error where 1.1.1 returned the other
+  tenant's token.
+
 ### Documentation
 - **The demo runs end to end (`templates/demo/`, `docs/demo/QUICKSTART.md`, `docs/runbooks/demo-tenant-operator.md`, `docs/CONSUMING.md`, `docs/PRODUCT-BRIEF.md`, `docs/CAPABILITIES.md`, `templates/README.md`).**
   Removed the "does not run end to end" banner. On a Fabric trial capacity the
