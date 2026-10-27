@@ -44,12 +44,14 @@ _UNEXPANDED_MACRO = re.compile(r"\$\([A-Za-z0-9_.]+\)")
 
 
 def _setting(name: str, default: str = "", *, strip: bool = True) -> str:
-    """``os.environ[name]``, or ``default`` when unset or an unexpanded macro.
+    """``os.environ[name]``, or ``default`` when unset, empty or an unexpanded macro.
 
-    Stripped unless ``strip=False`` (credentials are passed through as given).
+    Empty counts as unset because GitHub Actions passes a secret the caller
+    never set as an empty string. Stripped unless ``strip=False``
+    (credentials are passed through as given).
     """
     value = os.environ.get(name)
-    if value is None or _UNEXPANDED_MACRO.fullmatch(value.strip()):
+    if value is None or not value.strip() or _UNEXPANDED_MACRO.fullmatch(value.strip()):
         return default
     return value.strip() if strip else value
 

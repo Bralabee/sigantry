@@ -332,3 +332,27 @@ def test_issue_131_unexpanded_ado_macro_counts_as_unset(monkeypatch: pytest.Monk
     sink = sink_from_env()
     assert sink._smtp_password.value == "$(not-a-macro) x"  # type: ignore[attr-defined]
     assert sink.smtp_port == 587  # type: ignore[attr-defined]
+
+
+def test_issue_131_empty_setting_falls_back_to_its_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """GHA passes an unset secret as ""; a Teams caller without a format secret must still work."""
+    from sigantry_core.notifications import sink_from_env
+    from sigantry_core.notifications.teams import TeamsNotificationSink
+
+    monkeypatch.setenv("SIGANTRY_NOTIFICATION_SINK", "teams")
+    monkeypatch.setenv("SIGANTRY_TEAMS_WEBHOOK", "https://example.invalid/hook")
+    monkeypatch.setenv("SIGANTRY_TEAMS_WEBHOOK_FORMAT", "")
+    assert isinstance(sink_from_env(), TeamsNotificationSink)
+    monkeypatch.setenv("SIGANTRY_NOTIFICATION_SINK", "email")
+    for name, value in {
+        "SIGANTRY_SMTP_HOST": "smtp.example",
+        "SIGANTRY_SMTP_FROM": "a@example.com",
+        "SIGANTRY_SMTP_TO": "b@example.com",
+        "SIGANTRY_SMTP_USE_TLS": "",
+        "SIGANTRY_SMTP_USER": "",
+        "SIGANTRY_SMTP_PASSWORD": "",
+    }.items():
+        monkeypatch.setenv(name, value)
+    sink = sink_from_env()
+    assert sink._use_tls is True  # type: ignore[attr-defined]
+    assert sink._smtp_password is None  # type: ignore[attr-defined]
