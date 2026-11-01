@@ -35,9 +35,12 @@ limits and avoids polling churn.
 Audit-plane integration
 -----------------------
 ``wait()`` emits :class:`ApprovalRecord` synchronously on every terminal
-outcome. ``decided_by`` is read from the payload's
-``triggering_actor.login`` field (best effort -- may be absent on
-forked-repo runs).
+outcome. ``decided_by`` is the reviewer GitHub recorded for this
+environment, read from ``GET /repos/{owner}/{repo}/actions/runs/{run_id}/approvals``
+(the last review whose state matches the outcome). It is ``None`` when no
+such review exists or the call fails. It is never the run's
+``triggering_actor``: the person who started a run is not the person who
+approved it, and the shipped CD workflow refuses that substitution too.
 """
 
 from __future__ import annotations
@@ -183,7 +186,7 @@ class GithubEnvironmentsApprovalGate:
                 if last_status == "completed":
                     conclusion = payload.get("conclusion")
                     outcome: ApprovalOutcome = "approved" if conclusion == "success" else "rejected"
-                    decided_by = self._extract_decider(payload)
+                    decided_by = self._read_decider(outcome)
                     # last_observed_status records the conclusion (more
                     # informative than just "completed") so operators see
                     # the actual rejection cause.
@@ -228,20 +231,43 @@ class GithubEnvironmentsApprovalGate:
 
     # ---- internal -----------------------------------------------------
 
-    @staticmethod
-    def _extract_decider(payload: dict[str, Any]) -> str | None:
-        """Best-effort decider extraction from a workflow-run payload.
+    def _read_decider(self, outcome: ApprovalOutcome) -> str | None:
+        """Return the login of the reviewer who decided this environment.
 
-        GitHub's run payload nests the actor as
-        ``{"triggering_actor": {"login": "alice", ...}}``. Returns
-        ``None`` if absent or shaped unexpectedly.
+        Reads the run's approval history and keeps the last review for
+        ``self._environment`` whose ``state`` matches ``outcome``
+        (``approved`` / ``rejected``). Returns ``None`` when there is no such
+        review (a run that failed for another reason, or an environment with
+        no required reviewers) or the history cannot be read: an absent
+        decider is recorded as absent, never as the run's triggering actor.
         """
-        actor = payload.get("triggering_actor")
-        if isinstance(actor, dict):
-            login = actor.get("login")
+        state = "approved" if outcome == "approved" else "rejected"
+        try:
+            response = self._client.send(
+                "GET",
+                f"/repos/{self._owner}/{self._repo}/actions/runs/{self._run_id}/approvals",
+                extra_headers=self._auth_headers(),
+            )
+        except Exception:  # best effort: an unread decider must not lose the record
+            return None
+        reviews = response.json_body
+        if not isinstance(reviews, list):
+            return None
+        decider: str | None = None
+        for review in reviews:
+            if not isinstance(review, dict) or review.get("state") != state:
+                continue
+            environments = review.get("environments")
+            if not isinstance(environments, list) or not any(
+                isinstance(env, dict) and env.get("name") == self._environment
+                for env in environments
+            ):
+                continue
+            user = review.get("user")
+            login = user.get("login") if isinstance(user, dict) else None
             if isinstance(login, str) and login:
-                return login
-        return None
+                decider = login
+        return decider
 
 
 __all__ = ["GithubEnvironmentsApprovalGate"]

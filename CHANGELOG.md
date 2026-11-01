@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **GitHub approval gate records the reviewer, not the run's starter.**
+  `GithubEnvironmentsApprovalGate` wrote the workflow run's
+  `triggering_actor` into `ApprovalRecord.decided_by`, so the approvals
+  ledger named whoever started the run as the person who approved it. It now
+  reads the run's approval history and records the last reviewer of the
+  gate's environment whose decision matches the outcome, or `None` when there
+  is none or the history cannot be read.
+- **Azure DevOps PR bot fails when it cannot stage the base tree.** The
+  `pr-review`, starter and demo PR-bot jobs ended the base-tree checkout with
+  `|| true`, so a failed checkout left `base-tree/` empty and every model was
+  reported as added: removals, the breaking changes the bot exists to catch,
+  could not appear. The step now fails.
+
 ## [1.2.0] - 2026-10-27
 
 ### Upgrading from 1.1.1

@@ -49,7 +49,7 @@ stages:
               mkdir -p base-tree head-tree
               git --git-dir=.git --work-tree=head-tree checkout -- .
               git fetch origin "$(System.PullRequest.TargetBranch)" --depth 1
-              git --git-dir=.git --work-tree=base-tree checkout FETCH_HEAD -- . || true
+              git --git-dir=.git --work-tree=base-tree checkout FETCH_HEAD -- .
             displayName: 'Stage base + head trees'
           - task: UsePythonVersion@0
             inputs:

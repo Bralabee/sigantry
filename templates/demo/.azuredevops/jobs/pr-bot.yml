@@ -46,7 +46,7 @@ jobs:
           git --git-dir=.git --work-tree=head-tree checkout -- .
           # Fetch + stage BASE ref into base-tree.
           git fetch origin "$(System.PullRequest.TargetBranch)" --depth 1
-          git --git-dir=.git --work-tree=base-tree checkout FETCH_HEAD -- . || true
+          git --git-dir=.git --work-tree=base-tree checkout FETCH_HEAD -- .
         displayName: 'Stage base + head trees'
       - task: UsePythonVersion@0
         inputs:
