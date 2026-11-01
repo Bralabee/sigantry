@@ -133,8 +133,7 @@ sigantry deploy run --rollback --to-release tut07-A --rollback-force \
 
 Without `--rollback-force` the command refuses — by design. The `--rollback-runbook-id`
 threads your incident reference into the `DestructiveOpRecord` the destructive-op gate
-appends to `~/.sigantry/audit/destructive_ops.jsonl` (that ledger does not follow
-`--audit-dir`), so six months later the ledger still explains *why* production state
+appends to `destructive_ops.jsonl` in the same `--audit-dir` (`$AUDIT_DIR` here), so six months later the ledger still explains *why* production state
 jumped backwards.
 
 ## Step 6 — Verify the ledger tells the whole story

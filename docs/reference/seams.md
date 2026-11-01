@@ -275,7 +275,8 @@ class SecretStore(Protocol):
 
 **Entry-point group:** `sigantry.secret_stores`
 **Audit record:** `SecretChangeRecord` -- written to
-`~/.sigantry/audit/secret_changes.jsonl` on every `set` / `delete` call.
+`secret_changes.jsonl` in the audit directory (`~/.sigantry/audit/` unless
+`[release] audit_dir` is set) on every `set` / `delete` call.
 The record carries the operation + key + actor + timestamp;
 **never the secret value** (Anti-Pattern: never log secrets).
 
@@ -317,7 +318,8 @@ ApprovalOutcome = Literal["approved", "rejected", "timeout"]
 
 **Entry-point group:** `sigantry.approval_gates`
 **Audit record:** `ApprovalRecord` -- written to
-`~/.sigantry/audit/approvals.jsonl` on every `request` + `wait`. Distinguishes
+`approvals.jsonl` in the audit directory (`~/.sigantry/audit/` unless
+`[release] audit_dir` is set) on every `request` + `wait`. Distinguishes
 client-side timeout from server-side timeout via `last_observed_status`.
 
 **Reference impls in `sigantry`:**

@@ -23,6 +23,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reported as added: removals, the breaking changes the bot exists to catch,
   could not appear. The step now fails.
 
+### Documentation
+- **Audit ledger location.** `docs/CAPABILITIES.md` said `destructive_ops.jsonl`,
+  `approvals.jsonl` and `secret_changes.jsonl` are always written under
+  `~/.sigantry/audit/`, and that `sync apply --audit-dir` does not move the
+  `destructive_ops.jsonl` records of an `--unpublish-orphans` run. Neither is
+  true: every ledger writer resolves `--audit-dir`, then `[release] audit_dir`,
+  then `~/.sigantry/audit/`.
+- **`release verify --all`.** `README.md` and the audit ledger threat model said
+  no `sigantry` command checks the bootstrap ledger. `release verify --all`
+  checks all five ledgers and `--ledger-file` checks any one of them.
+- **Supported versions.** `SECURITY.md` lists 1.2.x as the supported line.
+
 ## [1.2.0] - 2026-10-27
 
 ### Upgrading from 1.1.1
