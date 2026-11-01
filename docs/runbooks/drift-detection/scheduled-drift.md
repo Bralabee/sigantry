@@ -102,7 +102,7 @@ This is the load-bearing boundary the scheduled drift-check templates enforce --
          environment: 'prod'
          azureClientId: '<app-registration-client-id>'
          azureTenantId: '<tenant-id>'
-         sigantryVersion: '1.2.0'
+         sigantryVersion: '1.2.1'
        secrets: inherit
    ```
 
