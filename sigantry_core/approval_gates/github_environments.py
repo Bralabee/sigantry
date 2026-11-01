@@ -35,13 +35,22 @@ limits and avoids polling churn.
 Audit-plane integration
 -----------------------
 ``wait()`` emits :class:`ApprovalRecord` synchronously on every terminal
-outcome. ``decided_by`` is read from the payload's
-``triggering_actor.login`` field (best effort -- may be absent on
-forked-repo runs).
+outcome. ``decided_by`` is the reviewer GitHub recorded for this
+environment, read from ``GET /repos/{owner}/{repo}/actions/runs/{run_id}/approvals``
+(the last review of that environment, whichever way it went: a run that was
+approved and then failed maps to ``rejected`` but was decided by its
+approver). Review items carry no attempt number, so a re-run
+(``run_attempt > 1``) cannot tie a review to the attempt that produced the
+outcome: ``decided_by`` is then ``None`` rather than a reviewer of another
+attempt. It is also ``None`` when no such review exists or the call fails; a
+failed call is logged. It is never the run's
+``triggering_actor``: the person who started a run is not the person who
+approved it, and the shipped CD workflow refuses that substitution too.
 """
 
 from __future__ import annotations
 
+import logging
 import time
 from datetime import UTC, datetime
 from typing import Any, Final
@@ -60,6 +69,8 @@ _GITHUB_BASE: Final[str] = "https://api.github.com"
 _ACCEPT: Final[str] = "application/vnd.github+json"
 _API_VERSION_HEADER: Final[str] = "2022-11-28"
 _POLL_INTERVAL_S: Final[int] = 30
+
+logger = logging.getLogger("sigantry_core.approval_gates.github_environments")
 
 
 class _PatTokenProvider:
@@ -101,8 +112,9 @@ class GithubEnvironmentsApprovalGate:
     Constructor: ``(*, owner: str, repo: str, run_id: int, environment: str,
     pat: str, http_client=None)`` where ``run_id`` is the workflow run that
     paused on the protection rule and ``environment`` is the target env
-    name (recorded for audit context but not used in the URL itself --
-    GitHub keys runs by id).
+    name. GitHub keys runs by id, so it is not part of the URL; it selects
+    which of the run's reviews names the decider (matched
+    case-insensitively, as GitHub matches environment names).
 
     Method semantics:
 
@@ -183,7 +195,7 @@ class GithubEnvironmentsApprovalGate:
                 if last_status == "completed":
                     conclusion = payload.get("conclusion")
                     outcome: ApprovalOutcome = "approved" if conclusion == "success" else "rejected"
-                    decided_by = self._extract_decider(payload)
+                    decided_by = self._read_decider(payload.get("run_attempt"))
                     # last_observed_status records the conclusion (more
                     # informative than just "completed") so operators see
                     # the actual rejection cause.
@@ -228,20 +240,64 @@ class GithubEnvironmentsApprovalGate:
 
     # ---- internal -----------------------------------------------------
 
-    @staticmethod
-    def _extract_decider(payload: dict[str, Any]) -> str | None:
-        """Best-effort decider extraction from a workflow-run payload.
+    def _read_decider(self, run_attempt: object = None) -> str | None:
+        """Return the login of the reviewer who decided this environment.
 
-        GitHub's run payload nests the actor as
-        ``{"triggering_actor": {"login": "alice", ...}}``. Returns
-        ``None`` if absent or shaped unexpectedly.
+        Only a single-attempt run is attributed. ``/approvals`` lists the
+        reviews of every attempt without saying which attempt each belongs
+        to, so on a re-run the last review may be another attempt's; the
+        decider is then ``None`` (logged), never a guess.
+
+        Reads the run's approval history and keeps the last review of
+        ``self._environment`` (environment names compare case-insensitively,
+        as GitHub treats them), whatever its ``state``: the reviewer decided
+        the gate even when the run then failed for another reason. Returns
+        ``None`` when there is no such review (an environment with no
+        required reviewers) or the history cannot be read; an absent decider
+        is recorded as absent, never as the run's triggering actor.
         """
-        actor = payload.get("triggering_actor")
-        if isinstance(actor, dict):
-            login = actor.get("login")
+        if isinstance(run_attempt, int) and run_attempt > 1:
+            logger.info(
+                "approval_decider_unattributed run_id=%s run_attempt=%s",
+                self._run_id,
+                run_attempt,
+            )
+            return None
+        wanted = self._environment.casefold()
+        try:
+            response = self._client.send(
+                "GET",
+                f"/repos/{self._owner}/{self._repo}/actions/runs/{self._run_id}/approvals",
+                extra_headers=self._auth_headers(),
+            )
+        except Exception:  # best effort: an unread decider must not lose the record
+            logger.warning(
+                "approval_decider_unreadable run_id=%s environment=%s",
+                self._run_id,
+                self._environment,
+                exc_info=True,
+            )
+            return None
+        reviews = response.json_body
+        if not isinstance(reviews, list):
+            return None
+        decider: str | None = None
+        for review in reviews:
+            if not isinstance(review, dict):
+                continue
+            environments = review.get("environments")
+            if not isinstance(environments, list) or not any(
+                isinstance(env, dict)
+                and isinstance(env.get("name"), str)
+                and env["name"].casefold() == wanted
+                for env in environments
+            ):
+                continue
+            user = review.get("user")
+            login = user.get("login") if isinstance(user, dict) else None
             if isinstance(login, str) and login:
-                return login
-        return None
+                decider = login
+        return decider
 
 
 __all__ = ["GithubEnvironmentsApprovalGate"]
