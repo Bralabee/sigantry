@@ -187,6 +187,15 @@ def diff_cmd(
         "--no-hint",
         help="Suppress operator hint trailer (CI-friendly).",
     ),
+    governed_only: bool = typer.Option(
+        False,
+        "--governed-only",
+        help=(
+            "Count as added only items of the types sync packages and the types "
+            "the manifest lists; other items (such as a Lakehouse) are noted, not "
+            "counted. Default: every type counts."
+        ),
+    ),
     tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
 ) -> None:
     """Compute drift between ``--manifest`` and ``--workspace-id``.
@@ -215,7 +224,10 @@ def diff_cmd(
 
     try:
         report = diff_workspace_against_manifest(
-            manifest, workspace_id, tenant_id=resolve_tenant_id(tenant_id)
+            manifest,
+            workspace_id,
+            tenant_id=resolve_tenant_id(tenant_id),
+            governed_only=governed_only,
         )
     except ManifestValidationError as exc:
         errors.print(Text.assemble(("Manifest validation failed:", "red"), " ", plain_text(exc)))
@@ -255,6 +267,18 @@ def diff_cmd(
             typer.echo(html_content)
     else:
         _render_human_table(report, environment=environment)
+
+    # Say what was left out, so a smaller `added` never reads as a cleaner
+    # workspace. On stderr outside human mode: stdout carries the report.
+    if report.ungoverned:
+        types = ", ".join(sorted({entry["type"] for entry in report.ungoverned}))
+        errors.print(
+            Text(
+                f"note: {len(report.ungoverned)} workspace item(s) of types sync does not "
+                f"govern ({types}) not counted as drift (--governed-only).",
+                style="dim",
+            )
+        )
 
     # D-19-05 / DOCS-H-06: surface the snapshot-not-remediation reminder
     # when drift is detected. Suppressed under --output json because that

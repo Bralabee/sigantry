@@ -258,6 +258,55 @@ def test_diff_json_output(tmp_path: Path, monkeypatch) -> None:
     assert "unchanged" in payload
 
 
+def _ungoverned_only_report() -> DriftReport:
+    return DriftReport(
+        schema_version="1.0.0",
+        unchanged=[{"logical_id": "x"}],
+        ungoverned=[
+            {"logical_id": "lh", "display_name": "Lake", "type": "Lakehouse", "folder_path": "/"}
+        ],
+    )
+
+
+def test_diff_passes_governed_only_and_notes_what_it_left_out(tmp_path: Path, monkeypatch) -> None:
+    """The flag reaches the engine (off by default); left-out items are named, not drift."""
+    manifest = _write_dummy_manifest(tmp_path)
+    seen: dict[str, object] = {}
+
+    def _fake(*a, **k):
+        seen.update(k)
+        return _ungoverned_only_report()
+
+    monkeypatch.setattr(diff_cli, "diff_workspace_against_manifest", _fake)
+    base = ["diff", "--workspace-id", "ws-x", "--manifest", str(manifest), "--fail-on-drift"]
+    result = runner.invoke(app, base)
+    assert result.exit_code == 0, result.output
+    assert seen["governed_only"] is False
+
+    result = runner.invoke(app, [*base, "--governed-only"])
+    assert result.exit_code == 0, result.output
+    assert seen["governed_only"] is True
+    assert "1 workspace item(s)" in result.output
+    assert "Lakehouse" in result.output
+    assert "--governed-only" in result.output
+
+
+def test_diff_ungoverned_note_stays_off_json_stdout(tmp_path: Path, monkeypatch) -> None:
+    """Under ``--output json`` the note goes to stderr; stdout stays one JSON document."""
+    manifest = _write_dummy_manifest(tmp_path)
+    monkeypatch.setattr(
+        diff_cli, "diff_workspace_against_manifest", lambda *a, **k: _ungoverned_only_report()
+    )
+    result = runner.invoke(
+        app,
+        ["diff", "--workspace-id", "ws-x", "--manifest", str(manifest), "--output", "json"],
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert "ungoverned" not in payload
+    assert "Lakehouse" in result.stderr
+
+
 def test_diff_invalid_output_format_exits_2(tmp_path: Path, monkeypatch) -> None:
     """``--output garbage`` -> exit 2 with explicit error message."""
     manifest = _write_dummy_manifest(tmp_path)

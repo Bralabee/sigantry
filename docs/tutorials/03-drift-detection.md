@@ -109,7 +109,9 @@ sigantry diff --manifest sync.yml --workspace-id "$WSID" --fail-on-drift --no-hi
 Do not wire `--fail-on-drift` against a **shared workspace** your manifest only
 partially governs: every other team's item counts as `+ added` and the check is
 permanently red. Scope scheduled drift checks (Tutorial 08) to workspaces the manifest
-fully owns, or treat `-`/`~` as the alert condition when consuming the JSON.
+fully owns, or treat `-`/`~` as the alert condition when consuming the JSON. If the only
+`+ added` items are types sync does not package, such as the Lakehouse a pulled
+workspace keeps, `--governed-only` leaves them out of the count.
 
 ## Success checklist
 

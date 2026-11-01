@@ -9,21 +9,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`sigantry diff --governed-only`.** A manifest written by an unscoped
+  `sync pull` holds only the types sync packages (Notebook, DataPipeline,
+  SemanticModel, Report, SparkJobDefinition), so `diff` against the workspace
+  it came from reported that workspace's Lakehouse as `+ added`, and
+  `--fail-on-drift` exited 1. `--governed-only` (`governed_only=True` on
+  `diff_workspace_against_manifest`) counts as `added` only items of those
+  types or of a type the manifest lists; the rest are named in a note (on
+  stderr under `--output json` or `html`) and are not drift. It is off by
+  default, so a check without it still alerts on an unexpected Lakehouse or
+  Warehouse. The JSON report's shape and `schema_version` are unchanged;
+  `DriftReport` gains an `ungoverned` attribute that `to_json()` does not
+  emit.
+
+### Documentation
+- **1.2.1 notes corrected.** The `[1.2.1]` entries below said code reading
+  `decided_by` needs no change, that every unreadable approval history logs a
+  warning, and that every ledger writer resolves `--audit-dir`. They now say
+  when 1.2.1 records `None` where 1.2.0 recorded a name, that only a failed
+  request logs, and that `approvals.jsonl` has no `--audit-dir` to resolve.
+
 ## [1.2.1] - 2026-11-01
 
 ### Upgrading from 1.2.0
 - **The bullets below describe ways this release differs from 1.2.0**, one
   subject each: the GitHub approval gate's `decided_by`; the Azure DevOps
   PR-bot base-tree checkout. No module-level export, CLI subapp or flag of
-  1.2.0 was removed or renamed, and the telemetry schema is unchanged. Both
+  1.2.0 was removed or renamed, no required argument was added, no extension
+  point is called differently, and the telemetry schema is unchanged. Both
   correct a result that was wrong, so they ship in a PATCH release
   (`docs/release-process.md`).
 - **`GithubEnvironmentsApprovalGate` `decided_by`.** Names the environment's
-  last reviewer instead of the run's `triggering_actor`, and is `None` on a
-  re-run or when the approval history cannot be read. The field was already
-  `str | None` in 1.2.0, and 1.2.0 already returned `None` when the payload
-  carried no actor, so code that reads it needs no change. Records 1.2.0
-  wrote stay in the ledger as written: the chain is append-only.
+  last reviewer instead of the run's `triggering_actor`. The field is still
+  `str | None`, but it is `None` in more cases than in 1.2.0: on a re-run, for
+  an environment with no required reviewers, for a review with no login, and
+  when the approval history cannot be read. Code that assumed an approved
+  record always carries a name must handle `None`. Records 1.2.0 wrote stay in
+  the ledger as written: the chain is append-only.
 - **Azure DevOps PR-bot jobs.** If you copied `templates/pr-review/sigantry-pr-bot.yml`
   or a starter or demo `pr-bot.yml` job, re-copy it: a failed base-tree checkout
   now fails the job instead of reporting every model as added. The templates
@@ -38,8 +61,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   gate's environment (matched case-insensitively). A re-run is not
   attributed: GitHub's review history does not say which attempt a review
   belongs to, so `decided_by` is `None` rather than another attempt's
-  reviewer. It is also `None`, with a logged warning, when the history
-  cannot be read.
+  reviewer. It is also `None` when the history cannot be read; a warning is
+  logged when the request fails.
 - **Azure DevOps PR bot fails when it cannot stage the base tree.** The
   `pr-review`, starter and demo PR-bot jobs ended the base-tree checkout with
   `|| true`, so a failed checkout left `base-tree/` empty and every model was
@@ -51,8 +74,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `approvals.jsonl` and `secret_changes.jsonl` are always written under
   `~/.sigantry/audit/`, and that `sync apply --audit-dir` does not move the
   `destructive_ops.jsonl` records of an `--unpublish-orphans` run. Neither is
-  true: every ledger writer resolves `--audit-dir`, then `[release] audit_dir`,
-  then `~/.sigantry/audit/`.
+  true: every ledger writer resolves its command's `--audit-dir`, then
+  `[release] audit_dir`, then `~/.sigantry/audit/`. The approval gates take no
+  `--audit-dir`, so `approvals.jsonl` follows `[release] audit_dir`, then
+  `~/.sigantry/audit/`.
 - **`release verify --all`.** `README.md` and the audit ledger threat model said
   no `sigantry` command checks the bootstrap ledger. `release verify --all`
   checks all five ledgers and `--ledger-file` checks any one of them.

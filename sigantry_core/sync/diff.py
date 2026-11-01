@@ -44,6 +44,14 @@ Implementation notes:
   type "Notebook" matches a manifest item with the same display_name
   and type even if neither side has an explicit GUID. This makes
   bootstrap diffs deterministic without a prior ``sync pull``.
+* Every workspace item the manifest does not list counts as ``added`` by
+  default, whatever its type, so an unexpected Lakehouse or Warehouse is
+  drift. ``governed_only=True`` narrows ``added`` to the governed types: the
+  types ``sync`` packages (:data:`~sigantry_core.sync.packagers.PACKAGER_REGISTRY`,
+  the set an unscoped ``sync pull`` writes and ``sync apply`` manages) plus
+  any type the manifest lists. Items of other types then land in
+  :attr:`DriftReport.ungoverned`, so a manifest an unscoped ``sync pull``
+  wrote does not drift on the Lakehouse almost every workspace holds.
 """
 
 from __future__ import annotations
@@ -54,6 +62,7 @@ from pathlib import Path
 
 from sigantry_core.client import FabricRestClient
 from sigantry_core.sync.manifest import SyncManifest, load_manifest
+from sigantry_core.sync.packagers import PACKAGER_REGISTRY
 from sigantry_core.sync.snapshot import WorkspaceSnapshot, snapshot_workspace
 
 logger = logging.getLogger("sigantry_core.sync.diff")
@@ -79,12 +88,18 @@ class DriftReport:
     bump on the schema (D-37); the committed JSON Schema lives at
     ``docs/reference/drift-schema.json`` and is asserted byte-equal to
     runtime emission by ``tests/sync/test_drift_schema_committed.py``.
+
+    ``ungoverned`` holds the workspace items left out of ``added`` because
+    their type is not governed (see the module notes). It is not part of
+    the wire contract: :meth:`to_json` does not emit it and
+    :meth:`has_drift` ignores it.
     """
 
     added: list[dict[str, str]] = field(default_factory=list)
     removed: list[dict[str, str]] = field(default_factory=list)
     modified: list[dict[str, str | list[str]]] = field(default_factory=list)
     unchanged: list[dict[str, str]] = field(default_factory=list)
+    ungoverned: list[dict[str, str]] = field(default_factory=list)
     schema_version: str = _SCHEMA_VERSION
 
     def to_json(self) -> dict[str, object]:
@@ -358,6 +373,7 @@ def diff_workspace_against_manifest(
     client: FabricRestClient | None = None,
     snapshot: WorkspaceSnapshot | None = None,
     tenant_id: str | None = None,
+    governed_only: bool = False,
 ) -> DriftReport:
     """Compute drift between a ``sync.yml`` manifest and a live workspace.
 
@@ -383,6 +399,10 @@ def diff_workspace_against_manifest(
         Tenant ID (GUID) the snapshot's own client is pinned to (see
         :func:`snapshot_workspace`). Ignored when ``client`` or
         ``snapshot`` is given.
+    governed_only:
+        Count only workspace items of governed types as ``added`` and put
+        the rest in ``ungoverned`` (see the module notes). ``False`` by
+        default: every type counts.
 
     Returns
     -------
@@ -407,12 +427,23 @@ def diff_workspace_against_manifest(
 
     added, removed, modified, unchanged = _compute_buckets(manifest_index, workspace_index)
 
+    ungoverned: list[dict[str, str]] = []
+    if governed_only:
+        governed = frozenset(PACKAGER_REGISTRY) | {
+            item.type for item in manifest.normalised().items
+        }
+        kept: list[dict[str, str]] = []
+        for entry in added:
+            (kept if entry["type"] in governed else ungoverned).append(entry)
+        added = kept
+
     return DriftReport(
         schema_version=_SCHEMA_VERSION,
         added=added,
         removed=removed,
         modified=modified,
         unchanged=unchanged,
+        ungoverned=ungoverned,
     )
 
 
