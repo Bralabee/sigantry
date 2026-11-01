@@ -196,7 +196,7 @@ def _decided_by(monkeypatch, tmp_path: Path, *, conclusion: str, mock) -> str | 
     return json.loads(lines[-1])["decided_by"]
 
 
-def test_decided_by_is_the_last_matching_reviewer(monkeypatch, tmp_path: Path) -> None:
+def test_decided_by_is_the_last_reviewer_of_the_environment(monkeypatch, tmp_path: Path) -> None:
     reviews = [_review("carol", state="rejected"), _review("bob"), _review("dave", env="staging")]
     got = _decided_by(
         monkeypatch, tmp_path, conclusion="success", mock=lambda r: _mock_approvals(r, reviews)
@@ -242,3 +242,40 @@ def test_decided_by_is_none_and_record_written_on_network_failure(
         mock=lambda r: r.get(_APPROVALS).mock(side_effect=httpx.ConnectError("down")),
     )
     assert got is None
+
+
+def test_decided_by_after_approval_then_failure_is_the_approver(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Attempt 1 rejected by carol; attempt 2 approved by bob, then a deploy step failed.
+
+    The run maps to ``rejected``, but bob decided the gate; carol's earlier
+    rejection must not be recorded as this outcome's decider.
+    """
+    reviews = [_review("carol", state="rejected"), _review("bob")]
+    got = _decided_by(
+        monkeypatch, tmp_path, conclusion="failure", mock=lambda r: _mock_approvals(r, reviews)
+    )
+    assert got == "bob"
+
+
+def test_decided_by_matches_environment_case_insensitively(monkeypatch, tmp_path: Path) -> None:
+    got = _decided_by(
+        monkeypatch,
+        tmp_path,
+        conclusion="success",
+        mock=lambda r: _mock_approvals(r, [_review("bob", env="Prod")]),
+    )
+    assert got == "bob"
+
+
+def test_unreadable_history_is_logged(monkeypatch, tmp_path: Path, caplog) -> None:
+    with caplog.at_level("WARNING", logger="sigantry_core.approval_gates.github_environments"):
+        got = _decided_by(
+            monkeypatch,
+            tmp_path,
+            conclusion="success",
+            mock=lambda r: _mock_approvals(r, {"message": "Forbidden"}, status=403),
+        )
+    assert got is None
+    assert "approval_decider_unreadable" in caplog.text
