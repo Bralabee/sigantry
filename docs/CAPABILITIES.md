@@ -98,7 +98,7 @@ flowchart TB
 
 **Source citations:**
 
-- 18 subcommands wired in `sigantry_core/cli.py:67-84` (`add_typer` calls). [VERIFIED]
+- 18 subcommands wired in `sigantry_core/cli.py:76-93` (`add_typer` calls). [VERIFIED]
 - 11 entry-point groups enumerated in `sigantry_core/registry.py:54-64`. [VERIFIED]
 - One HTTP client: ruff's TID251 `banned-api` rule, configured in `pyproject.toml`, flags any import of `httpx`. The per-file ignores in the same file allow it only in `sigantry_core/client/`, `sigantry_core/auth/diagnose.py`, `sigantry_core/auth/github_app.py`, `sigantry_core/notifications/__init__.py`, `sigantry_core/notifications/teams.py`, `sigantry_core/notifications/slack.py` and `tests/`. [VERIFIED]
 
@@ -218,7 +218,7 @@ sequenceDiagram
 | `--manifest` (req) | Path to `sync.yml`. |
 | `--workspace-id` (req) | Target Fabric workspace GUID. |
 | `--environment` | The `parameters.yml` environment to publish with `--with-publish`; required there when `parameters.yml` names any environment beyond `_ALL_`. |
-| `--audit-dir` | Directory for the `deploys.jsonl` record this command writes (default `~/.sigantry/audit/`). The `destructive_ops.jsonl` records of an `--unpublish-orphans` run are always written under `~/.sigantry/audit/`. |
+| `--audit-dir` | Directory for the `deploys.jsonl` record this command writes and for the `destructive_ops.jsonl` records of an `--unpublish-orphans` run (default: the `[release] audit_dir` setting, else `~/.sigantry/audit/`). |
 | `--dry-run` | Compute the plan; print to console; exit 0 without applying. |
 | `--with-publish` | Compose folder reconcile with `fabric-cicd.publish_all_items` for first-time items (Phase 17, ADR-0012 Option C). Requires `--params`. |
 | `--republish-existing` | Modifier on `--with-publish`: also refresh the content of manifest items that already exist in the workspace (matched by display name + type). |
@@ -663,7 +663,7 @@ Detailed protocol contracts live in [`docs/reference/protocols.md`](reference/pr
 
 ## 7. Audit + observability
 
-[VERIFIED]. Sigantry maintains five append-only JSONL ledgers under `~/.sigantry/audit/`. The verbs that write `deploys.jsonl` and `bootstraps.jsonl` take `--audit-dir` to write them elsewhere, for hermetic CI; `destructive_ops.jsonl`, `approvals.jsonl` and `secret_changes.jsonl` are always written under `~/.sigantry/audit/`. Every record carries an `audit_hash` (SHA-256) and a `prev_hash` link to the record before it, so accidental corruption, an edit made without recomputing the hashes, and a record deleted from the middle are detectable. The chain is unkeyed and does not record its own length, so an edit whose hashes were recomputed, and records dropped from the end, are not (see the [audit ledger threat model](reference/audit-ledger-threat-model.md)).
+[VERIFIED]. Sigantry maintains five append-only JSONL ledgers in one audit directory. Every writer resolves that directory the same way (`resolve_audit_dir`, `sigantry_core/governance/audit_io.py:63`): an explicit `--audit-dir` first, then the `[release] audit_dir` setting (`SIGANTRY_RELEASE__AUDIT_DIR`), then `~/.sigantry/audit/`. So setting `[release] audit_dir` moves all five ledgers, `destructive_ops.jsonl`, `approvals.jsonl` and `secret_changes.jsonl` included. The verbs that take `--audit-dir` (`sync apply`, `deploy run`, `workspace bootstrap` and the `release` verbs), for hermetic CI, write every record of that run there, including the `destructive_ops.jsonl` records of `--unpublish-orphans` and `--rollback`. Every record carries an `audit_hash` (SHA-256) and a `prev_hash` link to the record before it, so accidental corruption, an edit made without recomputing the hashes, and a record deleted from the middle are detectable. The chain is unkeyed and does not record its own length, so an edit whose hashes were recomputed, and records dropped from the end, are not (see the [audit ledger threat model](reference/audit-ledger-threat-model.md)).
 
 | Record | File | Source | Emitted by |
 |---|---|---|---|

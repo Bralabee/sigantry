@@ -68,8 +68,8 @@ every successful run that is not a dry run. Records carry an
 record before them. `record.verify_hash()` returning `True` shows a
 record is internally consistent: it catches corruption and an edit made
 without recomputing the hash, but a record edited and then re-hashed
-also passes, and `sigantry release verify` does not read this ledger
-(see the [audit ledger threat model](../reference/audit-ledger-threat-model.md)).
+also passes. `sigantry release verify --ledger-file bootstraps.jsonl` checks this
+ledger's chain, and `--all` checks it with the other four (see the [audit ledger threat model](../reference/audit-ledger-threat-model.md)).
 
 ### 1.1. What `workspace bootstrap` does NOT do
 

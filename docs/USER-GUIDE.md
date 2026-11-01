@@ -1090,13 +1090,14 @@ hash breaks the check. The hash is unkeyed, so a record that was edited
 and then re-hashed with the same public algorithm passes: the check
 shows a record is internally consistent, not that it is the record that
 was written. `sigantry release verify` also checks the `prev_hash`
-links of the deploy ledger. What this does and does not resist is set
+links of the deploy ledger, or of every ledger with `--all`. What this does and does not resist is set
 out in the [audit ledger threat model](reference/audit-ledger-threat-model.md).
 
 ### 15.3 File location and rotation
 
-The ledger lives at `~/.sigantry/audit/<type>.jsonl`, mode `0o600`,
-inside a directory created `0o700`. Each line is `fsync`'d before
+The ledger lives at `<audit dir>/<type>.jsonl`, mode `0o600`, inside a
+directory created `0o700`. The audit dir is `--audit-dir` when the verb
+takes it, else the `[release] audit_dir` setting, else `~/.sigantry/audit/`. Each line is `fsync`'d before
 the writer returns, so a crash mid-deploy leaves a complete file
 through the previous record.
 

@@ -1,7 +1,7 @@
 # Audit ledger — threat model
 
-Sigantry's release and bootstrap ledgers are **integrity-checked, not tamper-proof**,
-and only the release (deploy) ledger has a `sigantry` command that checks its chain.
+Sigantry's five audit ledgers are **integrity-checked, not tamper-proof**, and
+`sigantry release verify` checks the chain of any of them (`--all` checks all five).
 This page states exactly which adversary the shipped mechanism resists, which it does
 not, and what an operator has to add before the ledger can be treated as evidence
 against a motivated insider. It is the authoritative description; where any other page
@@ -9,26 +9,29 @@ in this repository describes the ledger, it defers to this one.
 
 ## What ships
 
-Every record (`DeployRecord`, `BootstrapRecord`) carries an `audit_hash`: an **unkeyed
-SHA-256** over the canonical JSON of its remaining fields
-(`sigantry_core/release/record.py`, `sigantry_core/workspace/records.py`). Records are
+Every record (`DeployRecord`, `BootstrapRecord`, `ApprovalRecord`, `SecretChangeRecord`,
+`DestructiveOpRecord`) carries an `audit_hash`: an **unkeyed SHA-256** over the canonical
+JSON of its remaining fields (`sigantry_core/release/record.py`,
+`sigantry_core/workspace/records.py`, `sigantry_core/governance/records.py`). Records are
 appended to JSONL ledgers and each record's `prev_hash` names its predecessor's
-`audit_hash`, so each file is a hash chain. `sigantry release verify` reads the deploy
+`audit_hash`, so each file is a hash chain. By default `sigantry release verify` reads the deploy
 ledger, `deploys.jsonl`, and no other file: it walks the file in append order and
 checks both halves: each record's own hash against its contents, and each `prev_hash`
 against the record before it.
 
-No `sigantry` command checks the bootstrap ledger, `bootstraps.jsonl`. The same check
-runs from Python with `verify_audit_chain()`:
+`--ledger-file <name>` checks one other ledger instead, and `--all` checks all five
+(`deploys.jsonl`, `approvals.jsonl`, `secret_changes.jsonl`, `destructive_ops.jsonl`,
+`bootstraps.jsonl`) and exits 1 if any of them fails. The same check runs from Python
+with `verify_audit_chain()`, here on the bootstrap ledger:
 
 ```python
 import json
-from pathlib import Path
 
-from sigantry_core.governance.audit_io import verify_audit_chain
+from sigantry_core.governance.audit_io import resolve_audit_dir, verify_audit_chain
 from sigantry_core.workspace.records import BootstrapRecord
 
-ledger = Path.home() / ".sigantry" / "audit" / "bootstraps.jsonl"
+# [release] audit_dir if it is set, else ~/.sigantry/audit/: where the writer put it.
+ledger = resolve_audit_dir() / "bootstraps.jsonl"
 lines = ledger.read_text(encoding="utf-8").splitlines()
 records = [BootstrapRecord(**json.loads(line)) for line in lines if line.strip()]
 print(verify_audit_chain(records))  # (True, None, None) for a consistent chain
@@ -106,4 +109,7 @@ verifiable*, not *tamper-evident against an insider*.
 
 - [Tutorial 04 — Read the audit trail](../tutorials/04-audit-trail.md) — the hands-on
   walkthrough, including the re-seal demonstration.
-- `sigantry release verify --json` — `{valid, records, vacuous, first_bad_index, reason}`.
+- `sigantry release verify --json` — one ledger: `{valid, records, vacuous, ledger,
+  first_bad_index, reason}` (a ledger with unparseable lines carries `problems` instead
+  of `first_bad_index`). With `--all`: `{valid, records, vacuous, ledgers}`, where
+  `ledgers` maps each file name to its one-ledger verdict.
