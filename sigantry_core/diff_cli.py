@@ -187,12 +187,13 @@ def diff_cmd(
         "--no-hint",
         help="Suppress operator hint trailer (CI-friendly).",
     ),
-    include_ungoverned: bool = typer.Option(
+    governed_only: bool = typer.Option(
         False,
-        "--include-ungoverned",
+        "--governed-only",
         help=(
-            "Count workspace items of every type as added, not only the types "
-            "sync packages and the types the manifest lists (such as a Lakehouse)."
+            "Count as added only items of the types sync packages and the types "
+            "the manifest lists; other items (such as a Lakehouse) are noted, not "
+            "counted. Default: every type counts."
         ),
     ),
     tenant_id: str | None = typer.Option(None, "--tenant-id", help=TENANT_ID_HELP),
@@ -226,7 +227,7 @@ def diff_cmd(
             manifest,
             workspace_id,
             tenant_id=resolve_tenant_id(tenant_id),
-            include_ungoverned=include_ungoverned,
+            governed_only=governed_only,
         )
     except ManifestValidationError as exc:
         errors.print(Text.assemble(("Manifest validation failed:", "red"), " ", plain_text(exc)))
@@ -274,7 +275,7 @@ def diff_cmd(
         errors.print(
             Text(
                 f"note: {len(report.ungoverned)} workspace item(s) of types sync does not "
-                f"govern ({types}) not counted as drift; --include-ungoverned counts them.",
+                f"govern ({types}) not counted as drift (--governed-only).",
                 style="dim",
             )
         )

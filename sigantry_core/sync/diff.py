@@ -44,14 +44,14 @@ Implementation notes:
   type "Notebook" matches a manifest item with the same display_name
   and type even if neither side has an explicit GUID. This makes
   bootstrap diffs deterministic without a prior ``sync pull``.
-* Only governed item types count as ``added``: the types ``sync`` packages
-  (:data:`~sigantry_core.sync.packagers.PACKAGER_REGISTRY`, the same set
-  ``sync pull`` writes and ``sync apply`` manages) plus any type the
-  manifest itself lists. A workspace item of another type, such as the
-  ``Lakehouse`` almost every workspace holds, lands in
-  :attr:`DriftReport.ungoverned` instead, so a manifest that ``sync pull``
-  wrote does not drift against the workspace it was pulled from.
-  ``include_ungoverned=True`` counts those items as ``added``, as 1.2 did.
+* Every workspace item the manifest does not list counts as ``added`` by
+  default, whatever its type, so an unexpected Lakehouse or Warehouse is
+  drift. ``governed_only=True`` narrows ``added`` to the governed types: the
+  types ``sync`` packages (:data:`~sigantry_core.sync.packagers.PACKAGER_REGISTRY`,
+  the set an unscoped ``sync pull`` writes and ``sync apply`` manages) plus
+  any type the manifest lists. Items of other types then land in
+  :attr:`DriftReport.ungoverned`, so a manifest an unscoped ``sync pull``
+  wrote does not drift on the Lakehouse almost every workspace holds.
 """
 
 from __future__ import annotations
@@ -373,7 +373,7 @@ def diff_workspace_against_manifest(
     client: FabricRestClient | None = None,
     snapshot: WorkspaceSnapshot | None = None,
     tenant_id: str | None = None,
-    include_ungoverned: bool = False,
+    governed_only: bool = False,
 ) -> DriftReport:
     """Compute drift between a ``sync.yml`` manifest and a live workspace.
 
@@ -399,9 +399,10 @@ def diff_workspace_against_manifest(
         Tenant ID (GUID) the snapshot's own client is pinned to (see
         :func:`snapshot_workspace`). Ignored when ``client`` or
         ``snapshot`` is given.
-    include_ungoverned:
-        Count workspace items of every type as ``added``, not only the
-        governed types (see the module notes). ``False`` by default.
+    governed_only:
+        Count only workspace items of governed types as ``added`` and put
+        the rest in ``ungoverned`` (see the module notes). ``False`` by
+        default: every type counts.
 
     Returns
     -------
@@ -427,10 +428,14 @@ def diff_workspace_against_manifest(
     added, removed, modified, unchanged = _compute_buckets(manifest_index, workspace_index)
 
     ungoverned: list[dict[str, str]] = []
-    if not include_ungoverned:
-        governed = frozenset(PACKAGER_REGISTRY) | {item.type for item in manifest.items}
-        ungoverned = [entry for entry in added if entry["type"] not in governed]
-        added = [entry for entry in added if entry["type"] in governed]
+    if governed_only:
+        governed = frozenset(PACKAGER_REGISTRY) | {
+            item.type for item in manifest.normalised().items
+        }
+        kept: list[dict[str, str]] = []
+        for entry in added:
+            (kept if entry["type"] in governed else ungoverned).append(entry)
+        added = kept
 
     return DriftReport(
         schema_version=_SCHEMA_VERSION,

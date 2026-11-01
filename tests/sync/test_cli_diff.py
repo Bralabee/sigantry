@@ -268,10 +268,8 @@ def _ungoverned_only_report() -> DriftReport:
     )
 
 
-def test_diff_passes_include_ungoverned_and_notes_what_it_left_out(
-    tmp_path: Path, monkeypatch
-) -> None:
-    """The flag reaches the engine; ungoverned items are named, and are not drift."""
+def test_diff_passes_governed_only_and_notes_what_it_left_out(tmp_path: Path, monkeypatch) -> None:
+    """The flag reaches the engine (off by default); left-out items are named, not drift."""
     manifest = _write_dummy_manifest(tmp_path)
     seen: dict[str, object] = {}
 
@@ -283,13 +281,14 @@ def test_diff_passes_include_ungoverned_and_notes_what_it_left_out(
     base = ["diff", "--workspace-id", "ws-x", "--manifest", str(manifest), "--fail-on-drift"]
     result = runner.invoke(app, base)
     assert result.exit_code == 0, result.output
-    assert seen["include_ungoverned"] is False
+    assert seen["governed_only"] is False
+
+    result = runner.invoke(app, [*base, "--governed-only"])
+    assert result.exit_code == 0, result.output
+    assert seen["governed_only"] is True
     assert "1 workspace item(s)" in result.output
     assert "Lakehouse" in result.output
-    assert "--include-ungoverned" in result.output
-
-    result = runner.invoke(app, [*base, "--include-ungoverned"])
-    assert seen["include_ungoverned"] is True
+    assert "--governed-only" in result.output
 
 
 def test_diff_ungoverned_note_stays_off_json_stdout(tmp_path: Path, monkeypatch) -> None:

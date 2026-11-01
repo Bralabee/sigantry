@@ -904,9 +904,7 @@ The toolkit ships a ready-made schedule pair — Azure DevOps at
 parity gate); see the runbook at `docs/runbooks/drift-detection/` for
 operator setup. Caution: a manifest that governs only a slice of a
 shared workspace makes `--fail-on-drift` permanently red (every
-unlisted item of a type sync packages counts as `+ added`; other types,
-such as a Lakehouse, are noted and not counted unless you pass
-`--include-ungoverned`) — scope scheduled checks to
+ungoverned item counts as `+ added`) — scope scheduled checks to
 fully-governed workspaces, or alert on `removed`/`modified` from the
 JSON.
 

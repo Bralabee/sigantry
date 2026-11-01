@@ -32,7 +32,7 @@ workflow in your repo that passes `workspaceId` / `manifestPath` / `environment`
 
 Wire scheduled drift **only against a workspace your manifest fully governs** (e.g.
 the one from Tutorial 06, or a team workspace where everything is declared). On a
-shared workspace, every other team's item of a type sync packages counts as `+ added` and the alert is
+shared workspace, every other team's item counts as `+ added` and the alert is
 permanently red — an alarm that is always ringing is worse than no alarm. If you must
 watch a partially-governed workspace, consume `drift.json` and alert on `removed`/
 `modified` only.

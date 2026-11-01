@@ -627,10 +627,21 @@ def _pulled_workspace() -> WorkspaceSnapshot:
     )
 
 
-def test_diff_ungoverned_type_is_not_drift(tmp_path: Path) -> None:
-    """A Lakehouse is reported as ungoverned, not added, and is not drift."""
+def test_diff_counts_every_type_by_default(tmp_path: Path) -> None:
+    """By default an unlisted Lakehouse is added drift, so a drift check still alerts on it."""
     manifest_path = _write_manifest(tmp_path, _PULLED_MANIFEST)
     report = diff_workspace_against_manifest(manifest_path, "ws", snapshot=_pulled_workspace())
+    assert [e["type"] for e in report.added] == ["Lakehouse"]
+    assert report.ungoverned == []
+    assert report.has_drift()
+
+
+def test_diff_governed_only_leaves_ungoverned_types_out(tmp_path: Path) -> None:
+    """``governed_only=True``: the Lakehouse is ungoverned, not added, and not drift."""
+    manifest_path = _write_manifest(tmp_path, _PULLED_MANIFEST)
+    report = diff_workspace_against_manifest(
+        manifest_path, "ws", snapshot=_pulled_workspace(), governed_only=True
+    )
     assert report.added == []
     assert [e["type"] for e in report.ungoverned] == ["Lakehouse"]
     assert not report.has_drift()
@@ -638,19 +649,8 @@ def test_diff_ungoverned_type_is_not_drift(tmp_path: Path) -> None:
     assert set(report.to_json()) == {"added", "modified", "removed", "schema_version", "unchanged"}
 
 
-def test_diff_include_ungoverned_counts_every_type(tmp_path: Path) -> None:
-    """``include_ungoverned=True`` counts the Lakehouse as added, as 1.2 did."""
-    manifest_path = _write_manifest(tmp_path, _PULLED_MANIFEST)
-    report = diff_workspace_against_manifest(
-        manifest_path, "ws", snapshot=_pulled_workspace(), include_ungoverned=True
-    )
-    assert [e["type"] for e in report.added] == ["Lakehouse"]
-    assert report.ungoverned == []
-    assert report.has_drift()
-
-
 def test_diff_type_listed_in_manifest_is_governed(tmp_path: Path) -> None:
-    """A type the manifest lists is governed: an extra item of it is added."""
+    """Under ``governed_only``, a type the manifest lists is governed: an extra item is added."""
     manifest_path = _write_manifest(
         tmp_path,
         _PULLED_MANIFEST
@@ -670,6 +670,6 @@ def test_diff_type_listed_in_manifest_is_governed(tmp_path: Path) -> None:
             _item("lh-extra-guid", "Lake2", "Lakehouse"),
         ],
     )
-    report = diff_workspace_against_manifest(manifest_path, "ws", snapshot=snap)
+    report = diff_workspace_against_manifest(manifest_path, "ws", snapshot=snap, governed_only=True)
     assert [e["logical_id"] for e in report.added] == ["lh-extra-guid"]
     assert report.ungoverned == []

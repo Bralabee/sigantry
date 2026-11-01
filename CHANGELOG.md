@@ -9,19 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-- **`sigantry diff` counts only governed item types as `added`.** A manifest
-  written by `sync pull` holds only the types sync packages (Notebook,
-  DataPipeline, SemanticModel, Report, SparkJobDefinition), but `diff`
-  counted every item in the workspace, so the Lakehouse almost every
-  workspace holds made `--fail-on-drift` exit 1 against the workspace the
-  manifest was just pulled from. `added` now holds only items of those types
-  or of a type the manifest lists; the rest are named in a note (on stderr
-  under `--output json` or `html`) and are not drift.
-  `--include-ungoverned` (`include_ungoverned=True` on
-  `diff_workspace_against_manifest`) counts every type, as 1.2 did. The JSON
-  report's shape and `schema_version` are unchanged; `DriftReport` gains an
-  `ungoverned` attribute that `to_json()` does not emit.
+### Added
+- **`sigantry diff --governed-only`.** A manifest written by an unscoped
+  `sync pull` holds only the types sync packages (Notebook, DataPipeline,
+  SemanticModel, Report, SparkJobDefinition), so `diff` against the workspace
+  it came from reported that workspace's Lakehouse as `+ added`, and
+  `--fail-on-drift` exited 1. `--governed-only` (`governed_only=True` on
+  `diff_workspace_against_manifest`) counts as `added` only items of those
+  types or of a type the manifest lists; the rest are named in a note (on
+  stderr under `--output json` or `html`) and are not drift. It is off by
+  default, so a check without it still alerts on an unexpected Lakehouse or
+  Warehouse. The JSON report's shape and `schema_version` are unchanged;
+  `DriftReport` gains an `ungoverned` attribute that `to_json()` does not
+  emit.
 
 ### Documentation
 - **1.2.1 notes corrected.** The `[1.2.1]` entries below said code reading
