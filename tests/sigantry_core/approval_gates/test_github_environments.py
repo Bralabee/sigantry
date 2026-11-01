@@ -166,7 +166,9 @@ def test_wait_emits_approval_record(monkeypatch, tmp_path: Path) -> None:
     assert record["audit_hash"]
 
 
-def _decided_by(monkeypatch, tmp_path: Path, *, conclusion: str, mock) -> str | None:
+def _decided_by(
+    monkeypatch, tmp_path: Path, *, conclusion: str, mock, run_attempt: int | None = None
+) -> str | None:
     """Run one completed wait() and return the recorded ``decided_by``."""
     monkeypatch.setattr(
         "sigantry_core.approval_gates.github_environments.time.sleep", lambda s: None
@@ -175,7 +177,9 @@ def _decided_by(monkeypatch, tmp_path: Path, *, conclusion: str, mock) -> str | 
     original = audit_mod._DEFAULT_AUDIT_DIR
     audit_mod._DEFAULT_AUDIT_DIR = tmp_path
     try:
-        with respx.mock(base_url="https://api.github.com") as router:
+        with respx.mock(
+            base_url="https://api.github.com", assert_all_called=run_attempt in (None, 1)
+        ) as router:
             router.get("/repos/example-org/sigantry/actions/runs/12345").mock(
                 return_value=httpx.Response(
                     200,
@@ -184,6 +188,7 @@ def _decided_by(monkeypatch, tmp_path: Path, *, conclusion: str, mock) -> str | 
                         "status": "completed",
                         "conclusion": conclusion,
                         "triggering_actor": {"login": "alice"},
+                        **({} if run_attempt is None else {"run_attempt": run_attempt}),
                     },
                 )
             )
@@ -247,16 +252,48 @@ def test_decided_by_is_none_and_record_written_on_network_failure(
 def test_decided_by_after_approval_then_failure_is_the_approver(
     monkeypatch, tmp_path: Path
 ) -> None:
-    """Attempt 1 rejected by carol; attempt 2 approved by bob, then a deploy step failed.
+    """One attempt: bob approved, then a deploy step failed.
 
-    The run maps to ``rejected``, but bob decided the gate; carol's earlier
-    rejection must not be recorded as this outcome's decider.
+    The run maps to ``rejected``, but bob decided the gate.
     """
-    reviews = [_review("carol", state="rejected"), _review("bob")]
     got = _decided_by(
-        monkeypatch, tmp_path, conclusion="failure", mock=lambda r: _mock_approvals(r, reviews)
+        monkeypatch,
+        tmp_path,
+        conclusion="failure",
+        run_attempt=1,
+        mock=lambda r: _mock_approvals(r, [_review("bob")]),
     )
     assert got == "bob"
+
+
+def test_decided_by_on_a_rerun_is_none_not_another_attempts_reviewer(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Reviews carry no attempt number, so a re-run is never attributed.
+
+    Attempt 1: bob approved, a deploy step failed. Attempt 2: the review was
+    cancelled with no reviewer. Naming bob would credit him with a decision
+    he did not make; the same holds for carol's attempt-1 rejection when bob
+    approved attempt 2.
+    """
+    for conclusion, reviews in (
+        ("cancelled", [_review("bob")]),
+        ("failure", [_review("carol", state="rejected"), _review("bob")]),
+        ("success", [_review("carol", state="rejected"), _review("bob")]),
+    ):
+        routes: list = []
+        got = _decided_by(
+            monkeypatch,
+            tmp_path,
+            conclusion=conclusion,
+            run_attempt=2,
+            mock=lambda r, reviews=reviews, routes=routes: routes.append(
+                _mock_approvals(r, reviews)
+            ),
+        )
+        assert got is None, (conclusion, got)
+        # Not attributed by policy, not by a failed or unmocked read.
+        assert routes[0].call_count == 0
 
 
 def test_decided_by_matches_environment_case_insensitively(monkeypatch, tmp_path: Path) -> None:

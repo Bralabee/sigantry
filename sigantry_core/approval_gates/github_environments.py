@@ -39,7 +39,10 @@ outcome. ``decided_by`` is the reviewer GitHub recorded for this
 environment, read from ``GET /repos/{owner}/{repo}/actions/runs/{run_id}/approvals``
 (the last review of that environment, whichever way it went: a run that was
 approved and then failed maps to ``rejected`` but was decided by its
-approver). It is ``None`` when no such review exists or the call fails; a
+approver). Review items carry no attempt number, so a re-run
+(``run_attempt > 1``) cannot tie a review to the attempt that produced the
+outcome: ``decided_by`` is then ``None`` rather than a reviewer of another
+attempt. It is also ``None`` when no such review exists or the call fails; a
 failed call is logged. It is never the run's
 ``triggering_actor``: the person who started a run is not the person who
 approved it, and the shipped CD workflow refuses that substitution too.
@@ -192,7 +195,7 @@ class GithubEnvironmentsApprovalGate:
                 if last_status == "completed":
                     conclusion = payload.get("conclusion")
                     outcome: ApprovalOutcome = "approved" if conclusion == "success" else "rejected"
-                    decided_by = self._read_decider()
+                    decided_by = self._read_decider(payload.get("run_attempt"))
                     # last_observed_status records the conclusion (more
                     # informative than just "completed") so operators see
                     # the actual rejection cause.
@@ -237,8 +240,13 @@ class GithubEnvironmentsApprovalGate:
 
     # ---- internal -----------------------------------------------------
 
-    def _read_decider(self) -> str | None:
+    def _read_decider(self, run_attempt: object = None) -> str | None:
         """Return the login of the reviewer who decided this environment.
+
+        Only a single-attempt run is attributed. ``/approvals`` lists the
+        reviews of every attempt without saying which attempt each belongs
+        to, so on a re-run the last review may be another attempt's; the
+        decider is then ``None`` (logged), never a guess.
 
         Reads the run's approval history and keeps the last review of
         ``self._environment`` (environment names compare case-insensitively,
@@ -248,6 +256,13 @@ class GithubEnvironmentsApprovalGate:
         required reviewers) or the history cannot be read; an absent decider
         is recorded as absent, never as the run's triggering actor.
         """
+        if isinstance(run_attempt, int) and run_attempt > 1:
+            logger.info(
+                "approval_decider_unattributed run_id=%s run_attempt=%s",
+                self._run_id,
+                run_attempt,
+            )
+            return None
         wanted = self._environment.casefold()
         try:
             response = self._client.send(
