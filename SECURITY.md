@@ -6,8 +6,8 @@ Only the latest release of **Sigantry** receives active security updates and pat
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 1.1.x (latest patch release) | :white_check_mark: |
-| < 1.1   | :x:                |
+| 1.2.x (latest patch release) | :white_check_mark: |
+| < 1.2   | :x:                |
 
 ## Known accepted issues
 

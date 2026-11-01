@@ -13,13 +13,15 @@ Every record (`DeployRecord`, `BootstrapRecord`) carries an `audit_hash`: an **u
 SHA-256** over the canonical JSON of its remaining fields
 (`sigantry_core/release/record.py`, `sigantry_core/workspace/records.py`). Records are
 appended to JSONL ledgers and each record's `prev_hash` names its predecessor's
-`audit_hash`, so each file is a hash chain. `sigantry release verify` reads the deploy
+`audit_hash`, so each file is a hash chain. By default `sigantry release verify` reads the deploy
 ledger, `deploys.jsonl`, and no other file: it walks the file in append order and
 checks both halves: each record's own hash against its contents, and each `prev_hash`
 against the record before it.
 
-No `sigantry` command checks the bootstrap ledger, `bootstraps.jsonl`. The same check
-runs from Python with `verify_audit_chain()`:
+`--ledger-file <name>` checks one other ledger instead, and `--all` checks all five
+(`deploys.jsonl`, `approvals.jsonl`, `secret_changes.jsonl`, `destructive_ops.jsonl`,
+`bootstraps.jsonl`) and exits 1 if any of them fails. The same check runs from Python
+with `verify_audit_chain()`, here on the bootstrap ledger:
 
 ```python
 import json
