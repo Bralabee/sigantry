@@ -50,6 +50,13 @@ sibling plugin packages that ship alongside the base.
 
 ## Current release
 
+v1.2.1 (2026-11-01). The GitHub approval gate records the environment's
+reviewer in the approvals ledger instead of whoever started the run, and the
+Azure DevOps PR-bot jobs fail when they cannot stage the base tree instead of
+reporting every model as added. The docs now say every audit ledger honours
+`[release] audit_dir` and that `release verify --all` checks all five ledgers.
+`CHANGELOG.md` lists the changes; read its "Upgrading from 1.2.0" section.
+
 v1.2.0 (2026-10-27). Publishes `--bulk` in dependency waves, delivers drift
 alerts from the reusable drift-check templates, keeps one audit-ledger chain
 across CD runs on GitHub and Azure DevOps, refuses CD self-approval before
