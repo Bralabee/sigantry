@@ -281,18 +281,19 @@ Run `sigantry sync apply --manifest sync.yml --workspace-id <id> --dry-run` to p
 
 | Verb | Purpose | Source |
 |---|---|---|
-| `sigantry diff --manifest sync.yml --workspace-id <id>` | Drift report (`added` / `removed` / `modified` / `unchanged`). | `sigantry_core/diff_cli.py:136` |
+| `sigantry diff --manifest sync.yml --workspace-id <id>` | Drift report (`added` / `removed` / `modified` / `unchanged`). | `sigantry_core/diff_cli.py:148` |
 
 **Flag matrix:**
 
 - `--output human|json|html` -- human is default; `json` is the SemVer-pinned wire contract consumed by CI; `html` renders a standalone report to stdout, or to the file named by `--html-out`.
 - `--fail-on-drift` -- exit 1 if any drift detected.
 - `--no-hint` -- suppress the operator hint trailer (CI-friendly).
+- `--include-ungoverned` -- count a workspace item of any type as `added`. By default only the types sync packages (Notebook, DataPipeline, SemanticModel, Report, SparkJobDefinition) and the types the manifest lists count; an item of another type, such as a `Lakehouse`, is named in a note (stderr under `--output json` or `html`) and is not drift. Before 1.3.0 every type counted, so a workspace `sync pull` had fully captured still drifted on its Lakehouse.
 - `--environment` / `-e` -- recorded in output for log scoping (informational only; default `prod`).
 
 **Behaviour:** D-24 metadata-only -- compares `display_name`, `type`, `folder_path`. Content-level drift is OUT of scope (a candidate enhancement; see [section 9](#9-what-is-not-yet-available)).
 
-**Shared-workspace caveat:** on a workspace the manifest only partially governs, every ungoverned item counts as `+ added`, so `--fail-on-drift` is permanently red there. Scope it to fully-governed workspaces, or consume the JSON and alert on `removed`/`modified` only ([tutorial 03](tutorials/03-drift-detection.md)).
+**Shared-workspace caveat:** on a workspace the manifest only partially governs, every item of a governed type that the manifest does not list counts as `+ added`, so `--fail-on-drift` is permanently red there. Scope it to fully-governed workspaces, or consume the JSON and alert on `removed`/`modified` only ([tutorial 03](tutorials/03-drift-detection.md)).
 
 ```mermaid
 sequenceDiagram

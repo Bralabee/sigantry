@@ -590,3 +590,86 @@ def test_diff_workspace_synth_alias_collision_surfaces_duplicates(
         f"expected the manifest entry to match one workspace item via the "
         f"synth alias; got unchanged={report.unchanged}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Ungoverned item types: a pulled manifest does not drift against its workspace
+# ---------------------------------------------------------------------------
+
+_PULLED_MANIFEST = """
+schema_version: "1.0.0"
+items:
+  - local_path: ./Nb1.ipynb
+    type: Notebook
+    target_folder: /
+    display_name: Nb1
+    logical_id: nb-1-guid
+"""
+
+
+def _item(item_id: str, name: str, item_type: str) -> Item:
+    return Item(
+        id=item_id,
+        display_name=name,
+        type=item_type,
+        workspace_id="ws",
+        description=None,
+        sensitivity_label_id=None,
+        folder_id=None,
+    )
+
+
+def _pulled_workspace() -> WorkspaceSnapshot:
+    """The notebook the manifest governs, plus a Lakehouse sync never packages."""
+    return _build_snapshot(
+        "ws",
+        items=[_item("nb-1-guid", "Nb1", "Notebook"), _item("lh-guid", "Lake", "Lakehouse")],
+    )
+
+
+def test_diff_ungoverned_type_is_not_drift(tmp_path: Path) -> None:
+    """A Lakehouse is reported as ungoverned, not added, and is not drift."""
+    manifest_path = _write_manifest(tmp_path, _PULLED_MANIFEST)
+    report = diff_workspace_against_manifest(manifest_path, "ws", snapshot=_pulled_workspace())
+    assert report.added == []
+    assert [e["type"] for e in report.ungoverned] == ["Lakehouse"]
+    assert not report.has_drift()
+    # The wire contract is unchanged: `ungoverned` is not emitted.
+    assert set(report.to_json()) == {"added", "modified", "removed", "schema_version", "unchanged"}
+
+
+def test_diff_include_ungoverned_counts_every_type(tmp_path: Path) -> None:
+    """``include_ungoverned=True`` counts the Lakehouse as added, as 1.2 did."""
+    manifest_path = _write_manifest(tmp_path, _PULLED_MANIFEST)
+    report = diff_workspace_against_manifest(
+        manifest_path, "ws", snapshot=_pulled_workspace(), include_ungoverned=True
+    )
+    assert [e["type"] for e in report.added] == ["Lakehouse"]
+    assert report.ungoverned == []
+    assert report.has_drift()
+
+
+def test_diff_type_listed_in_manifest_is_governed(tmp_path: Path) -> None:
+    """A type the manifest lists is governed: an extra item of it is added."""
+    manifest_path = _write_manifest(
+        tmp_path,
+        _PULLED_MANIFEST
+        + """
+  - local_path: ./Lake.Lakehouse
+    type: Lakehouse
+    target_folder: /
+    display_name: Lake
+    logical_id: lh-guid
+""",
+    )
+    snap = _build_snapshot(
+        "ws",
+        items=[
+            _item("nb-1-guid", "Nb1", "Notebook"),
+            _item("lh-guid", "Lake", "Lakehouse"),
+            _item("lh-extra-guid", "Lake2", "Lakehouse"),
+        ],
+    )
+    report = diff_workspace_against_manifest(manifest_path, "ws", snapshot=snap)
+    assert [e["logical_id"] for e in report.added] == ["lh-extra-guid"]
+    assert report.ungoverned == []
