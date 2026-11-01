@@ -23,6 +23,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   report's shape and `schema_version` are unchanged; `DriftReport` gains an
   `ungoverned` attribute that `to_json()` does not emit.
 
+## [1.2.1] - 2026-11-01
+
+### Upgrading from 1.2.0
+- **The bullets below describe ways this release differs from 1.2.0**, one
+  subject each: the GitHub approval gate's `decided_by`; the Azure DevOps
+  PR-bot base-tree checkout. No module-level export, CLI subapp or flag of
+  1.2.0 was removed or renamed, and the telemetry schema is unchanged. Both
+  correct a result that was wrong, so they ship in a PATCH release
+  (`docs/release-process.md`).
+- **`GithubEnvironmentsApprovalGate` `decided_by`.** Names the environment's
+  last reviewer instead of the run's `triggering_actor`, and is `None` on a
+  re-run or when the approval history cannot be read. The field was already
+  `str | None` in 1.2.0, and 1.2.0 already returned `None` when the payload
+  carried no actor, so code that reads it needs no change. Records 1.2.0
+  wrote stay in the ledger as written: the chain is append-only.
+- **Azure DevOps PR-bot jobs.** If you copied `templates/pr-review/sigantry-pr-bot.yml`
+  or a starter or demo `pr-bot.yml` job, re-copy it: a failed base-tree checkout
+  now fails the job instead of reporting every model as added. The templates
+  are not part of the wheel, so upgrading the package alone does not change them.
+
 ### Fixed
 - **GitHub approval gate records the reviewer, not the run's starter.**
   `GithubEnvironmentsApprovalGate` wrote the workflow run's
